@@ -1,0 +1,169 @@
+{
+  name: message_history
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: dmp_message_result_stat
+      options:
+      {
+        format: json
+        paths: ${CATALOG_DIR}/raw/tb=dmp_message_result_stat
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        dmp_message_result_stat
+      ]
+      name: success_log
+      options:
+      {
+        sql:
+          '''
+            SELECT  date_format(created_at_date, 'yyyy-MM-dd') AS date_id,
+                    meta_user_id AS user_id,
+                    meta_business_id AS business_id,
+                    meta_ad_group_id AS ad_group_id,
+                    meta_campaign_id AS campaign_id,
+                    meta_type AS message_type
+            FROM    dmp_message_result_stat
+            WHERE   meta_user_id IS NOT NULL
+            AND     status = ${STATUS}
+            AND     created_at_date >= '${from_date_id}'
+            AND     created_at_date <= '${to_date_id}'
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        success_log
+      ]
+      name: message_type
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    user_id, business_id,
+                    collect_list(struct(value, date_id, cnt)) AS message_type
+            FROM (
+                SELECT  user_id, business_id, date_id, message_type AS value, count(1) AS cnt
+                FROM    success_log
+                GROUP BY user_id, business_id, date_id, message_type
+            )
+            GROUP BY user_id, business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        success_log
+      ]
+      name: campaign_id
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    user_id, business_id,
+                    collect_list(struct(value, date_id, cnt)) AS campaign_id
+            FROM (
+                SELECT  user_id, business_id, date_id, campaign_id AS value, count(1) AS cnt
+                FROM    success_log
+                GROUP BY user_id, business_id, date_id, campaign_id
+            )
+            GROUP BY user_id, business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        success_log
+      ]
+      name: ad_group_id
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    user_id, business_id,
+                    collect_list(struct(value, date_id, cnt)) AS ad_group_id
+            FROM (
+                SELECT  user_id, business_id, date_id, ad_group_id AS value, count(1) AS cnt
+                FROM    success_log
+                GROUP BY user_id, business_id, date_id, ad_group_id
+            )
+            GROUP BY user_id, business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        message_type
+        campaign_id
+        ad_group_id
+      ]
+      name: merge
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    IF(m.user_id IS NOT NULL, m.user_id, ad_group_id.user_id) AS user_id,
+                    IF(m.business_id IS NOT NULL, m.business_id, ad_group_id.business_id) AS business_id,
+                    m.message_type,
+                    m.campaign_id,
+                    ad_group_id.ad_group_id
+          FROM (
+                  SELECT
+                            IF(message_type.user_id IS NOT NULL, message_type.user_id, campaign_id.user_id) AS user_id,
+                            IF(message_type.business_id IS NOT NULL, message_type.business_id, campaign_id.business_id) AS business_id,
+                            message_type.message_type,
+                            campaign_id.campaign_id
+                  FROM      message_type
+                  FULL OUTER JOIN campaign_id
+                  ON    message_type.user_id = campaign_id.user_id
+                  AND   message_type.business_id = campaign_id.business_id
+          ) AS m
+          FULL OUTER JOIN ad_group_id
+          ON    m.user_id = ad_group_id.user_id
+          AND   m.business_id = ad_group_id.business_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        merge
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${BASE_DIR}/message_history
+      }
+      type: file
+    }
+  ]
+}

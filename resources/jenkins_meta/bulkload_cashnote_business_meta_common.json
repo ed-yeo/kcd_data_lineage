@@ -1,0 +1,56 @@
+{
+  "name": "bulkload_with_formatting_cashnote_business_meta_common",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "bulkload_file",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/service/message/reports/user_type=business_id/latest/report_name=common"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "bulkload_file"
+      ],
+      "name": "formatted",
+      "options": {
+        "sql": "  SELECT\n          unix_timestamp()* 1000 AS timestamp,\n          business_id AS `from`,\n          business_id AS to,\n          'cashnote_business_meta_common' AS label,\n          to_json(struct(*)) AS props\n  FROM    bulkload_file\n  WHERE   business_id IS NOT NULL\n  AND     business_id IS NOT NULL"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "formatted"
+      ],
+      "name": "s2graph_sink",
+      "options": {
+        "s2.spark.sql.streaming.sink.writeMethod": "bulk",
+        "s2.spark.sql.bulkload.sink.label.mapping": "cashnote_business_meta_common:cashnote_business_meta_common-2021-01-29_00-49-51",
+        "s2.spark.sql.bulkload.sink.build.degree": "false",
+        "s2.spark.sql.bulkload.sink.auto.edge.create": "false",
+        "s2.spark.sql.streaming.sink.skip.error": "true",
+        "s2.spark.sql.bulkload.sink.hbase.table.name": "cashnote_business_meta_common-2021-01-29_00-49-51",
+        "s2.spark.sql.bulkload.sink.hbase.table.num.regions": "5",
+        "s2.spark.sql.bulkload.sink.hbase.temp.dir": "/tmp/bulkload/cashnote_business_meta_common-2021-01-29_00-49-51",
+        "s2.spark.sql.bulkload.sink.hbase.incrementalLoad": "false",
+        "s2.spark.sql.bulkload.sink.hbase.compression": "LZ4",
+        "runLoadIncrementalHFiles": "false",
+        "hbase.zookeeper.quorum": "ec2-13-125-222-89.ap-northeast-2.compute.amazonaws.com:2181",
+        "cache.max.size": "10000",
+        "cache.ttl.seconds": "6000",
+        "db.default.driver": "com.mysql.jdbc.Driver",
+        "db.default.url": "jdbc:mysql://s2graph-meta-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com/graph_production",
+        "db.default.user": "graph",
+        "db.default.password": "90f5b058-0151-4dcc-b0cb-c8346ebba924"
+      },
+      "type": "s2graph"
+    }
+  ]
+}

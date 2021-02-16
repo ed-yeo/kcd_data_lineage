@@ -1,0 +1,164 @@
+{
+  name: dump_db_goose_incremental
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: card_payments
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/goose_production"
+          dbtable: "card_payments"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          lowerBound: "${card_payments_lowerBound}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+     }
+     {
+         inputs: []
+         name: access_logs
+         options:
+         {
+           url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/goose_production"
+           dbtable: "access_logs"
+           user: "${DB_USERNAME}"
+           password:  "${DB_PASSWORD}"
+           lowerBound: "${access_logs_lowerBound}"
+           fetchsize: "${fetchSize}"
+           numRowsPerPartition: "${numRowsPerPartition}"
+         }
+         type: jdbc
+      }
+      {
+         inputs: []
+         name: user_events
+         options:
+         {
+           url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/goose_production"
+           dbtable: "user_events"
+           user: "${DB_USERNAME}"
+           password:  "${DB_PASSWORD}"
+           lowerBound: "${user_events_lowerBound}"
+           fetchsize: "${fetchSize}"
+           numRowsPerPartition: "${numRowsPerPartition}"
+         }
+         type: jdbc
+      }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        card_payments
+      ]
+      name: card_payments_date
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                    *
+            FROM    card_payments
+            WHERE   id > ${card_payments_lowerBound}
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        access_logs
+      ]
+      name: access_logs_date
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                    *
+            FROM    access_logs
+            WHERE   id > ${access_logs_lowerBound}
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        user_events
+      ]
+      name: user_events_date
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                    *
+            FROM    user_events
+            WHERE   id > ${user_events_lowerBound}
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        card_payments_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: "${TARGET_PATH}/goose/incremental/card_payments"
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        access_logs_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: "${TARGET_PATH}/goose/incremental/access_logs"
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        user_events_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: "${TARGET_PATH}/goose/incremental/user_events"
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+  ]
+}

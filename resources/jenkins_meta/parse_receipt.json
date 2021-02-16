@@ -1,0 +1,53 @@
+{
+  "name": "parse_receipt",
+  "udfs": [
+    {
+      "name": "parse_receipt",
+      "class": "com.kcd.thrush.pos.spark.udfs.ParsePosReceiptUDF",
+      "params": {}
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "receipt_raw",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-staging/raw/catalog_v2/raw/tb=paygcrew_Receipt"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "receipt_raw"
+      ],
+      "name": "parsed",
+      "options": {
+        "sql": "SELECT    timestamp, business_id, client_id, name AS origin_name, custom_name, pos_x, pos_y, privacy_safe_address, receipt, created_at_date,\n          pos_receipt.*\n\nFROM (\n        SELECT    *,\n                  parse_receipt(receipt, name) AS pos_receipt\n        FROM (\n                SELECT    timestamp, business_id, client_id, name, custom_name, pos_x, pos_y, privacy_safe_address, receipt, created_at_date,\n                          row_number() OVER (PARTITION BY _event_id ORDER BY timestamp DESC) AS rank\n                FROM      receipt_raw\n                WHERE     created_at_date between '2020-12-07' AND '2020-12-07'\n                AND       masked != true\n        )\n        WHERE rank = 1\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "parsed"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-staging/raw/etl/pos/receipt",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1",
+        "checkpoint": "false"
+      },
+      "type": "custom"
+    }
+  ]
+}

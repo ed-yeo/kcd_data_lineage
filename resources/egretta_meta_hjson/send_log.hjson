@@ -1,0 +1,99 @@
+{
+  name: send_log_to_es
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs:
+      []
+      name: send_log
+      options:
+      {
+        format: json
+        paths: ${CATALOG_DIR}/raw/tb=dmp_message_result_stat
+        schema: '''
+                _event_id STRING, timestamp LONG, meta_campaign_id STRING, meta_ad_group_id STRING, meta_creative_id STRING, meta_user_id STRING, meta_business_id STRING, meta_user_type STRING, meta_type STRING,
+                message_message_type STRING, message_ad_flag STRING, status BOOLEAN, error_code LONG, message_template_code STRING,
+                meta_test_mode BOOLEAN, meta_test_mode_skip_user BOOLEAN, meta_test_mode_skip_frequency_cap BOOLEAN,  meta_test_mode_skip_ad_group BOOLEAN,  meta_test_mode_skip_send BOOLEAN
+                '''
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+        inputs:
+        [
+          send_log
+        ]
+        name: formatted_send
+        options:
+        {
+          sql:
+            '''
+                SELECT
+                        'send' AS type,
+                        timestamp,
+                        _event_id,
+                        meta_campaign_id AS campaign_id,
+                        meta_ad_group_id AS ad_group_id,
+                        meta_creative_id AS creative_id,
+                        meta_user_id AS user_id,
+                        meta_business_id AS business_id,
+                        meta_user_type AS user_type,
+                        meta_type AS ad_group_type,
+                        message_message_type AS message_type,
+                        message_ad_flag AS ad_flag,
+                        message_template_code AS template_code,
+                        status,
+                        error_code,
+                        CASE
+                            WHEN error_code = '400' THEN 'AdGroupNotFound'
+                            WHEN error_code = '401' THEN 'UserNotFound'
+                            WHEN error_code = '402' THEN 'AdGroupDisabled'
+                            WHEN error_code = '403' THEN 'BlockedByFrequencyCap'
+                            WHEN error_code = '500' THEN 'InvalidResponse'
+                            WHEN error_code = '501' THEN 'UnknownError'
+                            WHEN error_code = '200' THEN 'Success'
+                            ELSE 'EtcError'
+                        END AS status_msg
+                FROM (
+                        SELECT  *,
+                                row_number() OVER (PARTITION BY _event_id ORDER BY timestamp DESC) AS rank
+                        FROM    send_log
+                        WHERE   nvl(meta_test_mode, false) = false
+                        AND     nvl(meta_test_mode_skip_user, false) = false
+                        AND     nvl(meta_test_mode_skip_frequency_cap, false) = false
+                        AND     nvl(meta_test_mode_skip_ad_group, false) = false
+                        AND     nvl(meta_test_mode_skip_send, false) = false
+                )
+                WHERE rank = 1
+            '''
+        }
+        type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      "inputs": [
+        formatted_send
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "${targetIndexName}",
+        "es.nodes": "${ES_HOST}"
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+        "es.mapping.id": "_event_id"
+      },
+      "type": "es"
+    }
+  ]
+}

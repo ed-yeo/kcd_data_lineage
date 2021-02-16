@@ -1,0 +1,218 @@
+{
+  "name": "build_delivery_app_orders",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "delivery_apps",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/delivery_apps"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "baemin_orders_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/baemin_orders"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "baemin_sales_vats_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/baemin_sales_vats"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "yogiyo_orders_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/yogiyo_orders"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "baedaltong_orders_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/baedaltong_orders"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "baemin_orders_raw",
+      "inputs": [
+        "baemin_orders_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  accepted_at,\n        amount,\n        arrived_at,\n        created_at,\n        delivery_tip,\n        delivery_type,\n        discount,\n        items,\n        order_number,\n        ordered_at,\n        payment,\n        payment_method,\n        reserved,\n        service_type,\n        shop_category,\n        shop_id,\n        shop_name,\n        shop_number,\n        status,\n        takeout_discount,\n        updated_at\nFROM    baemin_orders_src\nWHERE   created_at_date >= '2000-01-01'\nAND     created_at_date < '2200-01-01'"
+      }
+    },
+    {
+      "name": "baemin_sales_vats_raw",
+      "inputs": [
+        "baemin_sales_vats_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  amount,\n        created_at,\n        order_number,\n        order_type,\n        ordered_at,\n        payment,\n        payment_method,\n        shop_id,\n        updated_at,\n        vat\nFROM    baemin_sales_vats_src\nWHERE   created_at_date >= '2000-01-01'\nAND     created_at_date < '2200-01-01'"
+      }
+    },
+    {
+      "name": "yogiyo_orders_raw",
+      "inputs": [
+        "yogiyo_orders_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  amount,\n        created_at,\n        delivery_addesss,\n        delivery_tip,\n        franchise_discount,\n        order_number,\n        ordered_at,\n        payment_method,\n        shop_discount,\n        shop_id,\n        shop_name,\n        shop_number,\n        status,\n        updated_at\nFROM    yogiyo_orders_src\nWHERE   created_at_date >= '2000-01-01'\nAND     created_at_date < '2200-01-01'"
+      }
+    },
+    {
+      "name": "baedaltong_orders_raw",
+      "inputs": [
+        "baedaltong_orders_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  amount,\n        created_at,\n        CAST(fee_rate AS double) AS fee_rate,\n        order_method,\n        order_number,\n        ordered_at,\n        payment,\n        payment_method,\n        shop_id,\n        shop_name,\n        shop_number,\n        status,\n        updated_at\nFROM    baedaltong_orders_src\nWHERE   created_at_date >= '2000-01-01'\nAND     created_at_date < '2200-01-01'"
+      }
+    },
+    {
+      "inputs": [
+        "delivery_apps",
+        "baemin_orders_raw",
+        "baemin_sales_vats_raw"
+      ],
+      "name": "baemin_orders",
+      "options": {
+        "sql": "SELECT  a.business_id,\n        a.accepted_at,\n        a.amount,\n        a.arrived_at,\n        a.created_at,\n        a.delivery_addesss,\n        a.delivery_tip,\n        a.delivery_type,\n        a.discount,\n        a.fee_rate,\n        a.franchise_discount,\n        a.items,\n        a.order_method,\n        a.order_number,\n        v.order_type,\n        a.ordered_at,\n        a.payment,\n        a.payment_method,\n        v.payment_method AS payment_type,\n        a.reserved,\n        a.service_type,\n        a.shop_category,\n        a.shop_discount,\n        a.shop_id,\n        a.shop_name,\n        a.shop_number,\n        a.status,\n        a.takeout_discount,\n        a.updated_at,\n        a.order_amount,\n        a.paid_online,\n        a.paid_offline,\n        a.vat_returnable,\n        a.closed,\n        a.canceled,\n        a.app_name\nFROM    (\n  SELECT  a.business_id,\n          o.*,\n          'baemin' AS app_name\n  FROM    (\n      SELECT    accepted_at,\n                amount,\n                arrived_at,\n                created_at,\n                CAST(null AS string) AS delivery_addesss,\n                delivery_tip,\n                delivery_type,\n                discount,\n                CAST(null AS double) AS fee_rate,\n                CAST(null AS bigint) AS franchise_discount,\n                items,\n                CAST(null AS string) AS order_method,\n                order_number,\n                ordered_at,\n                payment,\n                payment_method,\n                reserved,\n                service_type,\n                shop_category,\n                CAST(null AS bigint) AS shop_discount,\n                shop_id,\n                shop_name,\n                shop_number,\n                status,\n                takeout_discount,\n                updated_at,\n                amount + delivery_tip AS order_amount,\n                payment_method in ('BARO', 'RIDER') AS paid_online,\n                payment_method in ('MEET') AS paid_offline,\n                CAST(null AS boolean) AS vat_returnable,\n                status = 'CLOSED' AS closed,\n                status = 'CANCELLED' AS canceled\n      FROM      baemin_orders_raw\n  ) o, delivery_apps a\n  WHERE   o.shop_id = a.id\n) a LEFT OUTER JOIN baemin_sales_vats_raw v\nON  (\n  a.shop_id = v.shop_id  AND\n  CAST(a.ordered_at AS DATE) = CAST(v.ordered_at AS DATE) AND\n  a.order_number = v.order_number\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "delivery_apps",
+        "baedaltong_orders_raw"
+      ],
+      "name": "baedaltong_orders",
+      "options": {
+        "sql": "SELECT    a.business_id,\n          o.*,\n          'baedaltong' AS app_name\nFROM      (\n  SELECT    CAST(null AS timestamp) AS accepted_at,\n            amount,\n            CAST(null AS timestamp) AS arrived_at,\n            created_at,\n            CAST(null AS string) AS delivery_addesss,\n            CAST(null AS bigint) AS delivery_tip,\n            CAST(null AS string) AS delivery_type,\n            CAST(null AS bigint) AS discount,\n            CAST(null AS double) AS fee_rate,\n            CAST(null AS bigint) AS franchise_discount,\n            CAST(null AS string) AS items,\n            order_method,\n            order_number,\n            CAST(null AS string) AS order_type,\n            ordered_at,\n            payment,\n            payment_method,\n            payment_method AS payment_type,\n            CAST(null AS boolean) AS reserved,\n            CAST(null AS string) AS service_type,\n            CAST(null AS integer) AS shop_category,\n            CAST(null AS bigint) AS shop_discount,\n            shop_id,\n            shop_name,\n            shop_number,\n            status,\n            CAST(null AS bigint) AS takeout_discount,\n            updated_at,\n            amount AS order_amount,\n            payment_method not in (\n              '배달원에게 현금결제',\n              '배달원에게 현금결제(결제완료)',\n              '배달원에게 신용카드결제',\n              '배달원에게 신용카드결제(결제완료)'\n            ) AS paid_online,\n            payment_method in (\n              '배달원에게 현금결제',\n              '배달원에게 현금결제(결제완료)',\n              '배달원에게 신용카드결제',\n              '배달원에게 신용카드결제(결제완료)'\n            ) AS paid_offline,\n            payment_method not in (\n              '배달원에게 신용카드결제',\n              '배달원에게 신용카드결제(결제완료)'\n            ) AS vat_returnable,\n            status = '결제' AS closed,\n            status = '취소' AS canceled\n  FROM      baedaltong_orders_raw\n) o, delivery_apps a\nWHERE     o.shop_id = a.id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "delivery_apps",
+        "yogiyo_orders_raw"
+      ],
+      "name": "yogiyo_orders",
+      "options": {
+        "sql": "  SELECT  a.business_id,\n          o.*,\n          'yogiyo' AS app_name\n  FROM    (\n      SELECT    CAST(null AS timestamp) AS accepted_at,\n                amount,\n                CAST(null AS timestamp) AS arrived_at,\n                created_at,\n                delivery_addesss,\n                delivery_tip,\n                CAST(null AS string) AS delivery_type,\n                CAST(null AS bigint) AS discount,\n                CAST(null AS double) AS fee_rate,\n                CAST(null AS bigint) AS franchise_discount,\n                CAST(null AS string) AS items,\n                CAST(null AS string) AS order_method,\n                order_number,\n                payment_method AS order_type,\n                ordered_at,\n                CAST(null AS bigint) AS payment,\n                payment_method,\n                CAST(null AS string) AS payment_type,\n                CAST(null AS boolean) AS reserved,\n                CAST(null AS string) AS service_type,\n                CAST(null AS string) AS shop_category,\n                shop_discount,\n                shop_id,\n                shop_name,\n                shop_number,\n                status,\n                CAST(null AS bigint) AS takeout_discount,\n                updated_at,\n                amount + delivery_tip AS order_amount,\n                payment_method in ('온라인 결제') AS paid_online,\n                CAST(null AS boolean) AS vat_returnable,\n                payment_method in ('현금', '신용카드') AS paid_offline,\n                status = '성공' AS closed,\n                status = '취소' AS canceled\n      FROM      yogiyo_orders_raw\n  ) o, delivery_apps a\n  WHERE   o.shop_id = a.id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "baemin_orders"
+      ],
+      "name": "merged_baemin_orders_candidates",
+      "options": {
+        "sql": "  SELECT  struct(closed.*) AS closed,\n          struct(cancelled.*) AS cancelled\n  FROM    (\n      SELECT *\n      FROM   baemin_orders\n      WHERE  closed = true\n  ) closed FULL OUTER JOIN (\n      SELECT *\n      FROM   baemin_orders\n      WHERE  canceled = true\n  ) cancelled ON (\n    closed.shop_id = cancelled.shop_id AND\n    closed.order_number = cancelled.order_number\n  )"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merged_baemin_orders_candidates"
+      ],
+      "name": "merged_baemin_orders",
+      "options": {
+        "sql": "  SELECT  closed.*,\n          CAST(null AS timestamp) AS cancelled_at,\n          date_format(closed.created_at, 'yyyy-MM-dd') AS created_at_date\n  FROM    merged_baemin_orders_candidates\n  WHERE   closed.shop_id is not null AND cancelled.shop_id is null\n\n  UNION ALL\n\n  SELECT  closed.*,\n          cancelled.ordered_at AS cancelled_at,\n          date_format(closed.created_at, 'yyyy-MM-dd') AS created_at_date\n  FROM    merged_baemin_orders_candidates\n  WHERE   closed.shop_id is not null AND cancelled.shop_id is not null\n\n  UNION ALL\n\n  SELECT  cancelled.*,\n          cancelled.ordered_at AS cancelled_at,\n          date_format(cancelled.created_at, 'yyyy-MM-dd') AS created_at_date\n  FROM    merged_baemin_orders_candidates\n  WHERE   closed.shop_id is null AND cancelled.shop_id is not null"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "baedaltong_orders"
+      ],
+      "name": "merged_baedaltong_orders_candidates",
+      "options": {
+        "sql": "  SELECT  struct(closed.*) AS closed,\n          struct(cancelled.*) AS cancelled\n  FROM    (\n      SELECT *\n      FROM   baedaltong_orders\n      WHERE  closed = true\n  ) closed FULL OUTER JOIN (\n      SELECT *\n      FROM   baedaltong_orders\n      WHERE  canceled = true\n  ) cancelled ON (\n    closed.shop_id = cancelled.shop_id AND\n    closed.order_number = cancelled.order_number\n  )"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merged_baedaltong_orders_candidates"
+      ],
+      "name": "merged_baedaltong_orders",
+      "options": {
+        "sql": "  SELECT  closed.*,\n          CAST(null AS timestamp) AS cancelled_at,\n          date_format(closed.created_at, 'yyyy-MM-dd') AS created_at_date\n  FROM    merged_baedaltong_orders_candidates\n  WHERE   closed.shop_id is not null AND cancelled.shop_id is null\n\n  UNION ALL\n\n  SELECT  closed.*,\n          cancelled.ordered_at AS cancelled_at,\n          date_format(closed.created_at, 'yyyy-MM-dd') AS created_at_date\n  FROM    merged_baedaltong_orders_candidates\n  WHERE   closed.shop_id is not null AND cancelled.shop_id is not null\n\n  UNION ALL\n\n  SELECT  cancelled.*,\n          cancelled.ordered_at AS cancelled_at,\n          date_format(cancelled.created_at, 'yyyy-MM-dd') AS created_at_date\n  FROM    merged_baedaltong_orders_candidates\n  WHERE   closed.shop_id is null AND cancelled.shop_id is not null"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "yogiyo_orders"
+      ],
+      "name": "merged_yogiyo_orders_candidates",
+      "options": {
+        "sql": "  SELECT  struct(closed.*) AS closed,\n          struct(cancelled.*) AS cancelled\n  FROM    (\n      SELECT *\n      FROM   yogiyo_orders\n      WHERE  closed = true\n  ) closed FULL OUTER JOIN (\n      SELECT *\n      FROM   yogiyo_orders\n      WHERE  canceled = true\n  ) cancelled ON (\n    closed.shop_id = cancelled.shop_id AND\n    closed.order_number = cancelled.order_number\n  )"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merged_yogiyo_orders_candidates"
+      ],
+      "name": "merged_yogiyo_orders",
+      "options": {
+        "sql": "  SELECT  closed.*,\n          CAST(null AS timestamp) AS cancelled_at,\n          date_format(closed.created_at, 'yyyy-MM-dd') AS created_at_date\n  FROM    merged_yogiyo_orders_candidates\n  WHERE   closed.shop_id is not null AND cancelled.shop_id is null\n\n  UNION ALL\n\n  SELECT  closed.*,\n          cancelled.ordered_at AS cancelled_at,\n          date_format(closed.created_at, 'yyyy-MM-dd') AS created_at_date\n  FROM    merged_yogiyo_orders_candidates\n  WHERE   closed.shop_id is not null AND cancelled.shop_id is not null\n\n  UNION ALL\n\n  SELECT  cancelled.*,\n          cancelled.ordered_at AS cancelled_at,\n          date_format(cancelled.created_at, 'yyyy-MM-dd') AS created_at_date\n  FROM    merged_yogiyo_orders_candidates\n  WHERE   closed.shop_id is null AND cancelled.shop_id is not null"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merged_baemin_orders",
+        "merged_baedaltong_orders",
+        "merged_yogiyo_orders"
+      ],
+      "name": "delivery_app_orders",
+      "options": {
+        "sql": "  SELECT  * FROM  merged_baemin_orders\n  UNION ALL\n  SELECT  * FROM  merged_baedaltong_orders\n  UNION ALL\n  SELECT  * FROM  merged_yogiyo_orders"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "delivery_app_orders"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/raw/etl/snowdon/delivery_app/delivery_app_orders",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

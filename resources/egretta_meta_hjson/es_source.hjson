@@ -1,0 +1,212 @@
+{
+  name: es_source
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: business_cube
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.ESSource
+        es.nodes: https://search-thrush-es-dev-5orl3xki356vpypuseokns5qc4.ap-northeast-2.es.amazonaws.com
+        es.port: "443",
+        es.resource: business_cube
+        es.nodes.wan.only: "true",
+        es.read.field.as.array.include:"credentials.credential_types,memberships.phonenums,memberships.notifications,hometax_card_purchases.vendor_business_names,hometax_card_purchases.vendor_business_categories,hometax_card_purchases.vendor_business_classification_codes,hometax_card_purchases.vendor_registration_numbers,hometax_card_purchases.vendor_taxation_types,hometax_purchases_cash_receipts.vendor_registration_numbers,hometax_purchases_cash_receipts.vendor_business_names,hometax_purchases_cash_receipts.vendor_business_codes,hometax_purchases_invoices.notes,hometax_purchases_invoices.vendor_registration_numbers,hometax_purchases_invoices.vendor_business_names,hometax_purchases_invoices.vendor_business_classifications,hometax_purchases_invoices.vendor_business_categories,hometax_purchases_invoices.item_names,hometax_purchases_invoices.item_notes,hometax_sales_invoices.customer_registration_numbers,hometax_sales_invoices.customer_business_names,hometax_sales_invoices.customer_business_classifications,hometax_sales_invoices.customer_business_categories,hometax_sales_invoices.item_names,hometax_sales_invoices.item_notes,naver_menu.menus,naver_menu.prices,kakao_menu.menus,kakao_menu.prices,market.targets.business_id,market.targets.co_count,market.targets.src_co_count,market.targets.tgt_co_count,market.targets.total_count,market.targets.confidence,market.targets.lift,market.targets.place_name,market.targets.place_classification,market.targets.place_latitude,market.targets.place_longitude"
+        queries: '''
+        [
+          {
+            "query_id": "1",
+            "query": {
+              "track_total_hits": true,
+              "query": {
+                "bool": {
+                  "must": [
+                    {
+                      "query_string": {
+                        "query": "is_active:*"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "query_id": "2",
+            "query": {
+              "track_total_hits": true,
+              "query": {
+                "bool": {
+                  "must": [
+                    {
+                      "query_string": {
+                        "query": "credentials.credential_types:\"Credentials::Baemin\""
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "query_id": "3",
+            "query": {
+              "track_total_hits": true,
+              "query": {
+                "bool": {
+                  "must": [
+                    {
+                      "query_string": {
+                        "query": "credentials.credential_types:\"Credentials::Baemin\""
+                      }
+                    },
+                    {
+                      "geo_distance": {
+                        "distance": "10.5km",
+                        "location": {
+                          "lat": 37.513903,
+                          "lon": 127.1093977
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "query_id": "4",
+            "query": {
+              "track_total_hits": true,
+              "query": {
+                "bool": {
+                  "must": [
+                    {
+                      "query_string": {
+                        "query": "credentials.credential_types:\"Credentials::Baemin\""
+                      }
+                    },
+                    {
+                      "has_child": {
+                        "type": "business_stat",
+                        "query": {
+                          "bool": {
+                            "must": [
+                              {
+                                "range": {
+                                  "timestamp": {
+                                    "format": "strict_date_optional_time",
+                                    "from": "2019-01-25T00:00:00.000Z",
+                                    "to": "2020-02-05T05:25:24.994Z"
+                                  }
+                                }
+                              },
+                              {
+                                "query_string": {
+                                  "query": "snowdon_msg.report_types:결제* AND NOT snowdon_msg.report_types:여신협*"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "query_id": "5",
+            "query": {
+              "track_total_hits": true,
+              "query": {
+                "bool": {
+                  "must": [
+                    {
+                      "query_string": {
+                        "query": "is_active:*"
+                      }
+                    },
+                    {
+                      "geo_polygon": {
+                        "ignore_unmapped": true,
+                        "location": {
+                          "points": [
+                            {
+                              "lat": 37.5217078750146,
+                              "lon": 127.09671020507814
+                            },
+                            {
+                              "lat": 37.520618678869305,
+                              "lon": 127.13104248046876
+                            },
+                            {
+                              "lat": 37.50318937824072,
+                              "lon": 127.13516235351564
+                            },
+                            {
+                              "lat": 37.497741887143576,
+                              "lon": 127.12005615234376
+                            },
+                            {
+                              "lat": 37.508636471899976,
+                              "lon": 127.09396362304689
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+        '''
+      }
+      type: custom
+    }
+  ]
+  process:
+  [
+      {
+          inputs:
+          [
+            business_cube
+          ]
+          name: select
+          options:
+          {
+            sql:
+              '''
+                SELECT  query_id, business_id
+                FROM    business_cube
+              '''
+          }
+          type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        select
+      ]
+      name: file_sink
+      options:
+      {
+        format: json
+        mode: overwrite
+        path: s3://thrush/test/es_source/business_cube
+        evenPartitions: "true"
+        partitions: query_id
+      }
+      type: file
+    }
+  ]
+}

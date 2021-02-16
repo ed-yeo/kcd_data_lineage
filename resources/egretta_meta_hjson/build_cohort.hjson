@@ -1,0 +1,92 @@
+{
+  name: build_cohort
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: visit_pairs
+      options:
+      {
+        format: parquet
+        paths: ${VISIT_PAIR_PATH}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: revisit_users
+      options:
+      {
+        format: parquet
+        paths: ${REVISIT_USER_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        visit_pairs
+        revisit_users
+      ]
+      name: visit_pairs_with_user_type
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  visit_pairs.*,
+                  IF(revisit_users.business_id IS NULL, 'new', 'revisit') AS user_type
+          FROM visit_pairs
+          LEFT OUTER JOIN revisit_users
+          ON visit_pairs.business_id = revisit_users.business_id
+          AND visit_pairs.encrypted_card_number =  revisit_users.encrypted_card_number
+          AND visit_pairs.start_date = revisit_users.date
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        visit_pairs_with_user_type
+      ]
+      name: cohort
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id,
+                    user_type,
+                    start_date,
+                    end_date,
+                    count(distinct encrypted_card_number) as user_count
+          FROM      visit_pairs_with_user_type
+          GROUP BY  business_id, user_type, start_date, end_date
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        cohort
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/cohort
+      }
+      type: file
+    }
+  ]
+}

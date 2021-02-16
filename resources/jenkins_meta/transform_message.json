@@ -1,0 +1,186 @@
+{
+  "name": "transform_message",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "ad_group",
+      "options": {
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "ad_group",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "creative",
+      "options": {
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "creative",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "user_message_history",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/user_history/date_id=2021-01-29"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "paynote_users",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/snapshot/latest/users"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "cashnote_users",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/users"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "cashnote_memberships",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/memberships"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "cashnote_businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "ad_group",
+        "creative"
+      ],
+      "name": "target_group",
+      "options": {
+        "sql": "  SELECT\n          named_struct(\n              'campaign_id',      a.campaign_id,\n              'ad_group_id',      c.ad_group_id,\n              'creative_id',      c.id,\n              'primary_key',      IF(a.user_type = 'cashnote', 'target_id', 'user_id'),\n              'user_type',        a.user_type,\n              'type',             a.type,\n              'target_type',      a.target_type,\n              'path',             a.path,\n              'frequency_cap',    a.frequency_cap,\n              'message_type',     c.message_type,\n              'template_code',    c.template_code,\n              'exclude_sent_user', a.exclude_sent_user,\n              'test_mode',        a.test_mode,\n              'limit',            a.limit,\n              'test_sequence',    a.test_sequence,\n              'template',         named_struct(\n                                      'title',        c.title,\n                                      'message',      c.template,\n                                      'attachment',   c.attachment\n                                  ),\n              'report_name',      a.report_name\n          ) AS meta,\n\n           named_struct(\n              'title',        CAST(null as STRING),\n              'message',      CAST(null as STRING),\n              'attachment',   named_struct('button', array(\n                                                          named_struct(\n                                                              'name',         CAST(null as STRING),\n                                                              'type',         CAST(null as STRING),\n                                                              'url_mobile',   CAST(null as STRING),\n                                                              'target',       CAST(null as STRING)\n                                                          )\n                                                       ),\n                                            'image', named_struct(\n                                                          'img_url', CAST(null AS STRING),\n                                                          'img_link', CAST(null AS STRING)\n                                                      )\n                                           )\n          ) AS result,\n          named_struct(\n              'valid', true,\n              'error', CAST(null as STRING)\n          ) AS status\n  FROM (\n          SELECT  *\n          FROM    ad_group\n          WHERE   status = 'RUNNING'\n  ) AS a\n  JOIN    (\n          SELECT *\n          FROM    creative\n          WHERE   creative.type = 'MESSAGE_TEMPLATE'\n          AND     enabled = true\n  ) AS c\n  ON      a.id = c.ad_group_id"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "target_group",
+        "user_message_history"
+      ],
+      "name": "valid_filter",
+      "options": {
+        "sql": "SELECT    user_message_history.*\nFROM      (\n              SELECT * FROM target_group WHERE meta.exclude_sent_user = true\n) AS t\nJOIN      user_message_history\nON        t.meta.user_type = user_message_history.user_type\nAND       t.meta.ad_group_id = user_message_history.ad_group_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "target_group"
+      ],
+      "name": "target_messages",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.TargetExtractProcess",
+        "reportDir": "s3://kcd-de-production/service/message/reports"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "target_messages",
+        "valid_filter"
+      ],
+      "name": "filtered_message",
+      "options": {
+        "sql": "  SELECT  t.target_id,\n          t.user_id,\n          t.business_id,\n          t.meta,\n          t.result,\n          CASE\n              WHEN    valid_filter.ad_group_id IS NOT NULL THEN named_struct('valid', false, 'error', 'EXCLUDED_SENT_USER')\n              ELSE    t.status\n          END AS status\n  FROM    (\n              SELECT  target_id,\n                      IF(targetGroup.meta.user_type = 'cashnote', split(target_id, \"_\")[0], target_id) AS user_id,\n                      IF(targetGroup.meta.user_type = 'cashnote', split(target_id, \"_\")[1], null) AS business_id,\n                      targetGroup.meta,\n                      targetGroup.status,\n                      targetGroup.result\n              FROM    target_messages\n  ) AS t\n  LEFT OUTER JOIN     valid_filter\n  ON      t.meta.user_type = valid_filter.user_type\n  AND     t.meta.ad_group_id = valid_filter.ad_group_id\n  AND     t.user_id = valid_filter.user_id\n  AND     nvl(t.business_id, 'empty') = nvl(valid_filter.business_id, 'empty')"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "paynote_users",
+        "cashnote_users",
+        "cashnote_memberships",
+        "cashnote_businesses"
+      ],
+      "name": "id_mapping",
+      "options": {
+        "sql": "SELECT\n        b.id AS business_id,\n        b.public_id AS public_business_id,\n        u.id AS user_id,\n        u.uuid AS public_user_id,\n        'cashnote' AS user_type\nFROM cashnote_users AS u, cashnote_memberships AS m, cashnote_businesses AS b\nWHERE u.id = m.user_id\nAND m.business_id = b.id\n\nUNION ALL\n\nSELECT  null AS business_id,\n        null AS public_business_id,\n        id AS user_id,\n        uid AS public_user_id,\n        'paynote' AS user_type\nFROM paynote_users"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "id_mapping",
+        "filtered_message"
+      ],
+      "name": "filtered_message_with_public_id",
+      "options": {
+        "sql": "  SELECT  filtered_message.*,\n          id_mapping.public_business_id,\n          id_mapping.public_user_id\n  FROM    filtered_message\n  LEFT OUTER JOIN id_mapping\n  ON      filtered_message.user_id = id_mapping.user_id\n  AND     filtered_message.meta.user_type = id_mapping.user_type\n  AND     nvl(filtered_message.business_id, 'empty') = nvl(id_mapping.business_id, 'empty')"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "filtered_message_with_public_id"
+      ],
+      "name": "formatted",
+      "options": {
+        "sql": "SELECT\n          to_timestamp('2021-01-29 08_25', 'yyyy-MM-dd HH_mm') AS sent_at,\n          CONCAT(\n              replace('2021-01-29', '-', ''), '-', '08_25',\n              '_',\n              meta.campaign_id, meta.ad_group_id, meta.creative_id,\n              '_',\n              target_id\n          ) AS id,\n          meta.ad_group_id AS ad_group_id,\n          named_struct(\n              'campaign_id',  CAST(meta.campaign_id AS STRING),\n              'ad_group_id',  CAST(meta.ad_group_id AS STRING),\n              'creative_id',  CAST(meta.creative_id AS STRING),\n              'user_id',      CAST(user_id AS STRING),\n              'business_id',  CAST(business_id AS STRING),\n              'public_user_id',       CAST(public_user_id AS STRING),\n              'public_business_id',   CAST(public_business_id AS STRING),\n              'type',         meta.`type`,\n              'user_type',    meta.user_type,\n              'test_mode',    meta.test_mode\n          ) AS meta,\n          status,\n          named_struct(\n              'message_type',     meta.message_type,\n              'template_code',    meta.template_code,\n              'title',            result.title,\n              'message',          result.message,\n              'ad_flag',          IF(array_contains(array('EXTERNAL_AD', 'INTERNAL_AD'), meta.`type`), 'Y', 'N'),\n              'attachment',       result.attachment\n          ) AS message\nFROM      filtered_message_with_public_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "target_group"
+      ],
+      "name": "target_group_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/message/target_group/date_id=2021-01-29/ts=08_25",
+        "numPartitions": "1"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "formatted"
+      ],
+      "name": "target_messages_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/message/target_messages/date_id=2021-01-29/ts=08_25",
+        "partitions": "ad_group_id"
+      },
+      "type": "file"
+    }
+  ]
+}

@@ -1,0 +1,225 @@
+{
+  // PARAMS: TEMP_PATH, TARGET_PATH
+  name: paynote_custom_set
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: custom_set
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DATABASE}"
+          dbtable: "custom_set"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+      inputs: []
+      name: users
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/snapshot/latest/users
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        custom_set
+      ]
+      name: valid_custom_set
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      custom_set
+          WHERE     enabled = true
+          AND       user_type = 'paynote'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        valid_custom_set
+      ]
+      name: custom_set_values
+      options:
+      {
+        class: com.kcd.thrush.message.spark.CustomSetReadProcess
+      }
+      type: custom
+      cache: true
+    }
+    {
+      inputs:
+      [
+        custom_set_values
+        users
+      ]
+      name: dim_phone_number
+      options:
+      {
+        sql:
+          '''
+            SELECT      custom_set_id, status,
+                        users.id AS user_id
+            FROM (
+              SELECT    custom_set_id, custom_set_value, status
+              FROM      custom_set_values
+              WHERE     dimension = 'phone_number'
+              AND       status in ('RUNNING', 'COMPLETE')
+            ) AS custom_set
+            JOIN users
+            ON custom_set.custom_set_value = users.phone_number
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        dim_phone_number
+      ]
+      name: grouped
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    status, user_id,
+                    collect_set(custom_set_id) AS custom_set_ids
+            FROM (
+                    SELECT  custom_set_id, status, user_id
+                    FROM    dim_phone_number
+            )
+            GROUP BY status, user_id
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        grouped
+      ]
+      name: custom_set_all
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    user_id,
+                    flatten(collect_list(custom_set_ids)) AS custom_set_ids
+            FROM    grouped
+            GROUP BY user_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        grouped
+      ]
+      name: custom_set_new
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                set_new.user_id,
+                array_except(
+                    array_union(
+                        set_new.custom_set_ids,
+                        nvl(set_old.custom_set_ids, array(null))
+                    ),
+                    array(null)
+                 ) AS custom_set_ids
+          FROM (
+                  SELECT    *
+                  FROM      grouped
+                  WHERE     status = 'RUNNING'
+          ) AS set_new
+          LEFT OUTER JOIN (
+                  SELECT    *
+                  FROM      grouped
+                  WHERE     status = 'COMPLETE'
+          ) AS set_old
+          ON    set_new.user_id = set_old.user_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        custom_set_new
+      ]
+      name: add_join_field
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    to_timestamp('${TARGET_DATE} ${TARGET_TS}', 'yyyy-MM-dd HH_mm') AS timestamp,
+                    named_struct(
+                      'name', 'meta'
+                    ) AS join_field,
+                    *
+          FROM      custom_set_new
+          '''
+      }
+      type: sql
+      cache: true
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        custom_set_all
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}
+      }
+      type: file
+    }
+    {
+      "inputs": [
+        add_join_field
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "${targetIndexName}",
+        "es.nodes": "${ES_HOST}",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+        "es.mapping.id": "user_id",
+        "es.mapping.join": "join_field",
+        "es.write.operation": "${ES_WRITE_METHOD}"
+      },
+      "type": "es"
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  name: card_sales_approvals
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: approvals
+      options:
+      {
+        format: parquet
+        paths: ${CARD_SALES_DIR}/approvals
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        approvals
+      ]
+      name: approvals_stat
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    timestamp,
+                    business_id,
+                    date_format(timestamp, 'yyyy-MM-dd') AS date_id,
+                    SUM(amount_sum) AS amount_sum,
+                    SUM(tx_count) AS tx_count,
+                    SUM(cancel_count) AS cancel_count,
+                    SUM(installment_count) AS installment_count,
+                    map_from_entries(collect_list(struct(issuer_name, amount_sum))) AS issuer_amount_sum,
+                    map_from_entries(collect_list(struct(issuer_name, tx_count))) AS issuer_tx_count
+            FROM (
+                    SELECT
+                            timestamp,
+                            business_id,
+                            issuer_name,
+                            SUM(cancel_count) AS cancel_count,
+                            SUM(installment_count) AS installment_count,
+                            SUM(amount) AS amount_sum,
+                            COUNT(1) AS tx_count
+                    FROM (
+                            SELECT
+                                    business_id,
+                                    date_trunc('${TIME_UNIT}', transacted_at) AS timestamp,
+                                    amount,
+                                    issuer_name,
+                                    IF(status = 1, 1, 0) cancel_count,
+                                    IF(installment > 0, 1, 0) installment_count
+                            FROM    approvals
+                            WHERE   business_id IS NOT NULL
+                            AND     transacted_at between '${from_date_id}' AND '${to_date_id}'
+                    )
+                    GROUP BY business_id, issuer_name, timestamp
+           ) GROUP BY business_id, timestamp
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        approvals_stat
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${FACT_DIR}/time_unit=${TIME_UNIT}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=sales_approvals
+        evenPartitions: "true"
+        partitions: date_id
+      }
+      type: file
+    }
+  ]
+}

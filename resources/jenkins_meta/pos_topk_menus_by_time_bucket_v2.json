@@ -1,0 +1,92 @@
+{
+  "name": "pos_menus_tok_k",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "pos_menus_raw_v2",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/pos/pos_menus_v2",
+        "partition_keys": "created_at_date"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "pos_menus_raw_v2"
+      ],
+      "name": "pos_menus_v2",
+      "options": {
+        "sql": "    SELECT\n        *\n    FROM\n        pos_menus_raw_v2\n    WHERE\n        created_at_date >= '2020-09-01'\n    AND uid IS NOT NULL\n    AND name IS NOT NULL\n    AND name != ''"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_menus_v2"
+      ],
+      "name": "pos_menus_with_time_bucket_v2",
+      "options": {
+        "sql": "   SELECT\n       *,\n       CASE\n           WHEN order_hour = -1 then '전체'\n           WHEN order_hour between 0 and 5 then '새벽'\n           WHEN order_hour between 6 and 10 then '아침'\n           WHEN order_hour between 11 and 13 then '점심'\n           WHEN order_hour between 14 and 16 then '오후'\n           ELSE '저녁'\n       END AS time_bucket\n   FROM\n       (SELECT\n           uid,\n           uid_type,\n           name,\n           price,\n           order_time,\n           order_month,\n           count,\n           CAST(date_format(to_timestamp(order_time, \"yyyy-MM-dd HH:mm:ss\"), \"HH\") as integer) as order_hour\n       FROM\n           pos_menus_v2\n\n       UNION ALL\n\n       SELECT\n           uid,\n           uid_type,\n           name,\n           price,\n           order_time,\n           order_month,\n           count,\n           -1 as order_hour\n       FROM\n           pos_menus_v2\n       )"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_menus_with_time_bucket_v2"
+      ],
+      "name": "pos_menus_top_k_v2",
+      "options": {
+        "sql": "   SELECT\n       *,\n       row_number() OVER (PARTITION BY uid, uid_type, order_month, time_bucket ORDER BY total_amount DESC) AS rank\n   FROM\n      (\n       SELECT\n           uid,\n           uid_type,\n           order_month,\n           time_bucket,\n           name,\n           sum(price * count) as total_amount,\n           sum(`count`) as total_count\n       FROM\n           pos_menus_with_time_bucket_v2\n       GROUP BY\n           uid,\n           uid_type,\n           order_month,\n           time_bucket,\n           name\n      )"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_menus_top_k_v2"
+      ],
+      "name": "pos_menus_top_k_jdbc_v2",
+      "options": {
+        "sql": "   SELECT\n       uid,\n       uid_type,\n       order_month,\n       time_bucket,\n       sum(total_amount) as total_amount,\n       sum(total_count) as total_count,\n       to_json(collect_list(struct(rank, name, total_amount, total_count))) as rows\n   FROM\n       pos_menus_top_k_v2\n   GROUP BY\n       uid,\n       uid_type,\n       order_month,\n       time_bucket"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "pos_menus_top_k_v2"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/etl/pos/pos_topk_menus_v2",
+        "format": "parquet",
+        "partitions": "order_month",
+        "numPartitions": "10"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "pos_menus_top_k_jdbc_v2"
+      ],
+      "name": "jdbc_sink",
+      "options": {
+        "driver": "org.postgresql.Driver",
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "operation": "upsert",
+        "dbtable": "pos_topk_menus_v2",
+        "conflictColumns": "uid,uid_type,order_month,time_bucket",
+        "updateColumns": "rows,total_amount,total_count",
+        "typeCastColumns": "rows:jsonb,uid_type:bills_id_type"
+      },
+      "type": "jdbc"
+    }
+  ]
+}

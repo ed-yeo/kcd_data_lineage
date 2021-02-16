@@ -1,0 +1,67 @@
+{
+  "name": "cashnote_user_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "business_stats",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_cubes/fact/time_unit=MONTH/name=business_stats"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "users",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=cashnote_user_id/subject=users",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "user_id"
+      },
+      "type": "custom"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "business_stats",
+        "users"
+      ],
+      "name": "transform",
+      "options": {
+        "sql": "  SELECT    u.user_id,\n            business_stats.*\n  FROM      business_stats\n  JOIN  (\n      SELECT  *, explode(memberships.memberships) AS membership\n      FROM  users\n  ) u\n  ON    business_stats.business_id = u.membership.business_id\n"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "transform"
+      ],
+      "name": "filtered",
+      "options": {
+        "sql": "SELECT\n          date_id,\n          CAST(date_id AS timestamp) AS timestamp,\n          CONCAT(user_id, '_', business_id) AS target_id,\n          user_id,\n          business_id,\n          card_sales_transactions.amount_sum AS card_sales_amount_sum,\n          card_sales_transactions.tx_count AS card_sales_tx_count\nFROM      transform"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "filtered"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_cubes/fact/time_unit=MONTH/name=cashnote_user_stats",
+        "evenPartitions": "true",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    }
+  ]
+}

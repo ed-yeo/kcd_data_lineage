@@ -1,0 +1,82 @@
+{
+  "name": "pos_sales_amount_daily",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "pos_sales_source_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/pos/pos_bills",
+        "partition_keys": "created_at_date"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "pos_sales_source_raw"
+      ],
+      "name": "pos_sales_source",
+      "options": {
+        "sql": "    SELECT\n        *,\n        date_format(paid_at, \"yyyy-MM-dd\") AS date_id\n    FROM\n        pos_sales_source_raw\n    WHERE\n        created_at_date >= '2020-10-19'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_sales_source"
+      ],
+      "name": "pos_sales_daily_process",
+      "options": {
+        "sql": "   SELECT * FROM\n     (SELECT\n         business_id,\n         date_id,\n         sum(card_amount) AS total_amount,\n         sum(case when card_amount > 0 then 1 else -1 end) AS total_count,\n         '카드' as paid_type\n     FROM\n         (\n         SELECT\n             *\n         FROM\n             pos_sales_source\n         WHERE\n             card_amount != 0\n         )\n     GROUP BY\n         business_id, date_id\n\n     UNION ALL\n\n     SELECT\n         business_id,\n         date_id,\n         sum(cash_amount) AS total_amount,\n         sum(case when cash_amount > 0 then 1 else -1 end) AS total_count,\n         '현금' as paid_type\n     FROM\n         (\n         SELECT\n             *\n         FROM\n             pos_sales_source\n         WHERE\n             cash_amount != 0\n         )\n     GROUP BY\n         business_id, date_id\n\n     UNION ALL\n\n     SELECT\n         business_id,\n         date_id,\n         sum(total_amount) - (sum(cash_amount) + sum(card_amount)) AS total_amount,\n         sum(count_src) AS total_count,\n         '기타' as paid_type\n     FROM\n         (\n         SELECT\n             *,\n             CASE WHEN total_amount - (cash_amount + card_amount) > 0 THEN 1 ELSE -1 END AS count_src\n         FROM\n             pos_sales_source\n         WHERE\n             total_amount != (cash_amount + card_amount) AND total_amount != 0\n         )\n     GROUP BY\n         business_id, date_id\n     )"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_sales_daily_process"
+      ],
+      "name": "pos_sales_daily_process_jdbc",
+      "options": {
+        "sql": "   SELECT\n     business_id,\n     to_date(date_id, 'yyyy-MM-dd') as date_id,\n     total_amount,\n     total_count,\n     paid_type\n   FROM\n     pos_sales_daily_process"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "pos_sales_daily_process"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/etl/pos/pos_bills_stats",
+        "format": "parquet",
+        "partitions": "date_id",
+        "numPartitions": "10"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "pos_sales_daily_process_jdbc"
+      ],
+      "name": "jdbc_sink",
+      "options": {
+        "driver": "org.postgresql.Driver",
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "operation": "upsert",
+        "dbtable": "pos_bill_stats",
+        "conflictColumns": "business_id,date_id,paid_type",
+        "updateColumns": "total_amount,total_count",
+        "typeCastColumns": "paid_type:bills_paid_type_t"
+      },
+      "type": "jdbc"
+    }
+  ]
+}

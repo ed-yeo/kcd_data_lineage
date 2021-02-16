@@ -1,0 +1,72 @@
+{
+  "name": "firehose_compaction",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "approvals",
+      "options": {
+        "paths": "s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01",
+        "format": "json"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "purchases",
+      "options": {
+        "paths": "s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01",
+        "format": "json"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "payments",
+      "options": {
+        "paths": "s3://staging-card-sales/staging-card-sales-payments/year=2021/month=01",
+        "format": "json"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [],
+  "sink": [
+    {
+      "inputs": [
+        "approvals"
+      ],
+      "name": "approvals_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-logs-raw/dev/card_sales/incremental/approvals/year=2021/month=01",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "purchases"
+      ],
+      "name": "purchases_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-logs-raw/dev/card_sales/incremental/purchases/year=2021/month=01",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "payments"
+      ],
+      "name": "payments_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-logs-raw/dev/card_sales/incremental/payments/year=2021/month=01",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

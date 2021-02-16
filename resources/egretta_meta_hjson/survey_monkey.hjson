@@ -1,0 +1,73 @@
+{
+  name: survey_monkey
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: survey_monkey_responses
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/bluebird/snapshot/latest/survey_monkey_responses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/businesses
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        businesses
+        survey_monkey_responses
+      ]
+      name: joined
+      options:
+      {
+        sql:
+          '''
+          SELECT    businesses.id AS business_id,
+                    survey.survey_monkey_ids
+          FROM (
+                  SELECT    business_id, collect_set(survey_monkey_id) survey_monkey_ids
+                  FROM      survey_monkey_responses
+                  WHERE     business_id IS NOT NULL
+                  GROUP BY  business_id
+          ) survey
+          JOIN  businesses
+          ON    survey.business_id = businesses.public_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        joined
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=survey_monkey
+      }
+      type: file
+    }
+  ]
+}

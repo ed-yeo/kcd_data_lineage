@@ -1,0 +1,92 @@
+{
+  name: semas_daily_stat
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: credentials
+      options:
+      {
+        format: parquet
+        paths: "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/credentials"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: credential_keys
+      options:
+      {
+        format: parquet
+        paths: "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/credential_keys"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: transactions
+      options:
+      {
+        format: parquet
+        paths: "${TRANSACTIONS_PATH}"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        transactions
+        credentials
+        credential_keys
+      ]
+      name: daily_txns
+      options:
+      {
+        sql:
+          '''
+          SELECT  t.business_id,
+                  date_trunc('day', transacted_at) AS transacted_at_date,
+                  sum(amount) as card_sales_amount,
+                  count(1) as tx_count
+          FROM    transactions t JOIN (
+              SELECT  c.business_id,
+                      k.uuid
+              FROM    credential_keys k
+              JOIN    credentials c ON k.credential_id = c.id
+              WHERE   c.status = 1
+          ) c
+          WHERE   t.business_id = c.business_id
+          AND     t.credential_key = c.uuid
+          AND     (
+                    (purchased_at is not null AND purchase_canceled_at is null) OR
+                    (purchased_at is null AND approval_canceled_at is null)
+                  )
+          AND     transacted_at >= '2019-01-01'
+          GROUP BY 1, 2
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        daily_txns
+      ]
+      name: file_sink
+      options: {
+        mode: overwrite
+        path: "${OUTPUT_BASE_PATH}/daily_txns"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+}

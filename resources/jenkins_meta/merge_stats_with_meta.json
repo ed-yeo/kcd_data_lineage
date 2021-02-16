@@ -1,0 +1,157 @@
+{
+  "name": "merge_stats_with_meta",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "kcd_places_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-data/dmp/sources/classification/kcd_places"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "business_meta",
+      "options": {
+        "paths": "s3://kcd-de-production/data_cubes/dimension/name=business_meta",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "shinhancard_customer_statistics",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/shinhancard_customer_statistics"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "transactions_stat",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/card_sales/transactions_stat"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "delivery_app_orders_stat",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/delivery_app/delivery_app_orders_stat"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "kcd_places",
+      "inputs": [
+        "kcd_places_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id,\n        case\n          when coalesce(lot_address_1_depth, 'none') = '서울' then '서울특별시'\n          when coalesce(lot_address_1_depth, 'none') = '세종특별자치' then '세종특별자치시'\n          when coalesce(lot_address_1_depth, 'none') = '강원' then '강원도'\n          when coalesce(lot_address_1_depth, 'none') = '경기' then '경기도'\n          when coalesce(lot_address_1_depth, 'none') = '경남' then '경상남도'\n          when coalesce(lot_address_1_depth, 'none') = '경북' then '경상북도'\n          when coalesce(lot_address_1_depth, 'none') = '광주' then '광주광역시'\n          when coalesce(lot_address_1_depth, 'none') = '대구' then '대구광역시'\n          when coalesce(lot_address_1_depth, 'none') = '대전' then '대전광역시'\n          when coalesce(lot_address_1_depth, 'none') = '부산' then '부산광역시'\n          when coalesce(lot_address_1_depth, 'none') = '세종' then '세종특별자치시'\n          when coalesce(lot_address_1_depth, 'none') = '울산' then '울산광역시'\n          when coalesce(lot_address_1_depth, 'none') = '인천' then '인천광역시'\n          when coalesce(lot_address_1_depth, 'none') = '전남' then '전라남도'\n          when coalesce(lot_address_1_depth, 'none') = '전북' then '전라북도'\n          when coalesce(lot_address_1_depth, 'none') = '제주' then '제주특별자치도'\n          when coalesce(lot_address_1_depth, 'none') = '충남' then '충청남도'\n          when coalesce(lot_address_1_depth, 'none') = '충북' then '충청북도'\n          else coalesce(lot_address_1_depth, 'none')\n        end as lot_address_1_depth,\n        lot_address_2_depth,\n        lot_address_3_depth,\n        kcd_classification_1_depth,\n        kcd_classification_2_depth,\n        kcd_classification_3_depth\nFROM    (\n  SELECT    business_id,\n            split(kcd_classification, ' > ')[0] AS kcd_classification_1_depth,\n            split(kcd_classification, ' > ')[1] AS kcd_classification_2_depth,\n            split(kcd_classification, ' > ')[2] AS kcd_classification_3_depth,\n            split(lot_address, ' ')[0] AS lot_address_1_depth,\n            split(lot_address, ' ')[1] AS lot_address_2_depth,\n            split(lot_address, ' ')[2] AS lot_address_3_depth\n  FROM      kcd_places_src\n  WHERE     business_id is not null\n)"
+      }
+    },
+    {
+      "name": "day_hour_stat_with_demo",
+      "inputs": [
+        "transactions_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    agg.*,\n          CAST(null AS bigint) AS card_sales_amount_gender_male,\n          CAST(null AS bigint) AS card_sales_amount_gender_female,\n          CAST(null AS bigint) AS card_sales_amount_age_under_20,\n          CAST(null AS bigint) AS card_sales_amount_age_20,\n          CAST(null AS bigint) AS card_sales_amount_age_30,\n          CAST(null AS bigint) AS card_sales_amount_age_40,\n          CAST(null AS bigint) AS card_sales_amount_age_50,\n          CAST(null AS bigint) AS card_sales_amount_age_over_60\nFROM      transactions_stat agg\nWHERE     time_unit = 'day_hour'"
+      }
+    },
+    {
+      "name": "daily_stat_with_demo",
+      "inputs": [
+        "shinhancard_customer_statistics",
+        "transactions_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    agg.*,\n          (agg.card_sales_amount * st.percentage_male / 100) AS card_sales_amount_gender_male,\n          (agg.card_sales_amount * st.percentage_female / 100) AS card_sales_amount_gender_female,\n          (agg.card_sales_amount * st.percentage_under_20 / 100) AS card_sales_amount_age_under_20,\n          (agg.card_sales_amount * st.percentage_20 / 100) AS card_sales_amount_age_20,\n          (agg.card_sales_amount * st.percentage_30 / 100) AS card_sales_amount_age_30,\n          (agg.card_sales_amount * st.percentage_40 / 100) AS card_sales_amount_age_40,\n          (agg.card_sales_amount * st.percentage_50 / 100) AS card_sales_amount_age_50,\n          (agg.card_sales_amount * st.percentage_over_60 / 100) AS card_sales_amount_age_over_60\nFROM      (\n  SELECT    *\n  FROM      transactions_stat\n  WHERE     time_unit = 'day'\n) agg LEFT OUTER JOIN shinhancard_customer_statistics st\nON  (\n  agg.business_id = st.business_id AND\n  agg.time = st.date\n)"
+      },
+      "cache": true
+    },
+    {
+      "name": "weekly_stat_with_demo",
+      "inputs": [
+        "daily_stat_with_demo"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          credential_key,\n          date_trunc('week', time) AS time,\n          'week' AS time_unit,\n          SUM(card_sales_amount) AS card_sales_amount,\n          SUM(card_sales_count) AS card_sales_count,\n          SUM(card_sales_fee) AS card_sales_fee,\n          SUM(card_sales_vat_fee) AS card_sales_vat_fee,\n          SUM(card_sales_payment) AS card_sales_payment,\n          SUM(returning_amount) AS returning_amount,\n          SUM(returning_count) AS returning_count,\n          SUM(card_sales_amount_gender_male) AS card_sales_amount_gender_male,\n          SUM(card_sales_amount_gender_female) AS card_sales_amount_gender_female,\n          SUM(card_sales_amount_age_under_20) AS card_sales_amount_age_under_20,\n          SUM(card_sales_amount_age_20) AS card_sales_amount_age_20,\n          SUM(card_sales_amount_age_30) AS card_sales_amount_age_30,\n          SUM(card_sales_amount_age_40) AS card_sales_amount_age_40,\n          SUM(card_sales_amount_age_50) AS card_sales_amount_age_50,\n          SUM(card_sales_amount_age_over_60) AS card_sales_amount_age_over_60\nFROM      daily_stat_with_demo\nGROUP BY  1,2,3"
+      },
+      "cache": true
+    },
+    {
+      "name": "monthly_stat_with_demo",
+      "inputs": [
+        "daily_stat_with_demo"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          credential_key,\n          date_trunc('month', time) AS time,\n          'month' AS time_unit,\n          SUM(card_sales_amount) AS card_sales_amount,\n          SUM(card_sales_count) AS card_sales_count,\n          SUM(card_sales_fee) AS card_sales_fee,\n          SUM(card_sales_vat_fee) AS card_sales_vat_fee,\n          SUM(card_sales_payment) AS card_sales_payment,\n          SUM(returning_amount) AS returning_amount,\n          SUM(returning_count) AS returning_count,\n          SUM(card_sales_amount_gender_male) AS card_sales_amount_gender_male,\n          SUM(card_sales_amount_gender_female) AS card_sales_amount_gender_female,\n          SUM(card_sales_amount_age_under_20) AS card_sales_amount_age_under_20,\n          SUM(card_sales_amount_age_20) AS card_sales_amount_age_20,\n          SUM(card_sales_amount_age_30) AS card_sales_amount_age_30,\n          SUM(card_sales_amount_age_40) AS card_sales_amount_age_40,\n          SUM(card_sales_amount_age_50) AS card_sales_amount_age_50,\n          SUM(card_sales_amount_age_over_60) AS card_sales_amount_age_over_60\nFROM      daily_stat_with_demo\nGROUP BY  1,2,3"
+      },
+      "cache": true
+    },
+    {
+      "name": "stat_union",
+      "inputs": [
+        "day_hour_stat_with_demo",
+        "daily_stat_with_demo",
+        "weekly_stat_with_demo",
+        "monthly_stat_with_demo"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT * FROM day_hour_stat_with_demo\nUNION ALL\nSELECT * FROM daily_stat_with_demo\nUNION ALL\nSELECT * FROM weekly_stat_with_demo\nUNION ALL\nSELECT * FROM monthly_stat_with_demo"
+      }
+    },
+    {
+      "name": "stat_union_meta",
+      "inputs": [
+        "business_meta",
+        "kcd_places",
+        "stat_union"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    stat.*,\n          meta.location AS location,\n          meta.classification AS classification,\n          struct(place.*) AS place\nFROM      stat_union stat LEFT OUTER JOIN (\n  SELECT  business_id,\n          location.common AS location,\n          classification.kcd AS classification\n  FROM    business_meta\n) meta\nON (stat.business_id = meta.business_id) LEFT OUTER JOIN (\n  SELECT  business_id,\n          lot_address_1_depth,\n          lot_address_2_depth,\n          lot_address_3_depth,\n          kcd_classification_1_depth,\n          kcd_classification_2_depth,\n          kcd_classification_3_depth\n  FROM    kcd_places\n) place\nON (stat.business_id = place.business_id)"
+      }
+    },
+    {
+      "name": "joined",
+      "inputs": [
+        "stat_union_meta",
+        "delivery_app_orders_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    stat.*,\n          struct(d.*) AS delivery\nFROM      stat_union_meta stat LEFT OUTER JOIN delivery_app_orders_stat d\nON (\n  stat.business_id = d.business_id AND\n  stat.time_unit = d.time_unit AND\n  stat.time = d.time\n)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "joined"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/stat/snowdon/card_sales/transactions_stat_with_meta",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

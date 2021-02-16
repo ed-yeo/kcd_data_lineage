@@ -1,0 +1,173 @@
+{
+  //parameter: db_file_path, output_path
+  name: build_trader
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: s3://${db_file_path}/businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: purchase_invoices_txs_matches
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: parquet
+        paths: s3://${output_path}/etl/date_id=${date_id}/purchase_invoices_txs_matches
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: sale_invoices_txs_matches
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: parquet
+        paths: s3://${output_path}/etl/date_id=${date_id}/sale_invoices_txs_matches
+      }
+      type: custom
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        purchase_invoices_txs_matches
+        sale_invoices_txs_matches
+      ]
+      name: traders
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  'Vendor' AS type
+          FROM    (
+            SELECT  business_id, registration_number,
+                    max(business_name) AS business_name,
+                    max(owner_name) AS owner_name,
+                    max(last_issued_at) AS last_issued_at,
+                    max(content) AS content,
+                    max(similarity) AS similarity,
+                    max(last_transacted_at) AS last_transacted_at,
+                    min(year_month_date) AS first_transacted_month
+            FROM    (
+              SELECT  business_id,
+                      vendor_year_month.vendor.registration_number,
+                      vendor_year_month.vendor.business_name,
+                      vendor_year_month.vendor.owner_name,
+                      vendor_year_month.year,
+                      vendor_year_month.month,
+                      invoice_count,
+                      transaction_count,
+                      last_issued_at,
+                      last_transacted_at,
+                      content,
+                      similarity,
+                      IF (transaction_count == 0, null, to_date(CONCAT_WS('-', vendor_year_month.year, vendor_year_month.month, '01'), 'yyyy-MM-dd')) AS year_month_date
+              FROM    (
+                SELECT  business_id, matches.*
+                FROM    purchase_invoices_txs_matches
+              )
+            )
+            GROUP BY  business_id, registration_number
+          )
+
+          UNION ALL
+
+          SELECT  *,
+                  'Customer' AS type
+          FROM    (
+            SELECT  business_id, registration_number,
+                    max(business_name) AS business_name,
+                    max(owner_name) AS owner_name,
+                    max(last_issued_at) AS last_issued_at,
+                    max(content) AS content,
+                    max(similarity) AS similarity,
+                    max(last_transacted_at) AS last_transacted_at,
+                    min(year_month_date) AS first_transacted_month
+            FROM    (
+              SELECT  business_id,
+                      vendor_year_month.vendor.registration_number,
+                      vendor_year_month.vendor.business_name,
+                      vendor_year_month.vendor.owner_name,
+                      vendor_year_month.year,
+                      vendor_year_month.month,
+                      invoice_count,
+                      transaction_count,
+                      last_issued_at,
+                      last_transacted_at,
+                      content,
+                      similarity,
+                      IF (transaction_count == 0, null, to_date(CONCAT_WS('-', vendor_year_month.year, vendor_year_month.month, '01'), 'yyyy-MM-dd')) AS year_month_date
+              FROM    (
+                SELECT  business_id, matches.*
+                FROM    sale_invoices_txs_matches
+              )
+            )
+            GROUP BY  business_id, registration_number
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        businesses
+        traders
+      ]
+      name: traders_filtered
+      options:
+      {
+        sql:
+          '''
+          SELECT  /*+BROADCAST(b) */
+                  c.business_id,
+                  c.type,
+                  c.registration_number,
+                  c.business_name,
+                  c.owner_name,
+                  c.last_issued_at,
+                  c.content,
+                  c.similarity AS similarity_score,
+                  c.last_transacted_at,
+                  c.first_transacted_month,
+                  current_timestamp() AS created_at,
+                  current_timestamp() AS updated_at
+          FROM    traders c, businesses b
+          WHERE   c.business_id = b.id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        traders_filtered
+      ]
+      name: traders_filtered_file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://${output_path}/etl/date_id=${date_id}/traders
+      }
+      type: file
+    }
+  ]
+}

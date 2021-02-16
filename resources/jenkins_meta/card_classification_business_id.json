@@ -1,0 +1,158 @@
+{
+  "name": "card_classification_business_id",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "shinhancard_business_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=classification/name=shinhancard"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "bccard_business_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=classification/name=bccard"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "bccard_business_classification_new",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=classification/name=bccard_new"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hyundai_business_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=classification/name=hyundaicard"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "businesses"
+      ],
+      "name": "mappings",
+      "options": {
+        "sql": "SELECT    registration_number, id AS business_id\nFROM      businesses"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "shinhancard_business_classification",
+        "mappings"
+      ],
+      "name": "shinhancard",
+      "options": {
+        "sql": "SELECT    mappings.business_id, classification_code, classification_name\nFROM      shinhancard_business_classification AS card_classification\nJOIN      mappings\nON        card_classification.registration_number = mappings.registration_number"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "bccard_business_classification",
+        "mappings"
+      ],
+      "name": "bccard",
+      "options": {
+        "sql": "SELECT    mappings.business_id,\n          depth_1_code, depth_1_name,\n          depth_2_code, depth_2_name,\n          depth_3_code, depth_3_name\nFROM      bccard_business_classification AS card_classification\nJOIN      mappings\nON        card_classification.registration_number = mappings.registration_number"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "bccard_business_classification_new",
+        "mappings"
+      ],
+      "name": "bccard_new",
+      "options": {
+        "sql": "SELECT    mappings.business_id,\n          depth_1_code, depth_1_name,\n          depth_2_code, depth_2_name,\n          depth_3_code, depth_3_name\nFROM      bccard_business_classification_new AS card_classification\nJOIN      mappings\nON        card_classification.registration_number = mappings.registration_number"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hyundai_business_classification",
+        "mappings"
+      ],
+      "name": "hyundaicard",
+      "options": {
+        "sql": "SELECT    mappings.business_id, classification_code, classification_name\nFROM      hyundai_business_classification AS card_classification\nJOIN      mappings\nON        card_classification.registration_number = mappings.registration_number"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "shinhancard"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=shinhancard"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "bccard"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=bccard"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "bccard_new"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=bccard_new"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hyundaicard"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=hyundaicard"
+      },
+      "type": "file"
+    }
+  ]
+}

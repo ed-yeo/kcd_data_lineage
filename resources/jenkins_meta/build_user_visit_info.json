@@ -1,0 +1,72 @@
+{
+  "name": "build_user_visit_info",
+  "udfs": [
+    {
+      "name": "cohort",
+      "class": "com.kcd.thrush.analysis.spark.udfs.Cohort",
+      "params": {
+        "time_unit": "WEEK"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "visits",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/visits"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "visits"
+      ],
+      "name": "visit_pairs",
+      "options": {
+        "sql": "  SELECT  encrypted_card_number,\n          business_id,\n          pair._1 as start_date,\n          pair._2 as end_date\n  FROM    (\n          SELECT  encrypted_card_number,\n                  business_id,\n                  explode(cohort(visits)) as pair\n          FROM    (\n                  SELECT  encrypted_card_number,\n                          business_id,\n                          collect_list(transacted_at) as visits\n                  FROM    visits\n                  WHERE   encrypted_card_number IS NOT NULL\n                  AND     business_id IS NOT NULL\n                  AND     transacted_at >= '2020-01-01'\n                  AND     transacted_at < '2021-01-24'\n                  GROUP BY encrypted_card_number, business_id\n          )\n  )"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "visits"
+      ],
+      "name": "visit_user_type",
+      "options": {
+        "sql": "SELECT\n        *,\n        IF(visit_count > 1, 'revisit', 'new') AS user_type\nFROM (\n        SELECT\n                business_id, encrypted_card_number, date, min(prev_visit_count) AS visit_count\n        FROM (\n            SELECT  business_id,\n                    encrypted_card_number,\n                    date_trunc('WEEK', transacted_at) AS date,\n                    (visit_order - 1) AS prev_visit_count\n            FROM visits\n        )\n        GROUP BY business_id, encrypted_card_number, date\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "visit_pairs"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/market_area/analysis/visit_pairs"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "visit_user_type"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/market_area/analysis/visit_user_type",
+        "partitions": "user_type"
+      },
+      "type": "file"
+    }
+  ]
+}

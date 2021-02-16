@@ -1,0 +1,214 @@
+{
+  name: dump_db_goose
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: users
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/goose_production"
+          dbtable: "users"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: card_agreements
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/goose_production"
+          dbtable: "card_agreements"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    /*
+    {
+        inputs: []
+        name: deleted_users
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/goose_production"
+          dbtable: "deleted_users"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    */
+    {
+        inputs: []
+        name: place_merchants
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/goose_production"
+          dbtable: "place_merchants"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: place_masters
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/goose_production"
+          dbtable: "place_masters"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: places
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/goose_production"
+          dbtable: "places"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: devices
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/goose_production"
+          dbtable: "devices"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+  ]
+  process:
+  [
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        users
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${TARGET_PATH}/users"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        card_agreements
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${TARGET_PATH}/card_agreements"
+      }
+      type: file
+    }
+    /*
+    {
+      inputs:
+      [
+        deleted_users
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${TARGET_PATH}/deleted_users"
+      }
+      type: file
+    }
+    */
+    {
+      inputs:
+      [
+        place_merchants
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${TARGET_PATH}/place_merchants"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        place_masters
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${TARGET_PATH}/place_masters"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        places
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${TARGET_PATH}/places"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        devices
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${TARGET_PATH}/devices"
+      }
+      type: file
+    }
+  ]
+}

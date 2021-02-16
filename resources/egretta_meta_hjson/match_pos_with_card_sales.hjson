@@ -1,0 +1,108 @@
+{
+  name: match_pos_with_card_sales
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: card_sales_transactions
+      options:
+      {
+        format: parquet
+        paths: "s3://thrush/dev/card_sales_v2/table/transactions"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: pos_transactions
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sources.HudiSource
+        format: parquet
+        paths: "${OUTPUT_BASE_PATH}/pos/asp/transactions/*"
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: s3://kcd-data/raw/db/snowdon/snapshot/latest/businesses
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        businesses
+        card_sales_transactions
+        pos_transactions
+      ]
+      name: pos_txs_with_card_sales_txs
+      options:
+      {
+        sql:
+          '''
+          SELECT    p.*,
+                    c.*
+          FROM      pos_transactions p LEFT OUTER JOIN (
+              SELECT    /*+BROADCAST(b) */
+                        b.id AS business_id,
+                        b.registration_number,
+                        c.encrypted_card_number,
+                        c.issuer_name,
+                        c.merchant_number,
+                        c.authorization_number,
+                        c.amount,
+                        c.card_type,
+                        c.status,
+                        c.transacted_at,
+                        c.transaction_canceled_at,
+                        c.purchased_at,
+                        c.purchase_canceled_at,
+                        c.paid_at,
+                        c.purchase_delayed
+              FROM      card_sales_transactions c INNER JOIN businesses b ON (c.business_id = b.id)
+          ) c ON (
+              p.store_registration_number = c.registration_number AND
+              coalesce(p.payment_authorization_number, '') = c.authorization_number AND
+              p.payment_amount = c.amount AND
+              date_trunc('hour', p.payment_approved_at) = date_trunc('hour', c.transacted_at)
+          )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        pos_txs_with_card_sales_txs
+      ]
+      name: file_sink
+      options:
+      {
+         class: 'com.kcd.thrush.jobs.tasks.sinks.HudiSink'
+         mode: append
+         hoodie.base.path: "${OUTPUT_BASE_PATH}/pos/asp"
+         hoodie.table.name: merged_transactions
+         hoodie.datasource.write.operation: upsert
+         hoodie.datasource.write.recordkey.field: record_key
+         hoodie.datasource.write.precombine.field: ts
+         hoodie.datasource.write.partitionpath.field: ordered_at_date
+         hoodie.datasource.write.hive_style_partitioning: "true"
+         hoodie.upsert.shuffle.parallelism: "200"
+      }
+      type: custom
+    }
+  ]
+}

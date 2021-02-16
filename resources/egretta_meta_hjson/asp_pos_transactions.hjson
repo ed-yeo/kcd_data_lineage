@@ -1,0 +1,185 @@
+{
+  name: asp_pos_post_process
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: items
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sources.HudiSource
+        format: parquet
+        paths: "${OUTPUT_BASE_PATH}/pos/asp/items/*"
+        hoodie.datasource.query.type: incremental
+        hoodie.datasource.read.begin.instanttime: "${BEGIN_INSTANT_TIME}"
+        hoodie.datasource.read.end.instanttime: "${END_INSTANT_TIME}"
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: payments
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sources.HudiSource
+        format: parquet
+        paths: "${OUTPUT_BASE_PATH}/pos/asp/payments/*"
+        hoodie.datasource.query.type: incremental
+        hoodie.datasource.read.begin.instanttime: "${BEGIN_INSTANT_TIME}"
+        hoodie.datasource.read.end.instanttime: "${END_INSTANT_TIME}"
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: s3://kcd-data/raw/db/snowdon/snapshot/latest/businesses
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        items
+        payments
+      ]
+      name: merged_payments_with_items
+      options:
+      {
+        sql:
+          '''
+          SELECT  CONCAT_WS('|',
+                    p.store_pos_key,
+                    p.receipt_key,
+                    p.payment_key,
+                    i.item_key
+                  ) AS record_key,
+                  current_timestamp() as ts,
+                  p.ordered_at_date,
+                  p.store_pos_key,
+                  p.receipt_key,
+                  p.payment_key,
+                  p.pos_asp_agent,
+                  p.brand_uid,
+                  p.brand_name,
+                  p.brand_registration_number,
+                  p.francise_uid,
+                  p.francise_name,
+                  p.francise_registration_number,
+                  p.store_uid,
+                  p.store_name,
+                  p.store_registration_number,
+                  p.francise_address,
+                  p.store_address,
+                  p.store_area,
+                  p.store_table_count,
+                  p.pos_uid,
+                  p.pos_name,
+                  p.table_uid,
+                  p.receipt_uid,
+                  p.cancelled_receipt_uid,
+                  p.receipt_status,
+                  p.receipt_ordered_at,
+                  p.receipt_paid_at,
+                  p.receipt_amount,
+                  p.receipt_discount,
+                  p.receipt_vat,
+                  p.payment_method,
+                  p.payment_status,
+                  p.payment_issuer,
+                  p.payment_acquirer,
+                  p.payment_card_number,
+                  p.payment_authorization_number,
+                  p.payment_cash_receipt_identification,
+                  p.payment_approved_at,
+                  p.payment_amount,
+                  p.payment_price,
+                  p.payment_vat,
+                  p.payment_installment,
+                  i.item_key,
+                  i.menu_uid,
+                  i.item_name,
+                  i.item_ordered_at,
+                  i.item_amount,
+                  i.item_discount,
+                  i.item_price,
+                  i.item_quantitiy,
+                  i.item_vat
+          FROM payments p left outer join items i
+          ON p.pos_asp_agent = i.pos_asp_agent
+          AND p.store_pos_key = i.store_pos_key
+          AND p.receipt_key = i.receipt_key
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        merged_payments_with_items
+      ]
+      name: pos_asp_transactions
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      merged_payments_with_items
+          WHERE     record_key is not null
+          '''
+      }
+      type: sql
+    }
+    {
+       inputs:
+       [
+        merged_payments_with_items
+        card_sales_transactions
+       ]
+       name: joined
+       options:
+       {
+         sql:
+            '''
+            SELECT  m.*,
+                    t.encrypted_card_number,
+                    t.
+            FROM    merged_payments_with_items m LEFT OUTER JOIN card_sales_transactions t ON (m.)
+            '''
+       }
+       type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        pos_asp_transactions
+      ]
+      name: file_sink
+      options:
+      {
+         class: 'com.kcd.thrush.jobs.tasks.sinks.HudiSink'
+         mode: append
+         hoodie.base.path: "${OUTPUT_BASE_PATH}/pos/asp"
+         hoodie.table.name: transactions
+         hoodie.datasource.write.operation: upsert
+         hoodie.datasource.write.recordkey.field: record_key
+         hoodie.datasource.write.precombine.field: ts
+         hoodie.datasource.write.partitionpath.field: ordered_at_date
+         hoodie.datasource.write.hive_style_partitioning: "true"
+         hoodie.upsert.shuffle.parallelism: "200"
+      }
+      type: custom
+    }
+  ]
+}

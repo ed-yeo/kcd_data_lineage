@@ -1,0 +1,74 @@
+{
+  "name": "build_user_tags",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "snapshots",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/market_area/analysis/snapshot_user_history"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "location",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=common"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=kcd"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "location",
+        "classification"
+      ],
+      "name": "kcd_places",
+      "options": {
+        "sql": "  SELECT\n          CAST(address.business_id AS INT) AS business_id,\n          address.value AS address,\n          cate.value AS classification\n  FROM (\n      SELECT business_id, b_code AS value\n      FROM location\n      WHERE b_code is not null\n  ) AS address\n  JOIN (\n      SELECT business_id, concat(depth_1_name, '>', depth_2_name) AS value\n      FROM classification\n      WHERE depth_2_name is not null\n  ) AS cate\n  ON address.business_id = cate.business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "kcd_places",
+        "snapshots"
+      ],
+      "name": "user_tags",
+      "options": {
+        "class": "com.kcd.thrush.analysis.spark.tasks.BuildUserTagsProcess",
+        "places": "kcd_places",
+        "transactions": "snapshots"
+      },
+      "type": "custom"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "user_tags"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/market_area/analysis/user_tags",
+        "partitions": "type"
+      },
+      "type": "file"
+    }
+  ]
+}

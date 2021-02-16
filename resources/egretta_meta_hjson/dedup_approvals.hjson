@@ -1,0 +1,99 @@
+{
+  name: dedup_approvals
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: current_approvals_raw
+      options:
+      {
+        paths: "${APPROVALS_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: approvals
+      inputs:
+      [
+        current_approvals_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT  *
+           FROM    current_approvals_raw
+           WHERE   created_at_date >= '${MIN_DATE}'
+           AND     created_at_date < '${MAX_DATE}'
+          '''
+      }
+    }
+    {
+      name: approvals_unique
+      inputs:
+      [
+        approvals
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    MIN(acquirer_name) AS acquirer_name,
+                    amount,
+                    MIN(approval_seq) AS approval_seq,
+                    authorization_number,
+                    business_id,
+                    MIN(card_number) AS card_number,
+                    MIN(card_type) AS card_type,
+                    credential_key,
+                    MIN(encrypted_card_number) AS encrypted_card_number,
+                    MIN(estimated_paid_at) AS estimated_paid_at,
+                    MIN(fee) AS fee,
+                    MIN(installment) AS installment,
+                    MIN(issuer_name) AS issuer_name,
+                    MIN(masked_card_number) AS masked_card_number,
+                    MIN(merchant_number) AS merchant_number,
+                    MIN(payment) AS payment,
+                    MIN(scraping_type) AS scraping_type,
+                    MIN(status) AS status,
+                    transacted_at,
+                    MIN(vat_fee) AS vat_fee,
+                    MIN(created_at) AS created_at,
+                    MIN(updated_at) AS updated_at,
+                    MIN(created_at_date) AS created_at_date
+          FROM      approvals
+          GROUP BY  business_id, credential_key, transacted_at, authorization_number, amount
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        approvals_unique
+      ]
+      name: approvals_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: "created_at_date"
+          evenPartitions: "true"
+          numOfRecordPerFile: "2000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

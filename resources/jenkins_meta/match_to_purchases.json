@@ -1,0 +1,62 @@
+{
+  "name": "match_to_purchases",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "purchase_candidates",
+      "options": {
+        "paths": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/matches/candidates/purchases_current",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "purchases_without_cancel",
+      "inputs": [
+        "purchase_candidates"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    purchased.*,\n          CAST(null AS TIMESTAMP) AS purchase_canceled_at,\n          'purchased' AS type\nFROM      purchase_candidates\nWHERE     canceled.business_id is null"
+      }
+    },
+    {
+      "name": "purchases_with_cancel",
+      "inputs": [
+        "purchase_candidates"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    purchased.*,\n          canceled.purchased_at AS purchase_canceled_at,\n          'purchase_cancel' AS type\nFROM      purchase_candidates\nWHERE     purchased.business_id is not null AND canceled.business_id is not null"
+      }
+    },
+    {
+      "name": "merged_purchases",
+      "inputs": [
+        "purchases_without_cancel",
+        "purchases_with_cancel"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  * FROM purchases_without_cancel\nUNION ALL\nSELECT  * FROM purchases_with_cancel"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "merged_purchases"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/matches/merged/purchases_current",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

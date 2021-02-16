@@ -1,0 +1,145 @@
+{
+  "name": "merchant_location_sources",
+  "udfs": [
+    {
+      "name": "get_addr_key",
+      "class": "com.kcd.thrush.dmp.spark.udfs.AddressUtil",
+      "params": {
+        "method": "get_addr_key"
+      }
+    },
+    {
+      "name": "get_addr_key_sigungu",
+      "class": "com.kcd.thrush.dmp.spark.udfs.AddressUtil",
+      "params": {
+        "method": "get_addr_key_sigungu"
+      }
+    },
+    {
+      "name": "to_region_address",
+      "class": "com.kcd.thrush.dmp.spark.udfs.AddressUtil",
+      "params": {
+        "method": "to_region_address"
+      }
+    },
+    {
+      "name": "is_street_address",
+      "class": "com.kcd.thrush.dmp.spark.udfs.AddressUtil",
+      "params": {
+        "method": "is_street_address"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "total_region",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=location/name=total_region"
+      },
+      "type": "file",
+      "cache": true
+    },
+    {
+      "inputs": [],
+      "name": "kakao",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=places/name=kakao"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "naver",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=places/name=naver"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "merchant_info",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=merchant/name=info"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "naver",
+        "total_region"
+      ],
+      "name": "naver_address",
+      "options": {
+        "sql": "SELECT\n        registration_number, card_issuer, merchant_number,\n        source_address.address AS full_address,\n        source_address.location AS geo_point,\n        region.code AS b_code,\n        region.sido,\n        region.sido_code,\n        region.sigungu,\n        region.sigungu_code,\n        region.dong,\n        region.mapping_codes AS h_codes\n\nFROM (\n    SELECT\n        registration_number, card_issuer, merchant_number,\n        get_addr_key(lot_address) AS addr_key,\n        lot_address AS address,\n        IF(\n            latitude > 100,\n            CONCAT(longitude, ',', latitude),\n            CONCAT(latitude, ',', longitude)\n        ) AS location\n    FROM  naver\n    WHERE lot_address is not null\n) AS source_address\nJOIN (\n    SELECT  *\n    FROM total_region\n    WHERE region_type = 'b_dong'\n) AS region\nON source_address.addr_key = region.full_address"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "kakao",
+        "total_region"
+      ],
+      "name": "kakao_address",
+      "options": {
+        "sql": "SELECT\n        registration_number, card_issuer, merchant_number,\n        source_address.address AS full_address,\n        source_address.location AS geo_point,\n        region.code AS b_code,\n        region.sido,\n        region.sido_code,\n        region.sigungu,\n        region.sigungu_code,\n        region.dong,\n        region.mapping_codes AS h_codes\n\nFROM (\n    SELECT\n        registration_number, card_issuer, merchant_number,\n        get_addr_key(lot_address) AS addr_key,\n        lot_address AS address,\n        IF(\n              latitude > 100,\n              CONCAT(longitude, ',', latitude),\n              CONCAT(latitude, ',', longitude)\n          ) AS location\n    FROM  kakao\n    WHERE lot_address is not null\n) AS source_address\nJOIN (\n    SELECT  *\n    FROM total_region\n    WHERE region_type = 'b_dong'\n) AS region\nON source_address.addr_key = region.full_address"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merchant_info",
+        "total_region"
+      ],
+      "name": "merchant_address",
+      "options": {
+        "sql": "SELECT\n        registration_number, card_issuer, merchant_number,\n        CAST(null as STRING) AS geo_point,\n        source_address.address AS full_address,\n        CAST(null as STRING) AS b_code,\n        region.sido,\n        region.sido_code,\n        region.sigungu,\n        region.sigungu_code,\n        region.dong,\n        region.mapping_codes AS h_codes\nFROM (\n        SELECT  registration_number, card_issuer, merchant_number,\n                get_addr_key_sigungu(merchant_address) AS addr_key,\n                merchant_address AS address\n        FROM  merchant_info\n        WHERE merchant_address is not null\n) AS source_address\nJOIN (\n    SELECT  *\n    FROM total_region\n    WHERE region_type = 'sigungu'\n) AS region\nON source_address.addr_key = region.full_address"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "merchant_address"
+      ],
+      "name": "merchant_address_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=location/name=card"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "naver_address"
+      ],
+      "name": "naver_address_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=location/name=naver"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "kakao_address"
+      ],
+      "name": "kakao_address_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=location/name=kakao"
+      },
+      "type": "file"
+    }
+  ]
+}

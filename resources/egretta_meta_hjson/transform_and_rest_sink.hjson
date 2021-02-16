@@ -1,0 +1,374 @@
+{
+  name: transform_and_rest_sink
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: ad_group
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DATABASE}"
+          dbtable: "ad_group"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: creative
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DATABASE}"
+          dbtable: "creative"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+      inputs: []
+      name: user_message_history
+      options:
+      {
+        format: parquet
+        paths: ${USER_HISTORY_DIR}/date_id=${TARGET_DATE}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        ad_group
+        creative
+      ]
+      name: target_group
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    named_struct(
+                        'campaign_id',      a.campaign_id,
+                        'ad_group_id',      c.ad_group_id,
+                        'creative_id',      c.id,
+                        'primary_key',      IF(a.user_type = 'cashnote', 'target_id', 'user_id'),
+                        'user_type',        a.user_type,
+                        'type',             a.type,
+                        'target_type',      a.target_type,
+                        'path',             a.path,
+                        'frequency_cap',    a.frequency_cap,
+                        'message_type',     c.message_type,
+                        'template_code',    c.template_code,
+                        'exclude_sent_user', a.exclude_sent_user,
+                        'test_mode',        a.test_mode,
+                        'template',         named_struct(
+                                                'title',        c.title,
+                                                'message',      c.template,
+                                                'attachment',   c.attachment
+                                            ),
+                        'report_name',      a.report_name
+                    ) AS meta,
+
+                     named_struct(
+                        'title',        CAST(null as STRING),
+                        'message',      CAST(null as STRING),
+                        'attachment',   named_struct('button', array(
+                                                                    named_struct(
+                                                                        'name',         CAST(null as STRING),
+                                                                        'type',         CAST(null as STRING),
+                                                                        'url_mobile',   CAST(null as STRING),
+                                                                        'target',       CAST(null as STRING)
+                                                                    )))
+                    ) AS result,
+                    named_struct(
+                        'valid', true,
+                        'error', CAST(null as STRING)
+                    ) AS status
+            FROM (
+                    SELECT  *
+                    FROM    ad_group
+                    WHERE   status = 'TRANSFORM_AND_SENDING'
+            ) AS a
+            JOIN    (
+                    SELECT *
+                    FROM    creative
+                    WHERE   creative.type = 'MESSAGE_TEMPLATE'
+            ) AS c
+            ON      a.id = c.ad_group_id
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        target_group
+        user_message_history
+      ]
+      name: valid_filter
+      options:
+      {
+        sql:
+          '''
+          SELECT    user_message_history.*
+          FROM      (
+                        SELECT * FROM target_group WHERE meta.exclude_sent_user = true
+          ) AS t
+          JOIN      user_message_history
+          ON        t.meta.user_type = user_message_history.user_type
+          AND       t.meta.ad_group_id = user_message_history.ad_group_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        target_group
+      ]
+      name: target_messages
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.TargetExtractProcess
+        reportDir: ${REPORT_DIR}
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        target_messages
+        valid_filter
+      ]
+      name: filtered_message
+      options:
+      {
+        sql:
+          '''
+            SELECT  t.target_id,
+                    t.user_id,
+                    t.business_id,
+                    t.meta,
+                    t.result,
+                    CASE
+                        WHEN    valid_filter.ad_group_id IS NOT NULL THEN named_struct('valid', false, 'error', 'EXCLUDED_SENT_USER')
+                        ELSE    t.status
+                    END AS status
+            FROM    (
+                        SELECT  target_id,
+                                IF(targetGroup.meta.user_type = 'cashnote', split(target_id, "_")[0], target_id) AS user_id,
+                                IF(targetGroup.meta.user_type = 'cashnote', split(target_id, "_")[1], null) AS business_id,
+                                targetGroup.meta,
+                                targetGroup.status,
+                                targetGroup.result
+                        FROM    target_messages
+            ) AS t
+            LEFT OUTER JOIN     valid_filter
+            ON      t.meta.user_type = valid_filter.user_type
+            AND     t.meta.ad_group_id = valid_filter.ad_group_id
+            AND     t.user_id = valid_filter.user_id
+            AND     nvl(t.business_id, 'empty') = nvl(valid_filter.business_id, 'empty')
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        filtered_message
+      ]
+      name: formatted
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    to_timestamp('${TARGET_DATE} ${TARGET_TS}', 'yyyy-MM-dd HH_mm') AS sent_at,
+                    CONCAT(
+                        replace('${TARGET_DATE}', '-', ''), '-', '${TARGET_TS}',
+                        '_',
+                        meta.campaign_id, meta.ad_group_id, meta.creative_id,
+                        '_',
+                        target_id
+                    ) AS id,
+                    meta.ad_group_id AS ad_group_id,
+                    named_struct(
+                        'campaign_id',  CAST(meta.campaign_id AS STRING),
+                        'ad_group_id',  CAST(meta.ad_group_id AS STRING),
+                        'creative_id',  CAST(meta.creative_id AS STRING),
+                        'user_id',      user_id,
+                        'business_id',  business_id,
+                        'type',         meta.`type`,
+                        'user_type',    meta.user_type,
+                        'test_mode',    meta.test_mode
+                    ) AS meta,
+                    status,
+                    named_struct(
+                        'message_type',     meta.message_type,
+                        'template_code',    meta.template_code,
+                        'title',            result.title,
+                        'message',          result.message,
+                        'ad_flag',          IF(array_contains(array('EXTERNAL_AD', 'INTERNAL_AD'), meta.`type`), 'Y', 'N'),
+                        'attachment',       result.attachment
+                    ) AS message
+          FROM      filtered_message
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        target_group
+        ad_group
+      ]
+      name: valid_ad_group
+      options:
+      {
+        sql:
+        '''
+        SELECT  ad_group.*
+        FROM (
+                SELECT DISTINCT meta.ad_group_id AS ad_group_id
+                FROM   target_group
+        ) AS t
+        JOIN ad_group
+        ON t.ad_group_id = ad_group.id
+        '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        formatted
+        valid_ad_group
+      ]
+      name: update_ad_group
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  valid_ad_group.id,
+                  valid_ad_group.campaign_id,
+                  valid_ad_group.name,
+                  valid_ad_group.description,
+                  valid_ad_group.type,
+                  valid_ad_group.target,
+                  valid_ad_group.target_type,
+                  valid_ad_group.status,
+                  valid_ad_group.path,
+                  valid_ad_group.population,
+                  valid_ad_group.frequency_cap,
+                  valid_ad_group.enabled,
+                  valid_ad_group.created_at,
+                  current_timestamp() AS updated_at,
+                  valid_ad_group.use_today_data,
+                  valid_ad_group.report_name,
+                  IF(valid_messages.cnt IS NULL, null,
+                      CONCAT('${TARGET_MESSAGE_PATH}/ad_group_id=',  valid_ad_group.id)
+                  ) AS extract_path,
+                  IF(valid_messages.cnt IS NULL, 0, valid_messages.cnt) AS target_count
+          FROM    valid_ad_group
+          LEFT OUTER JOIN (
+              SELECT
+                      meta.ad_group_id,
+                      count(1) AS cnt
+              FROM  formatted
+              WHERE status.valid = true
+              GROUP BY meta.ad_group_id
+          ) AS valid_messages
+          ON valid_ad_group.id = valid_messages.ad_group_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        target_group
+      ]
+      name: target_group_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_GROUP_PATH}
+        numPartitions: "1"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        formatted
+      ]
+      name: target_messages_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_MESSAGE_PATH}
+        partitions: ad_group_id
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        update_ad_group
+      ]
+      name: update_ad_group_db_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        dbtable: ad_group
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        operation: upsert
+        conflictColumns: id
+        updateColumns: extract_path,target_count,updated_at
+      }
+      type: jdbc
+    }
+    {
+      inputs:
+      [
+        formatted
+      ]
+      name: rest_sink
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.TargetMessageDirectRestSink
+        url: ${PLOVER_API_URL}
+        token: ${PLOVER_API_TOKEN}
+        batchSize: "${BATCH_SIZE}"
+        delayTimeMillis: "${DELAY_TIME_MILLIS}"
+        outputPath: ${TARGET_DIR}
+        connectTimeout: "1000"
+        readTimeout: "${READ_TIMEOUT_MILLIS}"
+        partitionKey: "meta.user_id"
+        numPartitions: "${NUM_PARTITIONS}"
+
+      }
+      type: custom
+    }
+  ]
+}

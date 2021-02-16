@@ -1,0 +1,246 @@
+{
+  name: update_sdk_event
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: kcd_cashnote_ruby
+        options:
+        {
+            format: json
+            paths: ${CATALOG_DIR}/raw/tb=kcd_cashnote_ruby/created_at_date=${TARGET_DATE}
+        }
+        type: file
+    }
+    {
+        inputs: []
+        name: kcd_cashnote_web
+        options:
+        {
+            format: json
+            paths: ${CATALOG_DIR}/raw/tb=kcd_cashnote_web/created_at_date=${TARGET_DATE}
+        }
+        type: file
+    }
+    {
+        inputs: []
+        name: kcd_redbird_ruby
+        options:
+        {
+            format: json
+            paths: ${CATALOG_DIR}/raw/tb=kcd_redbird_ruby/created_at_date=${TARGET_DATE}
+        }
+        type: file
+    }
+    {
+        inputs: []
+        name: kcd_redbird_web
+        options:
+        {
+            format: json
+            paths: ${CATALOG_DIR}/raw/tb=kcd_redbird_web/created_at_date=${TARGET_DATE}
+        }
+        type: file
+    }
+    {
+        inputs: []
+        name: kcd_goose_ruby
+        options:
+        {
+            format: json
+            paths: ${CATALOG_DIR}/raw/tb=kcd_goose_ruby/created_at_date=${TARGET_DATE}
+        }
+        type: file
+    }
+    {
+        inputs: []
+        name: kcd_bluebird_ruby
+        options:
+        {
+            format: json
+            paths: ${CATALOG_DIR}/raw/tb=kcd_bluebird_ruby/created_at_date=${TARGET_DATE}
+        }
+        type: file
+    }
+    {
+        inputs: []
+        name: kcd_bluebird_web
+        options:
+        {
+            format: json
+            paths: ${CATALOG_DIR}/raw/tb=kcd_bluebird_web/created_at_date=${TARGET_DATE}
+        }
+        type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        kcd_cashnote_ruby
+        kcd_cashnote_web
+      ]
+      name: cashnote_sdk_event
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    'kcd_cashnote_ruby' AS sdk_name,
+                    event AS event_type,
+                    'cashnote' AS user_type
+            FROM (
+                    SELECT
+                            distinct event
+                    FROM    kcd_cashnote_ruby
+            )
+
+            UNION ALL
+
+            SELECT
+                    'kcd_cashnote_web' AS sdk_name,
+                    event AS event_type,
+                    'cashnote' AS user_type
+            FROM (
+                    SELECT
+                            distinct event
+                    FROM    kcd_cashnote_web
+            )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        kcd_redbird_ruby
+        kcd_redbird_web
+        kcd_goose_ruby
+      ]
+      name: paynote_sdk_event
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    'kcd_redbird_ruby' AS sdk_name,
+                    event AS event_type,
+                    'paynote' AS user_type
+            FROM (
+                    SELECT
+                            distinct event
+                    FROM    kcd_redbird_ruby
+            )
+
+            UNION ALL
+
+            SELECT
+                    'kcd_redbird_web' AS sdk_name,
+                    event AS event_type,
+                    'paynote' AS user_type
+            FROM (
+                    SELECT
+                            distinct event
+                    FROM    kcd_redbird_web
+            )
+
+            UNION ALL
+
+            SELECT
+                    'kcd_goose_ruby' AS sdk_name,
+                    event AS event_type,
+                    'paynote' AS user_type
+            FROM (
+                    SELECT
+                            distinct event
+                    FROM    kcd_goose_ruby
+            )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        kcd_bluebird_web
+      ]
+      name: bluebird_sdk_event
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    'kcd_bluebird_web' AS sdk_name,
+                    event AS event_type,
+                    'cashnote' AS user_type
+            FROM (
+                    SELECT
+                            DISTINCT event
+                    FROM    kcd_bluebird_web
+                    WHERE   prop_cashnote_user_id IS NOT NULL
+            )
+
+            UNION ALL
+
+            SELECT
+                    'kcd_bluebird_web' AS sdk_name,
+                    event AS event_type,
+                    'paynote' AS user_type
+            FROM (
+                    SELECT
+                            DISTINCT event
+                    FROM    kcd_bluebird_web
+                    WHERE   prop_paynote_user_id IS NOT NULL
+            )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        cashnote_sdk_event
+        paynote_sdk_event
+        bluebird_sdk_event
+      ]
+      name: all_sdk_event
+      options:
+      {
+        sql:
+          '''
+          SELECT    sdk_name, event_type, user_type     FROM cashnote_sdk_event
+          UNION ALL
+          SELECT    sdk_name, event_type, user_type     FROM paynote_sdk_event
+          UNION ALL
+          SELECT    sdk_name, event_type, user_type     FROM bluebird_sdk_event
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        all_sdk_event
+      ]
+      name: jdbc_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        dbtable: sdk_event
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        operation: upsert
+        conflictColumns: sdk_name,event_type, user_type
+        updateColumns: sdk_name,event_type,user_type
+      }
+      type: jdbc
+    }
+  ]
+}

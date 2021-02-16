@@ -1,0 +1,79 @@
+{
+  // DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD, PURCHASES_PATH, PAYMENTS_PATH, OUTPUT_BASE_PATH
+  name: aggregate_purchases
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: purchases_raw
+      options:
+      {
+        paths: ${PURCHASES_PATH}
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: purchases
+      inputs:
+      [
+        purchases_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      purchases_raw
+          WHERE     paid_at >= '${MIN_PAID_AT}'
+          '''
+      }
+    }
+    {
+      name: purchases_aggr
+      inputs:
+      [
+        purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  date_format(paid_at, 'yyyy-MM-dd') AS paid_at_date
+          FROM    (
+              SELECT  p.business_id,
+                      p.paid_at AS paid_at,
+                      p.issuer_name,
+                      SUM(payment) AS expected
+              FROM    purchases p
+              GROUP BY 1, 2, 3
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      name: file_sink
+      inputs:
+      [
+        purchases_aggr
+      ]
+      type: file
+      options:
+      {
+        path: ${OUTPUT_PATH}
+        format: parquet
+        mode: overwrite
+      }
+    }
+  ]
+}

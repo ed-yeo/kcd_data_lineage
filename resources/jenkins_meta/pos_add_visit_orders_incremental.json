@@ -1,0 +1,107 @@
+{
+  "name": "pos_add_visit_order",
+  "udfs": [
+    {
+      "name": "pos_add_visit_order",
+      "class": "com.kcd.thrush.pos.spark.udfs.AppendVisitCount",
+      "params": {
+        "windowDays": "365",
+        "countWindow": "43200000"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "pos_payments_distinct_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/pos/pos_payments"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "pos_payments_distinct_src"
+      ],
+      "name": "prev_pos_payments_approved",
+      "options": {
+        "sql": "SELECT\n  *\nFROM\n  pos_payments_distinct_src\nWHERE\n  created_at_date >= date_sub(to_date('2019-10-23'), 365) AND created_at_date < '2019-10-23' AND\n  (amount >= 0 AND card_number is not null AND card_number != '')"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_payments_distinct_src"
+      ],
+      "name": "current_pos_payments_approved",
+      "options": {
+        "sql": "SELECT\n  *\nFROM\n  pos_payments_distinct_src\nWHERE\n  created_at_date >= '2019-10-23' AND created_at_date < '2020-10-23' AND\n  (amount >= 0 AND card_number is not null AND card_number != '')"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_payments_distinct_src"
+      ],
+      "name": "current_pos_payments_canceled",
+      "options": {
+        "sql": "SELECT\n  *\nFROM\n  pos_payments_distinct_src\nWHERE\n  created_at_date >= '2019-10-23' AND created_at_date < '2020-10-23' AND\n  NOT (amount >= 0 AND card_number is not null AND card_number != '')"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "prev_pos_payments_approved",
+        "current_pos_payments_approved"
+      ],
+      "name": "current_visits_approved",
+      "options": {
+        "sql": "SELECT\n  _event_id,\n  `type`,\n  amount,\n  authorization_number,\n  bill_key,\n  bill_no,\n  business_id,\n  card_number,\n  client_id,\n  index,\n  issuer_name,\n  label_name,\n  merchant_number,\n  order_status,\n  paid_at,\n  payment_key,\n  pos_no,\n  pos_type,\n  service_name,\n  shop_code,\n  store_key,\n  timestamp,\n  visit_order,\n  created_at_date\nFROM    (\n  SELECT  pos_tx.*\n  FROM    (\n    SELECT  explode(pos_add_visit_order(histories)) AS pos_tx\n    FROM    (\n      SELECT  business_id,\n              card_number,\n              collect_list(struct(*)) AS histories\n      FROM    (\n        SELECT * FROM prev_pos_payments_approved\n        UNION ALL\n        SELECT * FROM current_pos_payments_approved\n      )\n      GROUP BY business_id, issuer_name, card_number\n    )\n  )\n)\nWHERE   created_at_date >= '2019-10-23' -- leave current"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "current_pos_payments_canceled"
+      ],
+      "name": "current_visits_canceled",
+      "options": {
+        "sql": "SELECT\n        _event_id,\n        `type`,\n        amount,\n        authorization_number,\n        bill_key,\n        bill_no,\n        business_id,\n        card_number,\n        client_id,\n        index,\n        issuer_name,\n        label_name,\n        merchant_number,\n        order_status,\n        paid_at,\n        payment_key,\n        pos_no,\n        pos_type,\n        service_name,\n        shop_code,\n        store_key,\n        timestamp,\n        CAST(null AS int) AS visit_order,\n        created_at_date\nFROM\n    current_pos_payments_canceled"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "current_visits_canceled",
+        "current_visits_approved"
+      ],
+      "name": "visits",
+      "options": {
+        "sql": "SELECT  *\nFROM    current_visits_approved\n\nUNION ALL\n\nSELECT  *\nFROM    current_visits_canceled"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "visits"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/raw/etl/pos/pos_payments_with_visited",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

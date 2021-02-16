@@ -1,0 +1,124 @@
+{
+  name: merchant_places
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: places
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/snapshot/latest/places
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_merchants
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/snapshot/latest/place_merchants
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        places
+        place_merchants
+      ]
+      name: merchant_places
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM (
+                    SELECT
+                            issuer AS card_issuer, merchant_number,
+                            places.*,
+                            row_number() OVER (PARTITION BY place_merchants.registration_number, issuer, merchant_number, type ORDER BY places.updated_at DESC ) AS rank
+                    FROM      place_merchants
+                    JOIN      places
+                    ON        place_merchants.place_id = places.id
+          )
+          WHERE rank = 1
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        merchant_places
+      ]
+      name: kakao_places
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      merchant_places
+          WHERE     type = 'Places::Kakao'
+
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        merchant_places
+      ]
+      name: naver_places
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      merchant_places
+          WHERE     type = 'Places::Naver'
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        kakao_places
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=kakao
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        naver_places
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=naver
+      }
+      type: file
+    }
+  ]
+}

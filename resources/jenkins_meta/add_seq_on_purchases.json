@@ -1,0 +1,46 @@
+{
+  "name": "purchases",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "purchases",
+      "options": {
+        "paths": "s3://kcd-data-staging/raw/etl/snowdon/card_sales/tmp/purchases",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "purchases_with_sequence",
+      "inputs": [
+        "purchases"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "  SELECT    acquirer_name,\n            amount,\n            authorization_number,\n            base_fee,\n            business_id,\n            card_number,\n            card_type,\n            credential_key,\n            etc_fee,\n            fee,\n            issuer_name,\n            masked_card_number,\n            merchant_number,\n            paid_at,\n            payment,\n            point_fee,\n            purchase_delayed,\n            row_number() OVER (\n                PARTITION BY business_id, credential_key, CAST(transacted_at AS DATE), masked_card_number, amount\n                ORDER BY purchased_at DESC, authorization_number\n            ) AS purchase_cancel_seq,\n            row_number() OVER (\n                PARTITION BY business_id, credential_key, CAST(transacted_at AS DATE), authorization_number, masked_card_number, amount\n                ORDER BY purchased_at ASC\n            ) AS purchase_seq,\n            purchased_at,\n            scraping_type,\n            transacted_at,\n            vat_fee,\n            created_at,\n            updated_at,\n            created_at_date\n  FROM      purchases"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "purchases_with_sequence"
+      ],
+      "name": "purchases_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-data-staging/raw/etl/snowdon/card_sales/purchases",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "2000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

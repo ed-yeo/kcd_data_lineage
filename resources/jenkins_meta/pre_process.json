@@ -1,0 +1,41 @@
+{
+  "name": "build_session",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "transactions",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/transactions"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "transactions"
+      ],
+      "name": "txs",
+      "options": {
+        "sql": "SELECT  encrypted_card_number,\n        collect_list(\n          struct(\n            business_id,\n            transacted_at\n          )\n        ) AS histories\nFROM    transactions\nWHERE   encrypted_card_number is not null\nAND     approval_canceled_at IS NULL AND purchase_canceled_at IS NULL\nAND     created_at_date >= '2020-01-25'\nAND     created_at_date < '2021-01-23'\nAND     transacted_at >= '2020-01-25'\nAND     transacted_at < '2021-01-23'\nAND     (\n          (purchased_at is not null AND purchase_canceled_at is null) OR\n          (purchased_at is null AND approval_canceled_at is null)\n        )\nGROUP BY encrypted_card_number"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "txs"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/etl/snowdon/places/similarity/grouped"
+      },
+      "type": "file"
+    }
+  ]
+}

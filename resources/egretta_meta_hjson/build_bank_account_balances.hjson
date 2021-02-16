@@ -1,0 +1,90 @@
+{
+  name: build_bank_account_balances
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: bank_transactions_src
+      options:
+      {
+        format: parquet
+        paths: ${BANK_TRANSACTIONS_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: bank_transactions
+      inputs:
+      [
+        bank_transactions_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    bank_transactions_src
+          WHERE   created_at_date >= '${MIN_DATE}'
+          AND     created_at_date < '${MAX_DATE}'
+          '''
+      }
+    }
+    {
+      name: build_bank_account_balances
+      inputs:
+      [
+        bank_transactions
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  bank_account_id AS id,
+                  business_id,
+                  bank_name,
+                  account_type,
+                  account_number,
+                  account_created_at AS created_at,
+                  account_updated_at AS updated_at,
+                  credential_id,
+                  name,
+                  uuid,
+                  holder_name,
+                  date_trunc('day', transacted_at) AS transacted_at_date,
+                  balance,
+                  created_at_date
+          FROM    bank_transactions
+          WHERE   business_id is not null
+          AND     seq = 1
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        build_bank_account_balances
+      ]
+      name: file_sink
+      options: {
+        mode: overwritePartitions
+        path: "${OUTPUT_PATH}"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: created_at_date
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

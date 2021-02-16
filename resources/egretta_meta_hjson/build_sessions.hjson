@@ -1,0 +1,65 @@
+{
+  name: build_session
+  udfs: [
+    {
+      name: to_sessions
+      class: com.kcd.thrush.analysis.spark.udfs.Session
+      params: {
+        window: '${window}'
+        minVisitCount: '${minVisitCount}'
+      }
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: txs
+      options:
+      {
+        format: parquet
+        paths: "${output_path}/txs"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        txs
+      ]
+      name: sessions
+      options:
+      {
+        sql:
+          '''
+          SELECT  tx_stat.*
+          FROM    (
+            SELECT  explode(to_sessions(encrypted_card_number, histories)) AS tx_stat
+            FROM    txs
+          )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        sessions
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${output_path}/sessions"
+      }
+      type: file
+    }
+  ]
+}

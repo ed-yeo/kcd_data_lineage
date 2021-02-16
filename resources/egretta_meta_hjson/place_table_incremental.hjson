@@ -1,0 +1,450 @@
+{
+  name: place_table_incremental
+  udfs: [
+  ]
+  source:
+  [
+
+    // snapshot sources
+    {
+      inputs: []
+      name: place_indexes_snapshot
+      options:
+      {
+        format: parquet
+        paths: "${PLACE_SNAPSHOT_PATH}/place_indexes"
+        skip_tx: "true"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_info_snapshot
+      options:
+      {
+        format: parquet
+        paths: "${PLACE_SNAPSHOT_PATH}/place_info"
+        skip_tx: "true"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_menus_snapshot
+      options:
+      {
+        format: parquet
+        paths: "${PLACE_SNAPSHOT_PATH}/place_menus"
+        skip_tx: "true"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_reviews_snapshot
+      options:
+      {
+        format: parquet
+        paths: "${PLACE_SNAPSHOT_PATH}/place_reviews"
+        skip_tx: "true"
+      }
+      type: file
+    }
+
+    // incremental sources
+
+    {
+      inputs: []
+      name: place_indexes
+      options:
+      {
+        format: json
+        paths: "${PLACE_INDEXES_INPUT_PATH}"
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_info
+      options:
+      {
+        format: json
+        paths: "${PLACE_INFO_INPUT_PATH}"
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_menus
+      options:
+      {
+        format: json
+        paths: "${PLACE_MENUS_INPUT_PATH}"
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_reviews
+      options:
+      {
+        format: json
+        paths: "${PLACE_REVIEWS_INPUT_PATH}"
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+          place_indexes
+          place_indexes_snapshot
+      ]
+      name: place_indexes_union_distinct
+      options:
+      {
+        sql:
+          '''
+             SELECT
+                 *
+             FROM
+                  (SELECT
+                      row_number() OVER (PARTITION BY registration_number, merchant_number, issuer ORDER BY _scrap_id DESC) AS rownum,
+                      *
+                  FROM
+                    (SELECT
+                        timestamp,
+                        _scrap_id,
+                        place_uid,
+                        place_type,
+                        registration_number,
+                        merchant_number,
+                        issuer
+                    FROM
+                        place_indexes
+
+                    UNION ALL
+
+                    SELECT
+                        timestamp,
+                        _scrap_id,
+                        place_uid,
+                        place_type,
+                        registration_number,
+                        merchant_number,
+                        issuer
+                    FROM
+                        place_indexes_snapshot
+                    )
+                  )
+             WHERE rownum = 1
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+          place_info
+          place_info_snapshot
+      ]
+      name: place_info_union_distinct
+      options:
+      {
+        sql:
+          '''
+              SELECT
+                 *
+              FROM
+                  (SELECT
+                      row_number() OVER (PARTITION BY place_uid, place_type ORDER BY _scrap_id DESC) AS rownum,
+                      *
+                   FROM
+                      (SELECT
+                           timestamp,
+                           place_uid,
+                           place_type,
+                           name,
+                           classification,
+                           street_address,
+                           lot_address,
+                           phone_number,
+                           latitude,
+                           longitude,
+                           description,
+                           images,
+                           _scrap_id
+                       FROM
+                           place_info
+
+                       UNION ALL
+
+                       SELECT
+                           timestamp,
+                           place_uid,
+                           place_type,
+                           name,
+                           classification,
+                           street_address,
+                           lot_address,
+                           phone_number,
+                           latitude,
+                           longitude,
+                           description,
+                           images,
+                           _scrap_id
+                       FROM
+                           place_info_snapshot
+                      )
+                  )
+              WHERE
+                  rownum = 1
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+          place_menus
+          place_menus_snapshot
+      ]
+      name: place_menus_union_distinct
+      options:
+      {
+        sql:
+          '''
+             SELECT B.* FROM
+                 (SELECT
+                     place_uid,
+                     place_type,
+                     max(_scrap_id) as max_scrap_id
+                 FROM
+                     (SELECT
+                         timestamp, place_uid, place_type, name, description, price, image, priority, _scrap_id
+                      FROM place_menus
+
+                      UNION ALL
+
+                      SELECT
+                         timestamp, place_uid, place_type, name, description, price, image, priority, _scrap_id
+                      FROM place_menus_snapshot
+                     )
+                 GROUP BY
+                     place_uid, place_type
+                 ) A INNER JOIN
+                     (SELECT
+                         timestamp, place_uid, place_type, name, description, price, image, priority, _scrap_id
+                      FROM place_menus
+
+                      UNION ALL
+
+                      SELECT
+                          timestamp, place_uid, place_type, name, description, price, image, priority, _scrap_id
+                      FROM place_menus_snapshot
+                     ) B
+                     ON   A.place_uid = B.place_uid
+                     AND  A.place_type = B.place_type
+                     AND  A.max_scrap_id = B._scrap_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+          place_reviews
+          place_reviews_snapshot
+      ]
+      name: place_reviews_union_distinct
+      options:
+      {
+        sql:
+          '''
+              SELECT
+                  *
+              FROM
+                  (SELECT
+                      *,
+                      row_number() OVER (PARTITION BY place_uid, place_type, unique_key, review_type ORDER BY _scrap_id DESC) AS rownum
+                  FROM
+                      (SELECT
+                         CASE WHEN url IS null OR trim(url) = '' THEN review_id ELSE url END as unique_key,
+                         *
+                       FROM
+                         (SELECT
+                             timestamp,
+                             place_uid,
+                             place_type,
+                             review_type,
+                             review_id,
+                             author,
+                             title,
+                             contents,
+                             url,
+                             image,
+                             rating,
+                             written_at,
+                             _scrap_id
+                          FROM place_reviews
+
+                          UNION ALl
+
+                          SELECT
+                             timestamp,
+                             place_uid,
+                             place_type,
+                             review_type,
+                             review_id,
+                             author,
+                             title,
+                             contents,
+                             url,
+                             image,
+                             rating,
+                             written_at,
+                             _scrap_id
+                           FROM place_reviews_snapshot)
+                      )
+                  )
+              WHERE rownum = 1
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+          place_info_union_distinct
+          place_reviews_union_distinct
+      ]
+      name: place_info_with_rating
+      options:
+      {
+        sql:
+          '''
+             SELECT
+                A.*,
+                B.review_count,
+                B.avg_review_rating
+             FROM
+                place_info_union_distinct A
+             LEFT OUTER JOIN
+                (SELECT
+                     place_uid,
+                     place_type,
+                     count(*) AS review_count,
+                     avg(rating) AS avg_review_rating
+                 FROM
+                    place_reviews_union_distinct
+                 GROUP BY
+                    1, 2) B
+                 ON
+                    A.place_uid = B.place_uid
+                 AND
+                    B.place_type = B.place_type
+          '''
+      }
+      type: sql
+    }
+    {
+          inputs:
+          [
+              place_info_with_rating
+              place_indexes_union_distinct
+          ]
+          name: place_info_with_rating_with_registration_number
+          options:
+          {
+            sql:
+              '''
+                 SELECT
+                    A.*,
+                    B.registration_number
+                 FROM
+                    place_info_with_rating A
+                 LEFT OUTER JOIN
+                    (SELECT
+                        *
+                     FROM
+                        place_indexes_union_distinct
+                     ) B
+                     ON
+                        A.place_uid = B.place_uid
+                     AND
+                        B.place_type = B.place_type
+              '''
+          }
+          type: sql
+        }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        place_indexes_union_distinct
+      ]
+      name: place_indexes_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}/place_indexes"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        place_info_with_rating_with_registration_number
+      ]
+      name: place_info_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}/place_info"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        place_menus_union_distinct
+      ]
+      name: place_menus_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}/place_menus"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        place_reviews_union_distinct
+      ]
+      name: place_reviews_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}/place_reviews"
+      }
+      type: file
+    }
+  ]
+}

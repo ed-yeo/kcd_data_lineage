@@ -1,0 +1,72 @@
+{
+  "name": "merchant_classification_place",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "kakao",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=places/name=kakao"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "naver",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=places/name=naver"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "naver"
+      ],
+      "name": "naver_classification",
+      "options": {
+        "sql": "SELECT\n          registration_number, card_issuer, merchant_number,\n          arr[0] AS depth_1_name,\n          arr[1] AS depth_2_name,\n          arr[2] AS depth_3_name,\n          arr[3] AS depth_4_name,\n          arr[4] AS depth_5_name\nFROM (\n        SELECT  registration_number, card_issuer, merchant_number,\n                split(classification, ' > ') AS arr\n        FROM    naver\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "kakao"
+      ],
+      "name": "kakao_classification",
+      "options": {
+        "sql": "SELECT\n          registration_number, card_issuer, merchant_number,\n          arr[0] AS depth_1_name,\n          arr[1] AS depth_2_name,\n          arr[2] AS depth_3_name,\n          arr[3] AS depth_4_name,\n          arr[4] AS depth_5_name\nFROM (\n        SELECT  registration_number, card_issuer, merchant_number,\n                split(classification, ' > ') AS arr\n        FROM    kakao\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "kakao_classification"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=classification/name=kakao"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "naver_classification"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=classification/name=naver"
+      },
+      "type": "file"
+    }
+  ]
+}

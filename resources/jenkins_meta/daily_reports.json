@@ -1,0 +1,226 @@
+{
+  "name": "daily_reports",
+  "udfs": [
+    {
+      "name": "dayofweek_kor",
+      "class": "com.kcd.thrush.utils.spark.udfs.DateUtil",
+      "params": {
+        "method": "dayofweek"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "report_logs",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "report_logs",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "398030145",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "businesses",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "credentials",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "credentials",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc",
+      "cache": true
+    },
+    {
+      "inputs": [],
+      "name": "scrapings",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "scrapings",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "issuers",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "issuers",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "formatted_daily_report",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/report/snowdon/daily_report/date_id=2021-01-28"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "issuers"
+      ],
+      "name": "outdated_issuers",
+      "options": {
+        "sql": "  SELECT\n          IF(cnt > 0, true, false) AS crefia_delayed,\n          IF(cnt = 8, true, false) AS all_crefia_delayed\n  FROM (\n          SELECT COUNT(DISTINCT(name)) AS cnt\n          FROM issuers\n          WHERE approvals_up_to <  '2021-01-28'\n  )"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "credentials"
+      ],
+      "name": "crefia_credential",
+      "options": {
+        "sql": "SELECT business_id, collect_set(c)[0] AS confirmed\nFROM (\n    SELECT  business_id, IF(status = 1, true, false) AS c\n    FROM credentials\n    WHERE type in ('Credentials::CrefiaBusiness', 'Credentials::Crefia')\n)\nGROUP BY business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "businesses",
+        "credentials",
+        "scrapings"
+      ],
+      "name": "businesses_info",
+      "options": {
+        "sql": "SELECT    businesses.id,\n          businesses.name AS report_business_name,\n          NVL(c.has_delivery_app_credentials, false) AS has_delivery_app_credentials,\n          NVL(c.has_baemin_credential, false) AS has_baemin_credential,\n          NVL(c.has_yogiyo_credential, false) AS has_yogiyo_credential,\n          NVL(c.has_baedaltong_credential, false) AS has_baedaltong_credential,\n          NVL(c.has_hometax_credentials, false) AS has_hometax_credentials\nFROM businesses\nLEFT OUTER JOIN (\n    SELECT\n            business_id,\n            IF(size(delivery_app_credentials) > 0, true, false) AS has_delivery_app_credentials,\n            IF(array_contains(delivery_app_credentials, 'baemin'), true, false) AS has_baemin_credential,\n            IF(array_contains(delivery_app_credentials, 'yogiyo'), true, false) AS has_yogiyo_credential,\n            IF(array_contains(delivery_app_credentials, 'baedaltong'), true, false) AS has_baedaltong_credential,\n            IF(size(hometax_credentials) > 0, true, false) AS has_hometax_credentials\n\n    FROM (\n        SELECT  business_id,\n                collect_list(hometax_credential) AS hometax_credentials,\n                collect_list(delivery_app_credential) AS delivery_app_credentials\n        FROM (\n            SELECT  credentials.business_id,\n                    IF(\n                        credentials.type in ('Credentials::HometaxCertificate', 'Credentials::HometaxLogin'),\n                        lower(replace(credentials.type, \"Credentials::\", \"\")),\n                        null\n                    ) AS hometax_credential,\n                    IF(\n                        credentials.type not in ('Credentials::HometaxCertificate', 'Credentials::HometaxLogin'),\n                        lower(replace(credentials.type, \"Credentials::\", \"\")),\n                        null\n                    ) AS delivery_app_credential\n            FROM credentials\n            JOIN scrapings\n            ON scrapings.credential_id = credentials.id\n            where credentials.status = 1\n            AND scrapings.status = 1\n            AND (\n                scrapings.tag in ('BaeminShop', 'YogiyoShop', 'BaedaltongShop') OR\n                credentials.type in ('Credentials::HometaxCertificate', 'Credentials::HometaxLogin')\n            )\n        )\n        GROUP BY business_id\n    )\n) AS c\nON businesses.id = c.business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "report_logs"
+      ],
+      "name": "formatted_report_logs",
+      "options": {
+        "sql": "SELECT\n          id, group_id, target_id, business_id, user_id, title, template_code, url_mobile,\n\n          card_sales.card_sales_amount AS card_sales_amount,\n          card_sales.card_sales_count AS card_sales_count,\n          card_sales.card_sales_fee AS card_sales_fee,\n          card_sales.card_sales_vat_fee AS card_sales_vat_fee,\n          card_sales.card_sales_payment AS card_sales_payment,\n          card_sales.new_amount AS card_sales_new_amount,\n          card_sales.returning_amount AS card_sales_returning_amount,\n          card_sales.monthly_card_sales AS card_sales_monthly_amount,\n\n          hourly_sales.`새벽` AS `hourly_sales_0_6_amount`,\n          hourly_sales.`아침` AS `hourly_sales_6_11_amount`,\n          hourly_sales.`점심` AS `hourly_sales_11_14_amount`,\n          hourly_sales.`오후` AS `hourly_sales_14_17_amount`,\n          hourly_sales.`저녁` AS `hourly_sales_17_24_amount`,\n          hourly_sales.`미분류` AS `hourly_sales_etc_amount`,\n\n          today_payments.`KB` AS today_payments_kb,\n          today_payments.`농협NH` AS today_payments_nh,\n          today_payments.`롯데` AS today_payments_lotte,\n          today_payments.`비씨` AS today_payments_bc,\n          today_payments.`삼성` AS today_payments_samsung,\n          today_payments.`신한` AS today_payments_shinhan,\n          today_payments.`하나` AS today_payments_hana,\n          today_payments.`현대` AS today_payments_hyundai,\n          today_payments.`배달의민족` AS today_payments_baemin,\n          today_payments.`요기요` AS today_payments_yogiyo,\n          today_payments.`배달통` AS today_payments_baedaltong,\n\n          delivery_app_sales.baemin_sales_amount AS delivery_app_sales_baemin_amount,\n          delivery_app_sales.yogiyo_sales_amount AS delivery_app_sales_yogiyo_amount,\n          delivery_app_sales.baedaltong_sales_amount AS delivery_app_sales_baedaltong_amount,\n          delivery_app_sales.monthly_delivery_app_sales AS delivery_app_sales_monthly_amount,\n\n          card_purchases.monthly_card_purchases AS card_purchases_monthly_amount,\n          CAST(hometax_sales.monthly_invoice_sales_amount AS LONG) AS hometax_sales_monthly_invoice_amount,\n          CAST(hometax_sales.monthly_cash_sales_amount AS LONG) AS hometax_sales_monthly_cash_amount,\n          CAST(hometax_purchases.monthly_cash_purchases AS LONG) AS hometax_purchases_monthly_cash_amount,\n          CAST(hometax_purchases.monthly_invoice_purchases AS LONG) AS hometax_purchases_monthly_invoice_amount,\n\n          transform(future_payments, m -> named_struct('amount', m.amount, 'date', CONCAT(date_format(m.date, 'd일'), '(', dayofweek_kor(m.date), ')')))\n          AS future_payments_arr,\n          transform(bank_accounts, m -> named_struct('bank_name', m.bank_name, 'account_number', CONCAT('*', SUBSTRING(m.account_number, -5)), 'balance', nvl(m.balance, 0), 'unused', IF(m.balance IS null, true, false)))\n          AS bank_accounts_arr,\n          transform(card_purchases.today_purchases, m -> named_struct('amount', nvl(m.amount, 0), 'count', m.count, 'issuer', m.card.issuer, 'number', CONCAT('*', SUBSTRING(m.card.number, -4))   ))\n          AS today_card_purchases_arr\nFROM (\n        SELECT    id, group_id, target_id, business_id, user_id,\n                  nvl(payload.title, '') AS title,\n                  payload.attachment, payload.template_code,\n                  payload.attachment.button[0].url_mobile AS url_mobile,\n                  payload.raw_data.*\n        FROM (\n              SELECT  id, group_id, CONCAT(user_id, '_', business_id) AS target_id,\n                      business_id, user_id,\n                      from_json(bzm_payload, 'STRUCT<`attachment`: STRUCT<`button`: ARRAY<STRUCT<`name`: STRING, `type`: STRING, `url_mobile`: STRING>>>, `raw_data`: STRUCT<`bank_accounts`: ARRAY<STRUCT<`account_number`: STRING, `balance`: BIGINT, `bank_name`: STRING>>, `card_purchases`: STRUCT<`monthly_card_purchases`: BIGINT, `today_purchases`: ARRAY<STRUCT<`amount`: BIGINT, `card`: STRUCT<`business_id`: BIGINT, `card_type`: STRING, `created_at`: STRING, `credential_id`: BIGINT, `id`: BIGINT, `issuer`: STRING, `name`: STRING, `number`: STRING, `updated_at`: STRING, `uuid`: STRING>, `count`: BIGINT>>>, `card_sales`: STRUCT<`card_sales_amount`: BIGINT, `card_sales_count`: BIGINT, `card_sales_fee`: BIGINT, `card_sales_payment`: BIGINT, `card_sales_vat_fee`: BIGINT, `monthly_card_sales`: BIGINT, `new_amount`: BIGINT, `returning_amount`: BIGINT>, `delivery_app_sales`: STRUCT<`baedaltong_sales_amount`: BIGINT, `baemin_sales_amount`: BIGINT, `monthly_delivery_app_sales`: BIGINT, `yogiyo_sales_amount`: BIGINT>, `future_payments`: ARRAY<STRUCT<`amount`: BIGINT, `date`: STRING>>, `hometax_purchases`: STRUCT<`monthly_cash_purchases`: STRING, `monthly_invoice_purchases`: STRING>, `hometax_sales`: STRUCT<`monthly_cash_sales_amount`: STRING, `monthly_invoice_sales_amount`: STRING>, `hourly_sales`: STRUCT<`미분류`: BIGINT, `새벽`: BIGINT, `아침`: BIGINT, `오후`: BIGINT, `저녁`: BIGINT, `점심`: BIGINT>, `today_payments`: STRUCT<`KB`: BIGINT, `농협NH`: BIGINT, `롯데`: BIGINT, `배달의민족`: BIGINT, `요기요`: BIGINT, `배달통`: BIGINT, `비씨`: BIGINT, `삼성`: BIGINT, `신한`: BIGINT, `하나`: BIGINT, `현대`: BIGINT>>, `template_code`: STRING, `title`: STRING>', map())\n                      AS payload\n              FROM    report_logs\n              WHERE   id > 398030145\n              AND     group_id in ('0aedb1b7-7b73-4f94-9361-c49e3480efe3','e365a43e-c321-4f54-a6f5-dbc1245228a6')\n              AND     report_type = 'daily'\n              AND     business_id IS NOT NULL\n              AND     user_id IS NOT NULL\n        )\n)"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "formatted_report_logs"
+      ],
+      "name": "latest_id",
+      "options": {
+        "sql": "SELECT CAST(max(id) AS STRING) AS value FROM formatted_report_logs"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "formatted_daily_report",
+        "formatted_report_logs"
+      ],
+      "name": "merged",
+      "options": {
+        "sql": "SELECT    *,\n          (hourly_sales_0_6_amount + hourly_sales_6_11_amount + hourly_sales_11_14_amount + hourly_sales_14_17_amount + hourly_sales_17_24_amount + hourly_sales_etc_amount) AS hourly_sales_amount_sum\nFROM (\nSELECT    target_id, business_id, user_id, title, template_code, url_mobile,\n          NVL(card_sales_amount, 0) AS card_sales_amount,\n          NVL(card_sales_count, 0) AS card_sales_count,\n          NVL(card_sales_fee, 0) AS card_sales_fee,\n          NVL(card_sales_vat_fee, 0) AS card_sales_vat_fee,\n          NVL(card_sales_payment, 0) AS card_sales_payment,\n          NVL(card_sales_new_amount, 0) AS card_sales_new_amount,\n          NVL(card_sales_returning_amount, 0) AS card_sales_returning_amount,\n          NVL(card_sales_monthly_amount, 0) AS card_sales_monthly_amount,\n          NVL(hourly_sales_0_6_amount, 0) AS hourly_sales_0_6_amount,\n          NVL(hourly_sales_6_11_amount, 0) AS hourly_sales_6_11_amount,\n          NVL(hourly_sales_11_14_amount, 0) AS hourly_sales_11_14_amount,\n          NVL(hourly_sales_14_17_amount, 0) AS hourly_sales_14_17_amount,\n          NVL(hourly_sales_17_24_amount, 0) AS hourly_sales_17_24_amount,\n          NVL(hourly_sales_etc_amount, 0) AS hourly_sales_etc_amount,\n          NVL(delivery_app_sales_monthly_amount, 0) AS delivery_app_sales_monthly_amount,\n          NVL(card_purchases_monthly_amount, 0) AS card_purchases_monthly_amount,\n          NVL(hometax_sales_monthly_invoice_amount, 0) AS hometax_sales_monthly_invoice_amount,\n          NVL(hometax_sales_monthly_cash_amount, 0) AS hometax_sales_monthly_cash_amount,\n          NVL(hometax_purchases_monthly_cash_amount, 0) AS hometax_purchases_monthly_cash_amount,\n          NVL(hometax_purchases_monthly_invoice_amount, 0) AS hometax_purchases_monthly_invoice_amount,\n          NVL(delivery_app_sales_baemin_amount, 0) AS delivery_app_sales_baemin_amount,\n          NVL(delivery_app_sales_yogiyo_amount, 0) AS delivery_app_sales_yogiyo_amount,\n          NVL(delivery_app_sales_baedaltong_amount, 0) AS delivery_app_sales_baedaltong_amount,\n          array(\n              named_struct('issuer_name', 'KB', 'amount', nvl(today_payments_kb, 0L)),\n              named_struct('issuer_name', '농협NH', 'amount', nvl(today_payments_nh, 0L)),\n              named_struct('issuer_name', '롯데', 'amount', nvl(today_payments_lotte, 0L)),\n              named_struct('issuer_name', '비씨', 'amount', nvl(today_payments_bc, 0L)),\n              named_struct('issuer_name', '삼성', 'amount', nvl(today_payments_samsung, 0L)),\n              named_struct('issuer_name', '신한', 'amount', nvl(today_payments_shinhan, 0L)),\n              named_struct('issuer_name', '하나', 'amount', nvl(today_payments_hana, 0L)),\n              named_struct('issuer_name', '현대', 'amount', nvl(today_payments_hyundai, 0L)),\n              named_struct('issuer_name', '배달의민족', 'amount', nvl(today_payments_baemin, 0L)),\n              named_struct('issuer_name', '요기요', 'amount', nvl(today_payments_yogiyo, 0L)),\n              named_struct('issuer_name', '배달통', 'amount', nvl(today_payments_baedaltong, 0L))\n          ) AS today_payments_arr,\n          array(\n              named_struct('app_name', '배달의민족', 'amount', delivery_app_sales_baemin_amount),\n              named_struct('app_name', '요기요', 'amount', delivery_app_sales_yogiyo_amount),\n              named_struct('app_name', '배달통', 'amount', delivery_app_sales_baedaltong_amount)\n          ) AS delivery_app_sales_arr,\n          future_payments_arr,\n          bank_accounts_arr,\n          today_card_purchases_arr\nFROM (\n        SELECT\n                  o.target_id, o.business_id, o.user_id, o.title, o.template_code, o.url_mobile,\n\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'card_sales_amount'),           n.card_sales_amount, o.card_sales_amount) AS card_sales_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'card_sales_count'),            n.card_sales_count, o.card_sales_count) AS card_sales_count,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'card_sales_fee'),              n.card_sales_fee, o.card_sales_fee) AS card_sales_fee,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'card_sales_vat_fee'),          n.card_sales_vat_fee, o.card_sales_vat_fee) AS card_sales_vat_fee,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'card_sales_payment'),          n.card_sales_payment, o.card_sales_payment) AS card_sales_payment,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'card_sales_new_amount'),       n.card_sales_new_amount, o.card_sales_new_amount) AS card_sales_new_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'card_sales_returning_amount'), n.card_sales_returning_amount, o.card_sales_returning_amount) AS card_sales_returning_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'card_sales_monthly_amount'),   n.card_sales_monthly_amount, o.card_sales_monthly_amount) AS card_sales_monthly_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'hourly_sales_0_6_amount'),     n.hourly_sales_0_6_amount, o.hourly_sales_0_6_amount) AS hourly_sales_0_6_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'hourly_sales_6_11_amount'),    n.hourly_sales_6_11_amount, o.hourly_sales_6_11_amount) AS hourly_sales_6_11_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'hourly_sales_11_14_amount'),   n.hourly_sales_11_14_amount, o.hourly_sales_11_14_amount) AS hourly_sales_11_14_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'hourly_sales_14_17_amount'),   n.hourly_sales_14_17_amount, o.hourly_sales_14_17_amount) AS hourly_sales_14_17_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'hourly_sales_17_24_amount'),   n.hourly_sales_17_24_amount, o.hourly_sales_17_24_amount) AS hourly_sales_17_24_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'today_payments_kb'),           n.today_payments_kb, o.today_payments_kb) AS today_payments_kb,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'today_payments_nh'),           n.today_payments_nh, o.today_payments_nh) AS today_payments_nh,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'today_payments_lotte'),        n.today_payments_lotte, o.today_payments_lotte) AS today_payments_lotte,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'today_payments_baemin'),       n.today_payments_baemin, o.today_payments_baemin) AS today_payments_baemin,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'today_payments_bc'),           n.today_payments_bc, o.today_payments_bc) AS today_payments_bc,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'today_payments_samsung'),      n.today_payments_samsung, o.today_payments_samsung) AS today_payments_samsung,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'today_payments_shinhan'),      n.today_payments_shinhan, o.today_payments_shinhan) AS today_payments_shinhan,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'today_payments_hana'),         n.today_payments_hana, o.today_payments_hana) AS today_payments_hana,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'today_payments_hyundai'),      n.today_payments_hyundai, o.today_payments_hyundai) AS today_payments_hyundai,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'today_payments_yogiyo'),       n.today_payments_yogiyo, o.today_payments_yogiyo) AS today_payments_yogiyo,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'today_payments_baedaltong'),   n.today_payments_baedaltong, o.today_payments_baedaltong) AS today_payments_baedaltong,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'delivery_app_sales_baemin_amount'),        n.delivery_app_sales_baemin_amount, o.delivery_app_sales_baemin_amount) AS delivery_app_sales_baemin_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'delivery_app_sales_yogiyo_amount'),        n.delivery_app_sales_yogiyo_amount, o.delivery_app_sales_yogiyo_amount) AS delivery_app_sales_yogiyo_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'delivery_app_sales_baedaltong_amount'),    n.delivery_app_sales_baedaltong_amount, o.delivery_app_sales_baedaltong_amount) AS delivery_app_sales_baedaltong_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'delivery_app_sales_monthly_amount'),       n.delivery_app_sales_monthly_amount, o.delivery_app_sales_monthly_amount) AS delivery_app_sales_monthly_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'card_purchases_monthly_amount'),           n.card_purchases_monthly_amount, o.card_purchases_monthly_amount) AS card_purchases_monthly_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'hometax_sales_monthly_invoice_amount'),    n.hometax_sales_monthly_invoice_amount, o.hometax_sales_monthly_invoice_amount) AS hometax_sales_monthly_invoice_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'hometax_sales_monthly_cash_amount'),       n.hometax_sales_monthly_cash_amount, o.hometax_sales_monthly_cash_amount) AS hometax_sales_monthly_cash_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'hometax_purchases_monthly_cash_amount'),   n.hometax_purchases_monthly_cash_amount, o.hometax_purchases_monthly_cash_amount) AS hometax_purchases_monthly_cash_amount,\n                  IF(array_contains(array('card_sales_amount', 'card_sales_count', 'card_sales_fee', 'card_sales_vat_fee'), 'hometax_purchases_monthly_invoice_amount'),n.hometax_purchases_monthly_invoice_amount, o.hometax_purchases_monthly_invoice_amount) AS hometax_purchases_monthly_invoice_amount,\n                  o.hourly_sales_etc_amount,\n                  o.future_payments_arr,\n                  o.bank_accounts_arr,\n                  o.today_card_purchases_arr\n        FROM      formatted_report_logs AS o\n        LEFT OUTER JOIN   formatted_daily_report AS n\n        ON        o.business_id = n.business_id\n)\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merged"
+      ],
+      "name": "calc_additional_columns",
+      "options": {
+        "sql": "SELECT    *,\n          date_format('2021-01-28', 'M월') AS report_month,\n          date_format('2021-01-28', 'M월 d일') AS report_date,\n          dayofweek_kor('2021-01-28') AS report_day_of_week,\n          date_format('2021-01-29', 'M월 d일') AS today_date,\n          dayofweek_kor('2021-01-29') AS today_day_of_week,\n\n          IF(bank_account_etc_count > 0, true, false) AS bank_account_etc_exists,\n          IF(today_card_purchases_etc_count > 0, true, false) AS today_card_purchases_etc_exists,\n          IF(size(delivery_app_sales) > 0, true, false) AS delivery_app_sales_exists,\n          IF(size(today_payments) > 0, true, false) AS today_payments_exists,\n          IF(size(future_payments) > 0, true, false) AS future_payments_exists\nFROM (\n        SELECT    target_id, business_id, user_id, title, template_code, url_mobile,\n\n                  FORMAT_NUMBER(card_sales_amount, 0) AS card_sales_amount,\n                  FORMAT_NUMBER(card_sales_count, 0) AS card_sales_count,\n                  FORMAT_NUMBER(card_sales_fee, 0) AS card_sales_fee,\n                  FORMAT_NUMBER(card_sales_vat_fee, 0) AS card_sales_vat_fee,\n                  IF(card_sales_vat_fee > 0, true, false) AS card_sales_vat_fee_exists,\n                  FORMAT_NUMBER(card_sales_payment, 0) AS card_sales_payment,\n                  FORMAT_NUMBER(card_sales_new_amount, 0) AS card_sales_new_amount,\n                  FORMAT_NUMBER(card_sales_returning_amount, 0) AS card_sales_returning_amount,\n                  FORMAT_NUMBER(card_sales_monthly_amount, 0) AS card_sales_monthly_amount,\n                  FORMAT_NUMBER(delivery_app_sales_monthly_amount, 0) AS delivery_app_sales_monthly_amount,\n                  FORMAT_NUMBER(card_purchases_monthly_amount, 0) AS card_purchases_monthly_amount,\n                  FORMAT_NUMBER(hometax_sales_monthly_invoice_amount, 0) AS hometax_sales_monthly_invoice_amount,\n                  FORMAT_NUMBER(hometax_sales_monthly_cash_amount, 0) AS hometax_sales_monthly_cash_amount,\n                  FORMAT_NUMBER(hometax_purchases_monthly_cash_amount, 0) AS hometax_purchases_monthly_cash_amount,\n                  FORMAT_NUMBER(hometax_purchases_monthly_invoice_amount, 0) AS hometax_purchases_monthly_invoice_amount,\n\n                  NVL(FORMAT_NUMBER(FLOOR(card_sales_amount / card_sales_count), 0), '0') AS card_sales_unit_price,\n                  NVL(FORMAT_NUMBER(ROUND(card_sales_new_amount / card_sales_amount * 100), 0), '0') AS card_sales_new_amount_percent,\n                  NVL(FORMAT_NUMBER(ROUND(card_sales_returning_amount / card_sales_amount * 100), 0), '0') AS card_sales_returning_amount_percent,\n                  IF(card_sales_amount > 0, true, false) AS card_sales_amount_exists,\n\n                  FORMAT_NUMBER(hourly_sales_0_6_amount, 0) AS hourly_sales_0_6_amount,\n                  FORMAT_NUMBER(hourly_sales_6_11_amount, 0) AS hourly_sales_6_11_amount,\n                  FORMAT_NUMBER(hourly_sales_11_14_amount, 0) AS hourly_sales_11_14_amount,\n                  FORMAT_NUMBER(hourly_sales_14_17_amount, 0) AS hourly_sales_14_17_amount,\n                  FORMAT_NUMBER(hourly_sales_17_24_amount, 0) AS hourly_sales_17_24_amount,\n                  FORMAT_NUMBER(hourly_sales_etc_amount, 0) AS hourly_sales_etc_amount,\n                  NVL(FORMAT_NUMBER(ROUND(hourly_sales_0_6_amount / hourly_sales_amount_sum * 100), 0), '0') AS hourly_sales_0_6_amount_percent,\n                  NVL(FORMAT_NUMBER(ROUND(hourly_sales_6_11_amount / hourly_sales_amount_sum * 100), 0), '0') AS hourly_sales_6_11_amount_percent,\n                  NVL(FORMAT_NUMBER(ROUND(hourly_sales_11_14_amount / hourly_sales_amount_sum * 100), 0), '0') AS hourly_sales_11_14_amount_percent,\n                  NVL(FORMAT_NUMBER(ROUND(hourly_sales_14_17_amount / hourly_sales_amount_sum * 100), 0), '0') AS hourly_sales_14_17_amount_percent,\n                  NVL(FORMAT_NUMBER(ROUND(hourly_sales_17_24_amount / hourly_sales_amount_sum * 100), 0), '0') AS hourly_sales_17_24_amount_percent,\n                  NVL(FORMAT_NUMBER(ROUND(hourly_sales_etc_amount / hourly_sales_amount_sum * 100), 0), '0') AS hourly_sales_etc_amount_percent,\n                  IF(hourly_sales_etc_amount > 0, true, false) AS hourly_sales_etc_amount_exists,\n                  IF(hourly_sales_amount_sum > 0, true, false) AS hourly_sales_exists,\n\n                  FORMAT_NUMBER(delivery_app_sales_baemin_amount, 0) AS delivery_app_sales_baemin_amount,\n                  FORMAT_NUMBER(delivery_app_sales_yogiyo_amount, 0) AS delivery_app_sales_yogiyo_amount,\n                  FORMAT_NUMBER(delivery_app_sales_baedaltong_amount, 0) AS delivery_app_sales_baedaltong_amount,\n\n                  filter(today_payments_arr, d -> d.amount > 0) AS today_payments,\n                  aggregate(today_payments_arr, 0L, (acc, d) -> acc + d.amount) AS today_payments_sum_amount,\n\n                  future_payments_arr AS future_payments,\n                  aggregate(future_payments_arr, 0L, (acc, d) -> acc + d.amount) AS future_payments_sum_amount,\n\n                  slice(bank_accounts_arr, 1, 5) AS bank_accounts,\n                  IF(size(bank_accounts_arr) > 5, size(bank_accounts_arr) - 5, 0) AS bank_account_etc_count,\n\n                  slice(today_card_purchases_arr, 1, 5) AS today_card_purchases,\n                  IF(size(today_card_purchases_arr) > 5, size(today_card_purchases_arr) - 5, 0) AS today_card_purchases_etc_count,\n\n                  filter(delivery_app_sales_arr, d -> d.amount > 0) AS delivery_app_sales,\n\n                  (\n                      card_sales_monthly_amount +\n                      delivery_app_sales_monthly_amount +\n                      hometax_sales_monthly_invoice_amount +\n                      hometax_sales_monthly_cash_amount\n                  ) AS monthly_sales_sum,\n                  (\n                      card_purchases_monthly_amount +\n                      hometax_purchases_monthly_cash_amount +\n                      hometax_purchases_monthly_invoice_amount\n                  ) AS monthly_purchases_sum\n        FROM      merged\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "calc_additional_columns",
+        "businesses_info",
+        "crefia_credential",
+        "outdated_issuers"
+      ],
+      "name": "with_businesses",
+      "options": {
+        "sql": "SELECT    *\nFROM (\n        SELECT    calc_additional_columns.*,\n                  b.*,\n                  IF(c.confirmed, 'daily_reports', 'daily_reports_wo_crefia') AS report_name\n        FROM      calc_additional_columns\n        LEFT OUTER JOIN   businesses_info AS b\n        ON        calc_additional_columns.business_id = b.id\n        LEFT OUTER JOIN   crefia_credential AS c\n        ON        calc_additional_columns.business_id = c.business_id\n) r\nCROSS JOIN outdated_issuers"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "formatted_report_logs"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/service/message/report_logs/user_type=cashnote/report_name=daily_reports/old_report_logs/date_id=2021-01-28",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "group_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "latest_id"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "text",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/message/report_logs/user_type=cashnote/report_name=daily_reports/old_report_logs/latest_id"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "with_businesses"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/service/message/reports/user_type=cashnote/date_id=2021-01-29",
+        "format": "json",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "report_name"
+      },
+      "type": "custom"
+    }
+  ]
+}

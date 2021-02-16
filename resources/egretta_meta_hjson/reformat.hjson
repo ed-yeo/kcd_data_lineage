@@ -1,0 +1,200 @@
+{
+  name: reformat
+  udfs:
+  [
+    {
+      name: maskCardNumberUDF
+      class: com.kcd.thrush.udfs.MarkCardNumberUDF
+      params: {}
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: current_approvals
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        paths: s3://staging-card-sales/staging-card-sales-approvals/${ymd_date_id}
+        format: json
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: current_purchases
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        paths: s3://staging-card-sales/staging-card-sales-purchases/${ymd_date_id}
+        format: json
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: current_payments
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        paths: s3://staging-card-sales/staging-card-sales-payments/${ymd_date_id}
+        format: json
+      }
+      type: custom
+    }
+  ]
+  process:
+  [
+    {
+      name: reformat_approvals
+      inputs:
+      [
+        current_approvals
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+             SELECT  *,
+                     CAST(transacted_at AS date) AS transacted_at_date,
+                     ABS(amount) AS amount_abs,
+                     maskCardNumberUDF(card_number, issuer_name) AS masked_card_number
+             FROM (
+                     SELECT  trim(IF (affiCardNm = '', null, affiCardNm)) AS acquirer_name,
+                             CAST(authAmt AS int) AS amount,
+                             trim(IF (authNo = '', null, authNo)) AS authorization_number,
+                             CAST(business_id AS int) AS business_id,
+                             trim(replace(cardNo, '-', '')) AS card_number,
+                             CAST(trim(cardKnd) AS int) AS card_type,
+                             trim(IF (cardRealNo = '', null, cardRealNo)) AS encrypted_card_number,
+                             IF (insTrmNm is null, 0, CAST(insTrmNm AS int)) AS installment,
+                             trim(IF (cardNm = '', null, replace(cardNm, '카드', ''))) AS issuer_name,
+                             trim(IF (merNo = '', null, merNo)) AS merchant_number,
+                             IF (authClassNm = '승인', 0, 1) AS status,
+                             to_timestamp(unix_timestamp(concat_ws(' ', trnsDate, trnsTime), 'yyyyMMdd HHmmss')) AS transacted_at,
+                             to_timestamp(unix_timestamp(concat_ws('-', year, month, day), 'yyyy-MM-dd')) AS created_at,
+                             CONCAT_WS('-', year, month, day) AS created_at_date
+                     FROM    current_approvals
+                     WHERE   cardNo is not null
+             )
+          '''
+      }
+    }
+    {
+      name: reformat_purchases
+      inputs:
+      [
+        current_purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+               CAST(transacted_at AS date) AS transacted_at_date,
+               ABS(amount) AS amount_abs,
+               maskCardNumberUDF(card_number, issuer_name) AS masked_card_number
+          FROM (
+               SELECT  trim(IF (affiCardNm = '', null, affiCardNm)) AS acquirer_name,
+                       CAST(pcaAmt AS int) AS amount,
+                       trim(IF (authNo = '', null, authNo)) AS authorization_number,
+                       CAST(basicFee AS int) AS base_fee,
+                       CAST(business_id AS int) AS business_id,
+                       trim(replace(cardNo, '-', '')) AS card_number,
+                       CAST(trim(cardClss) AS int) AS card_type,
+                       CAST(etcFee AS int) AS etc_fee,
+                       CAST(fee AS int) AS fee,
+                       trim(IF (cardNm = '', null, replace(cardNm, '카드', ''))) AS issuer_name,
+                       trim(IF (merNo = '', null, merNo)) AS merchant_number,
+                       to_timestamp(unix_timestamp(pymScdDate , 'yyyyMMdd')) AS paid_at,
+                       CAST(pymAmt AS int) AS payment,
+                       CAST(pointFee AS int) AS point_fee,
+                       to_timestamp(unix_timestamp(pcaDate , 'yyyyMMdd')) AS purchased_at,
+                       to_timestamp(unix_timestamp(trnsDate , 'yyyyMMdd')) AS transacted_at,
+                       CAST(vatFee AS int) AS vat_fee,
+                       to_timestamp(unix_timestamp(concat_ws('-', year, month, day), 'yyyy-MM-dd')) AS created_at,
+                       CONCAT_WS('-', year, month, day) AS created_at_date
+               FROM    current_purchases
+               WHERE   cardNo is not null
+          )
+          '''
+      }
+    }
+    {
+      name: reformat_payments
+      inputs:
+      [
+        current_payments
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  CAST(business_id AS int) AS business_id,
+                 trim(IF (cardNm = '', null, replace(cardNm, '카드', ''))) AS issuer_name,
+                 trim(IF (merNo = '', null, merNo)) AS merchant_number,
+                 trim(IF (stlBankNm = '', null, replace(stlBankNm, '은행', ''))) AS bank_name,
+                 trim(stlAcctNo) AS account_number,
+                 CAST(pcaCnt AS int) AS sales_count,
+                 CAST(rsvAmt AS BIGINT) AS reserved_amount,
+                 CAST(etcAmt AS BIGINT) AS etc_amount,
+                 CAST(pcaAmt AS BIGINT) AS sales_amount,
+                 CAST(rcpScdAmt AS BIGINT) AS received_amount,
+                 CAST(vatFeeAmt AS BIGINT) AS vat_fee_amount,
+                 to_timestamp(unix_timestamp(pymDate, 'yyyyMMdd')) AS received_at,
+                 CONCAT_WS('-', year, month, day) AS created_at_date
+          FROM    current_payments
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      name: file_sink
+      inputs:
+      [
+        reformat_approvals
+      ]
+      type: file
+      options:
+      {
+        path: s3://thrush/test/card_sales_v2/raw_v2/reformat/approvals/created_at_date=${date_id}
+        format: parquet
+        mode: overwrite
+      }
+    }
+    {
+      name: file_sink
+      inputs:
+      [
+        reformat_purchases
+      ]
+      type: file
+      options:
+      {
+        path: s3://thrush/test/card_sales_v2/raw_v2/reformat/purchases/created_at_date=${date_id}
+        format: parquet
+        mode: overwrite
+      }
+    }
+    {
+      name: file_sink
+      inputs:
+      [
+        reformat_payments
+      ]
+      type: file
+      options:
+      {
+        path: s3://thrush/test/card_sales_v2/raw_v2/reformat/payments/created_at_date=${date_id}
+        format: parquet
+        mode: overwrite
+      }
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "name": "asp_pos_post_process",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "items",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-staging/work/ryan/pos_asp/items/created_at_date=2020-11-04",
+        "log_leaf_file": "true"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "payments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-staging/work/ryan/pos_asp/payments/created_at_date=2020-11-04",
+        "log_leaf_file": "true"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-data/raw/db/snowdon/snapshot/latest/businesses"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "items",
+        "payments"
+      ],
+      "name": "merged_payments_with_items",
+      "options": {
+        "sql": "SELECT  CONCAT_WS('|',\n          p.store_pos_key,\n          p.receipt_key,\n          p.payment_key,\n          i.item_key\n        ) AS record_key,\n        current_timestamp() as ts,\n        p.ordered_at_date,\n        p.store_pos_key,\n        p.receipt_key,\n        p.payment_key,\n        p.pos_asp_agent,\n        p.brand_uid,\n        p.brand_name,\n        p.brand_registration_number,\n        p.francise_uid,\n        p.francise_name,\n        p.francise_registration_number,\n        p.store_uid,\n        p.store_name,\n        p.store_registration_number,\n        p.francise_address,\n        p.store_address,\n        p.store_area,\n        p.store_table_count,\n        p.pos_uid,\n        p.pos_name,\n        p.table_uid,\n        p.receipt_uid,\n        p.cancelled_receipt_uid,\n        p.receipt_status,\n        p.receipt_ordered_at,\n        p.receipt_paid_at,\n        p.receipt_amount,\n        p.receipt_discount,\n        p.receipt_vat,\n        p.payment_method,\n        p.payment_status,\n        p.payment_issuer,\n        p.payment_acquirer,\n        p.payment_card_number,\n        p.payment_authorization_number,\n        p.payment_cash_receipt_identification,\n        p.payment_approved_at,\n        p.payment_amount,\n        p.payment_price,\n        p.payment_vat,\n        p.payment_installment,\n        i.item_key,\n        i.menu_uid,\n        i.item_name,\n        i.item_ordered_at,\n        i.item_amount,\n        i.item_discount,\n        i.item_price,\n        i.item_quantity,\n        i.item_vat\nFROM payments p left outer join items i\nON p.pos_asp_agent = i.pos_asp_agent\nAND p.store_pos_key = i.store_pos_key\nAND p.receipt_key = i.receipt_key"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merged_payments_with_items"
+      ],
+      "name": "pos_asp_transactions",
+      "options": {
+        "sql": "SELECT    *\nFROM      merged_payments_with_items\nWHERE     record_key is not null"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "pos_asp_transactions"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/pos_asp/transactions/created_at_date=2020-11-04",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

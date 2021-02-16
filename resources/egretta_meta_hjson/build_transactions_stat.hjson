@@ -1,0 +1,177 @@
+{
+  name: build_transactions_stat
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: transactions_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: parquet
+        paths: ${TRANSACTIONS_PATH}
+      }
+      type: custom
+    }
+  ]
+  process:
+  [
+    {
+      name: transactions
+      inputs:
+      [
+        transactions_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      (
+              SELECT    *
+              FROM      transactions_raw
+          )
+          WHERE     (
+                      (approval_canceled_at is not null) OR
+                      purchased_at is not null
+                    )
+          AND       (
+                      (purchased_at is not null AND purchase_canceled_at is null) OR
+                      (purchased_at is null AND approval_canceled_at is null)
+                    )
+          '''
+      }
+    }
+    {
+      inputs:
+      [
+        transactions
+      ]
+      name: daily_hour_transactions_stat
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd-HH') AS time_key
+          FROM      (
+              SELECT    t.business_id,
+                        date_trunc('hour', t.transacted_at) AS time,
+                        'day_hour' AS time_unit,
+                        COALESCE(SUM(t.amount), 0) AS card_sales_amount,
+                        COUNT(*) AS card_sales_count,
+                        COALESCE(SUM(t.fee), 0) AS card_sales_fee,
+                        COALESCE(SUM(t.vat_fee), 0) AS card_sales_vat_fee,
+                        COALESCE(SUM(t.payment), 0) AS card_sales_payment,
+                        CAST(null AS bigint) AS returning_amount
+              FROM      transactions t
+              GROUP BY 1, 2
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        daily_hour_transactions_stat
+      ]
+      name: daily_transactions_stat
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd') AS time_key
+          FROM      (
+              SELECT    t.business_id,
+                        date_trunc('day', time) AS time,
+                        'day' AS time_unit,
+                        SUM(card_sales_amount) AS card_sales_amount,
+                        SUM(card_sales_count) AS card_sales_count,
+                        SUM(card_sales_fee) AS card_sales_fee,
+                        SUM(card_sales_vat_fee) AS card_sales_vat_fee,
+                        SUM(card_sales_payment) AS card_sales_payment,
+                        SUM(returning_amount) AS returning_amount
+              FROM      daily_hour_transactions_stat t
+              GROUP BY 1, 2
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        daily_transactions_stat
+      ]
+      name: monthly_transactions_stat
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd') AS time_key
+          FROM      (
+              SELECT    d.business_id,
+                        date_trunc('month', d.time) AS time,
+                        'month' AS time_unit,
+                        MAX(d.card_sales_amount) AS card_sales_amount,
+                        MAX(d.card_sales_count) AS card_sales_count,
+                        MAX(d.card_sales_fee) AS card_sales_fee,
+                        MAX(d.card_sales_vat_fee) AS card_sales_vat_fee,
+                        MAX(d.card_sales_payment) AS card_sales_payment,
+                        MAX(d.returning_amount) AS returning_amount
+              FROM      daily_transactions_stat d
+              GROUP BY  1,2
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        daily_hour_transactions_stat
+        daily_transactions_stat
+        monthly_transactions_stat
+      ]
+      name: transactions_stat
+      options:
+      {
+        sql:
+          '''
+          SELECT * FROM daily_hour_transactions_stat
+          UNION ALL
+          SELECT * FROM daily_transactions_stat
+          UNION ALL
+          SELECT * FROM monthly_transactions_stat
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        transactions_stat
+      ]
+      name: file_sink
+      options: {
+        mode: overwritePartitions
+        path: "${OUTPUT_BASE_PATH}/transactions_stat"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: time_unit,time_key
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

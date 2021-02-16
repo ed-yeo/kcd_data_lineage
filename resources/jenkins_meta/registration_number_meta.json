@@ -1,0 +1,115 @@
+{
+  "name": "registration_number_meta",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=businesses/name=businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "places",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=places",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "registration_number"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "classifications",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=classification",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "registration_number"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=classification/name=kcd"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "location",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=location/name=common"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "cardsales",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=cardsales",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "registration_number"
+      },
+      "type": "custom"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "businesses",
+        "classification",
+        "classifications",
+        "location",
+        "places",
+        "cardsales"
+      ],
+      "name": "merge",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinType": "full_outer",
+        "joinColumns": "registration_number"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "merge"
+      ],
+      "name": "select_columns",
+      "options": {
+        "sql": "SELECT    registration_number,\n          businesses,\n          location,\n          classification,\n          classifications,\n          cardsales,\n          CASE\n              WHEN    places.places.merchant_name IS NOT NULL AND location IS NOT NULL THEN CONCAT(\n                                                                              location.sido, ' ',\n                                                                              location.sigungu, ' ',\n                                                                              location.dong, ' ',\n                                                                              places.places.merchant_name\n                                                                         )\n              WHEN    places.places.merchant_name IS NOT NULL  THEN places.places.merchant_name\n              ELSE    null\n          END AS search_name,\n\n          named_struct(\n              'name', places.places.merchant_name,\n              'reviews', places.reviews\n          ) AS places\nFROM      merge\nWHERE     registration_number IS NOT NULL"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "select_columns"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_cubes/dimension/name=registration_number_meta"
+      },
+      "type": "file"
+    }
+  ]
+}

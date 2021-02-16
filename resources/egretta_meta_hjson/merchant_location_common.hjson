@@ -1,0 +1,132 @@
+{
+  name: merchant_location_common
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: card
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=merchant_number/subject=location/name=card
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: naver
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=merchant_number/subject=location/name=naver
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: kakao
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=merchant_number/subject=location/name=kakao
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        card
+        naver
+        kakao
+      ]
+      name: merged
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.MergeSchemaProcess
+        joinColumns: registration_number,card_issuer,merchant_number
+        joinType: full_outer
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        merged
+      ]
+      name: common_location
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    registration_number, card_issuer, merchant_number,
+                    common.*
+          FROM (
+                  SELECT
+                            registration_number, card_issuer, merchant_number,
+                            CASE
+                                WHEN naver IS NOT NULL THEN struct(
+                                                                          naver.geo_point,
+                                                                          naver.full_address,
+                                                                          naver.b_code,
+                                                                          naver.sido,
+                                                                          naver.sido_code,
+                                                                          naver.sigungu,
+                                                                          naver.sigungu_code,
+                                                                          naver.dong,
+                                                                          naver.h_codes
+                                                                        )
+                                WHEN kakao IS NOT NULL THEN struct(
+                                                                          kakao.geo_point,
+                                                                          kakao.full_address,
+                                                                          kakao.b_code,
+                                                                          kakao.sido,
+                                                                          kakao.sido_code,
+                                                                          kakao.sigungu,
+                                                                          kakao.sigungu_code,
+                                                                          kakao.dong,
+                                                                          kakao.h_codes
+                                                                        )
+                                ELSE struct(
+                                             card.geo_point,
+                                             card.full_address,
+                                             card.b_code,
+                                             card.sido,
+                                             card.sido_code,
+                                             card.sigungu,
+                                             card.sigungu_code,
+                                             card.dong,
+                                             card.h_codes
+                                           )
+                            END AS common
+                  FROM      merged
+          )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        common_location
+      ]
+      name: common_location_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=common
+        numPartitions: "10"
+      }
+      type: file
+    }
+  ]
+}

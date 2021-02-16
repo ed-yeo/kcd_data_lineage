@@ -1,0 +1,140 @@
+{
+  name: target_extract_log
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: ad_history
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "ad_history"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+      inputs:
+      []
+      name: target_messages
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_DIR}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        target_messages
+        ad_history
+      ]
+      name: update_ad_history
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    n.message_id,
+                    n.campaign_id,
+                    n.ad_group_id,
+                    n.creative_id,
+                    n.business_id,
+                    n.user_id,
+                    n.step,
+                    n.status,
+                    n.message,
+                    n.error_detail,
+                    current_timestamp() AS created_at,
+                    current_timestamp() AS updated_at
+            FROM (
+                    SELECT
+                            CONCAT(
+                                meta.campaign_id, meta.ad_group_id, meta.creative_id,
+                                '_',
+                                meta.business_id, meta.user_id
+                            ) AS message_id,
+                            CAST(meta.campaign_id AS INT) AS campaign_id,
+                            CAST(meta.ad_group_id AS INT) AS ad_group_id,
+                            CAST(meta.creative_id AS INT) AS creative_id,
+                            CAST(meta.business_id AS INT) AS business_id,
+                            CAST(meta.user_id AS INT) AS user_id,
+                            'EXTRACT' AS step,
+                            IF(status.valid = true, 'SUCCESS', 'FAIL') AS status,
+                            status.error AS message,
+                            '' AS error_detail
+                    FROM    target_messages
+                    WHERE   meta.campaign_id = 2
+            ) AS n
+            LEFT OUTER JOIN ad_history
+            ON  n.message_id = ad_history.message_id
+            WHERE   ad_history.message_id IS NULL
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        update_ad_history
+      ]
+      name: dedup
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    message_id,
+                    campaign_id,
+                    ad_group_id,
+                    creative_id,
+                    business_id,
+                    user_id,
+                    step,
+                    status,
+                    message,
+                    error_detail,
+                    created_at,
+                    updated_at
+            FROM (
+                SELECT
+                        *,
+                        row_number() OVER (PARTITION BY message_id ORDER BY created_at DESC) AS rank
+                FROM    update_ad_history
+            )
+            WHERE rank = 1
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        dedup
+      ]
+      name: ad_history_db_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        dbtable: ad_history
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        mode: append
+      }
+      type: jdbc
+    }
+  ]
+}

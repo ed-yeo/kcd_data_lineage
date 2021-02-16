@@ -1,0 +1,145 @@
+{
+  name: add_visit_orders
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: visits_approved
+      options:
+      {
+        paths: "${VISIT_APPROVED_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: transactions_raw
+      options:
+      {
+        paths: "${TRANSACTIONS_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: transactions_cancelled
+      inputs:
+      [
+        transactions_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    transactions_raw
+          WHERE   created_at_date >= '${PREV_MIN_TRANSACTED_AT}'
+          AND     transacted_at >= '${PREV_MIN_TRANSACTED_AT}'
+          AND     NOT (
+            (purchased_at is not null AND purchase_canceled_at is null) OR
+            (purchased_at is null AND approval_canceled_at is null)
+          )
+          '''
+      }
+    }
+    {
+      name: visits_cancelled
+      inputs:
+      [
+        transactions_cancelled
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  acquirer_name,
+                  amount,
+                  approval_canceled_at,
+                  approval_seq,
+                  authorization_number,
+                  base_fee,
+                  business_id,
+                  card_number,
+                  card_type,
+                  credential_key,
+                  encrypted_card_number,
+                  estimated_paid_at,
+                  etc_fee,
+                  fee,
+                  installment,
+                  issuer_name,
+                  masked_card_number,
+                  merchant_number,
+                  paid_at,
+                  payment,
+                  point_fee,
+                  purchase_cancel_seq,
+                  purchase_canceled_at,
+                  purchase_delayed,
+                  purchase_seq,
+                  purchased_at,
+                  scraping_type,
+                  status,
+                  transacted_at,
+                  vat_fee,
+                  CAST(null AS integer) AS visit_order,
+                  created_at,
+                  updated_at,
+                  created_at_date
+          FROM    transactions_cancelled
+          '''
+      }
+    }
+    {
+      name: visits
+      inputs:
+      [
+        visits_approved
+        visits_cancelled
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    visits_approved
+
+          UNION ALL
+
+          SELECT  *
+          FROM    visits_cancelled
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        visits
+      ]
+      name: file_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: created_at_date
+          evenPartitions: "true"
+          numOfRecordPerFile: "4000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

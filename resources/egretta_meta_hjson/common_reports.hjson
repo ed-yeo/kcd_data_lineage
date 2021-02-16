@@ -1,0 +1,62 @@
+{
+  name: common_reports
+  udfs: [
+    {
+      name: flattenMap
+      class: com.kcd.thrush.dmp.spark.udfs.RowToFlattenMap
+      params: {
+        delimiter: "."
+      }
+    }
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: meta
+        options:
+        {
+          format: parquet
+          paths: ${DATA_CUBE_META_PATH}
+        }
+        type: file
+     }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        meta
+      ]
+      name: flatten
+      options:
+      {
+        sql:
+          '''
+            SELECT  to_json(flattenMap(struct(*))) AS json
+            FROM    meta
+
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        flatten
+      ]
+      name: file_sink
+      options:
+      {
+        format: text
+        mode: overwrite
+        path: ${REPORT_DIR}/date_id=${TARGET_DATE}/report_name=common
+      }
+      type: file
+    }
+  ]
+}

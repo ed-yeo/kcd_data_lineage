@@ -1,0 +1,74 @@
+{
+  "name": "registration_number_places",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "places",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/snapshot/latest/places"
+      },
+      "type": "file",
+      "cache": true
+    },
+    {
+      "inputs": [],
+      "name": "place_reviews",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-data/place_table/latest/place_reviews"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "places"
+      ],
+      "name": "place_name",
+      "options": {
+        "sql": "SELECT    registration_number, merchant_name\nFROM (\n        SELECT    registration_number, name AS merchant_name,\n                  row_number() OVER (PARTITION BY registration_number ORDER BY updated_at DESC) AS rank\n        FROM      places\n)\nWHERE rank = 1"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "places",
+        "place_reviews"
+      ],
+      "name": "reviews_stat",
+      "options": {
+        "sql": "SELECT\n        registration_number,\n        count(distinct(place_uid)) AS place_cnt,\n        count(distinct(review_type)) AS review_type_cnt,\n        SUM(review_cnt) AS total_review_cnt,\n        AVG(avg_rating) AS total_avg_rating,\n        collect_list(\n            struct(place_uid, review_type, review_cnt,avg_rating)\n        ) AS ls\nFROM (\n        SELECT\n                registration_number,\n                place_uid,\n                review_type,\n                count(1) AS review_cnt,\n                avg(rating) AS avg_rating\n        FROM (\n                SELECT\n                        places.registration_number,\n                        reviews.*\n                FROM (\n                        SELECT\n                                place_uid,\n                                review_type,\n                                rating\n                        FROM (\n                            SELECT *, to_date(written_at) AS written_date\n                            FROM place_reviews\n                        )\n                        WHERE   written_date between '2020-10-30' AND '2021-01-28'\n                ) AS reviews\n                JOIN places\n                ON reviews.place_uid = places.uid\n        )\n        GROUP BY registration_number, place_uid, review_type\n)\nGROUP BY registration_number"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "place_name"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=places/name=places"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "reviews_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=places/name=reviews"
+      },
+      "type": "file"
+    }
+  ]
+}

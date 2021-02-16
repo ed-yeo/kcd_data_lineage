@@ -1,0 +1,57 @@
+{
+  "name": "build_corona_weekly_stats",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "targets",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://thrush/test/shon/corona/targets_20200331"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "transactions_stat_with_meta",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/card_sales/transactions_stat_with_meta"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "targets",
+        "transactions_stat_with_meta"
+      ],
+      "name": "weekly_txns",
+      "options": {
+        "sql": "SELECT  *,\n        weekofyear(transacted_at_week) AS week_of_year\nFROM    (\n  SELECT  st.business_id,\n          date_trunc('week', time) AS transacted_at_week,\n          SUM(card_sales_amount) AS amount_sum,\n          SUM(IF (hour(time) < 18, card_sales_amount, 0)) as day_time_amount_sum,\n          SUM(IF (hour(time) >= 18, card_sales_amount, 0)) as night_time_amount_sum,\n          SUM(IF (weekday(time) > 4, card_sales_amount, 0)) as weekend_amount_sum,\n          SUM(IF (weekday(time) <= 4, card_sales_amount, 0)) as weekday_amount_sum,\n          SUM(card_sales_amount - returning_amount) as new_amount_sum,\n          SUM(returning_amount) as revisit_amount_sum,\n          SUM(card_sales_count) as tx_count,\n          MAX(st.place.lot_address_1_depth) as lot_address_1_depth,\n          MAX(st.place.lot_address_2_depth) as lot_address_2_depth,\n          MAX(st.place.lot_address_3_depth) as lot_address_3_depth,\n          MAX(st.place.kcd_classification_1_depth) as kcd_classification_1_depth,\n          MAX(st.place.kcd_classification_2_depth) as kcd_classification_2_depth,\n          MAX(st.place.kcd_classification_3_depth) as kcd_classification_3_depth\n  FROM    transactions_stat_with_meta st, targets t\n  WHERE   st.business_id = t.business_id\n  AND     t.transacted_at_month_count = 13\n  AND     st.time_unit = 'day_hour'\n  AND     weekofyear(st.time) < weekofyear(current_date())\n  GROUP BY 1, 2\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "weekly_txns"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-staging/work/ryan/corona_weekly/37/weekly_txns",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "week_of_year",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1",
+        "checkpoint": "false"
+      },
+      "type": "custom"
+    }
+  ]
+}

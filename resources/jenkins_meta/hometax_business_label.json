@@ -1,0 +1,101 @@
+{
+  "name": "hometax_business_label",
+  "udfs": [
+    {
+      "name": "intersect",
+      "class": "com.kcd.thrush.utils.spark.udfs.ArrayUtil",
+      "params": {
+        "method": "intersect"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "hometax_hometax",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=hometax/name=hometax"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_employee",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=hometax/name=employee"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_amount",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=hometax/name=amount"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "ksic_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=ksic"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "hometax_hometax",
+        "hometax_employee",
+        "hometax_amount",
+        "ksic_classification"
+      ],
+      "name": "merge",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinColumns": "business_id",
+        "joinType": "full_outer"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "merge"
+      ],
+      "name": "business_meta_filtered",
+      "options": {
+        "sql": "SELECT\n        business_id,\n        ksic_classification.depth_1_code AS standard_classification_code_1_depth,\n        ksic_classification.depth_1_2_code AS standard_classification_code_1_2_depth,\n        hometax_hometax.opend_at,\n        hometax_hometax.taxation_type,\n        coalesce(hometax_amount.amount_avg, 0.0) AS amount_avg,\n        coalesce(hometax_employee.employ_avg, 0.0) AS employ_avg\nFROM  merge\nWHERE hometax_hometax.opend_at is not null"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "business_meta_filtered"
+      ],
+      "name": "hometax_business_label",
+      "options": {
+        "sql": "SELECT\n            business_id,\n            employ_avg AS regular_employees_count,\n            CASE\n                WHEN    is_small_size = true AND size(intersect(standard_classification_code_1_depth, array('C', 'F', 'H', 'B'))) > 0 AND employ_avg < 10 THEN '소상공인'\n                WHEN    is_small_size = true AND employ_avg < 5 THEN '소상공인'\n                WHEN    is_small_size = true  THEN '소기업'\n                ELSE    null\n            END AS size_category\n  FROM (\n    SELECT\n            business_id,\n            standard_classification_code_1_depth,\n            standard_classification_code_1_2_depth,\n            opend_at,\n            amount_avg,\n            employ_avg,\n            CASE\n                WHEN    taxation_type = '간이과세자' THEN true\n                WHEN    opend_at < '2016-01-01' OR  opend_at >= '2019-01-01' THEN true\n                WHEN    standard_classification_code_1_depth is null OR standard_classification_code_1_2_depth IS NULL OR amount_avg IS NULL THEN false\n                WHEN    size(\n                            intersect(\n                                standard_classification_code_1_2_depth,\n                                array('C10', 'C11', 'C14', 'C15', 'C19', 'C20', 'C21', 'C23', 'C24', 'C25', 'C26', 'C28', 'C29', 'C30', 'C32', 'E36')\n                            )\n                        ) > 0  AND  amount_avg <= 12000000000    THEN true\n                WHEN    size(intersect(standard_classification_code_1_depth, array('D'))) > 0  AND  amount_avg <= 12000000000    THEN true\n                WHEN    size(\n                            intersect(\n                                standard_classification_code_1_2_depth,\n                                array('C12', 'C13', 'C16', 'C17', 'C18', 'C22', 'C27', 'C31', 'C33')\n                            )\n                        ) > 0  AND  amount_avg <= 8000000000    THEN true\n                WHEN    size(intersect(standard_classification_code_1_depth, array('A', 'B', 'F', 'H', 'K'))) > 0  AND  amount_avg <= 8000000000    THEN true\n                WHEN    size(intersect(standard_classification_code_1_depth, array('G', 'J'))) > 0  AND  amount_avg <= 5000000000    THEN true\n                WHEN    size(intersect(standard_classification_code_1_depth, array('E', 'L', 'M', 'N', 'R'))) > 0\n                        AND  size(intersect(standard_classification_code_1_2_depth, array('E36'))) = 0\n                        AND  amount_avg <= 3000000000    THEN true\n                WHEN    size(intersect(standard_classification_code_1_depth, array('I', 'P', 'Q', 'S'))) > 0  AND  amount_avg <= 1000000000    THEN true\n                WHEN    size(intersect(standard_classification_code_1_2_depth, array('C34'))) > 0  AND  amount_avg <= 1000000000    THEN true\n                ELSE    false\n            END AS is_small_size\n    FROM business_meta_filtered\n )"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "hometax_business_label"
+      ],
+      "name": "hometax_business_label_file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=hometax/name=business_label"
+      },
+      "type": "file"
+    }
+  ]
+}

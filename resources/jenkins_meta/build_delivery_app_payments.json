@@ -1,0 +1,240 @@
+{
+  "name": "build_delivery_app_payments",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "delivery_apps",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/delivery_apps"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "prev_delivery_app_payments_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/delivery_app/delivery_app_payments"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "baemin_payments_src_json",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v3/raw/tb=owl_db_baemin_payments"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "yogiyo_payments_src_json",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v3/raw/tb=owl_db_yogiyo_payments"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "baedaltong_payments_src_json",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v3/raw/tb=owl_db_baedaltong_payments"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "baemin_payments_src",
+      "inputs": [
+        "baemin_payments_src_json"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  adjustment_amounts,\n        CAST(advertise_fee AS int) AS advertise_fee,\n        to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS created_at,\n        cycle,\n        CAST(deduction_amount AS int) AS deduction_amount,\n        CAST(delivery_tip AS int) AS delivery_tip,\n        CAST(delivery_tip_discount AS int) AS delivery_tip_discount,\n        to_timestamp(deposited_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS deposited_at,\n        CAST(fee_deduction AS int) AS fee_deduction,\n        CAST(order_amount AS int) AS order_amount,\n        to_date(period_ended_at) AS period_ended_at,\n        to_date(period_started_at) AS period_started_at,\n        CAST(rate_fee AS int) AS rate_fee,\n        CAST(received_amount AS int) AS received_amount,\n        CAST(reward_amount AS int) AS reward_amount,\n        service_fee_amounts,\n        settle_code,\n        shop_id,\n        status,\n        transaction_amounts,\n        to_timestamp(updated_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS updated_at,\n        CAST(vat AS int) AS vat\nFROM    baemin_payments_src_json\nWHERE   created_at_date >= '2020-10-10'\nAND     created_at_date < '2020-10-14'"
+      }
+    },
+    {
+      "name": "yogiyo_payments_src",
+      "inputs": [
+        "yogiyo_payments_src_json"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "  SELECT  CAST(certification_fee AS int) AS certification_fee,\n          contract_type,\n          to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS created_at,\n          CAST(delivery_tip AS int) AS delivery_tip,\n          to_date(deposited_at) AS deposited_at,\n          CAST(monthly_fee AS int) AS monthly_fee,\n          CAST(offline_amount AS int) AS offline_amount,\n          CAST(order_amount AS int) AS order_amount,\n          CAST(payment_number AS string) AS payment_number,\n          to_date(period_ended_at) AS period_ended_at,\n          to_date(period_started_at) AS period_started_at,\n          CAST(rate_fee AS int) AS rate_fee,\n          CAST(received_amount AS int) AS received_amount,\n          CAST(reserved_amount AS int) AS reserved_amount,\n          CAST(shop_discount AS int) AS shop_discount,\n          shop_id,\n          CAST(terminal_fee AS int) AS terminal_fee,\n          CAST(transaction_fee AS int) AS transaction_fee,\n          CAST(unpaid_amount AS int) AS unpaid_amount,\n          to_timestamp(updated_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS updated_at,\n          CAST(vat AS int) AS vat\n  FROM    yogiyo_payments_src_json\n  WHERE   created_at_date >= '2020-10-10'\n  AND     created_at_date < '2020-10-14'"
+      }
+    },
+    {
+      "name": "baedaltong_payments_src",
+      "inputs": [
+        "baedaltong_payments_src_json"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS created_at,\n        to_date(deposited_at) AS deposited_at,\n        CAST(offline_canceled_amount AS int) AS offline_canceled_amount,\n        CAST(offline_fee AS int) AS offline_fee,\n        CAST(offline_order_amount AS int) AS offline_order_amount,\n        CAST(offline_received_amount AS int) AS offline_received_amount,\n        CAST(offline_vat AS int) AS offline_vat,\n        CAST(online_canceled_amount AS int) AS online_canceled_amount,\n        CAST(online_fee AS int) AS online_fee,\n        CAST(online_order_amount AS int) AS online_order_amount,\n        CAST(online_received_amount AS int) AS online_received_amount,\n        CAST(online_vat AS int) AS online_vat,\n        to_date(period_ended_at) AS period_ended_at,\n        to_date(period_started_at) AS period_started_at,\n        CAST(previous_reserved_amount AS int) AS previous_reserved_amount,\n        CAST(received_amount AS int) AS received_amount,\n        CAST(reserved_amount AS int) AS reserved_amount,\n        shop_id,\n        to_timestamp(updated_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS updated_at\nFROM    baedaltong_payments_src_json\nWHERE   created_at_date >= '2020-10-10'\nAND     created_at_date < '2020-10-14'"
+      }
+    },
+    {
+      "name": "baemin_payments_raw",
+      "inputs": [
+        "baemin_payments_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  shop_id,\n        deposited_at,\n        status,\n        period_started_at,\n        period_ended_at,\n        settle_code,\n        MAX(adjustment_amounts) AS adjustment_amounts,\n        MAX(advertise_fee) AS advertise_fee,\n        MAX(created_at) AS created_at,\n        MAX(cycle) AS cycle,\n        MAX(deduction_amount) AS deduction_amount,\n        MAX(delivery_tip) AS delivery_tip,\n        MAX(delivery_tip_discount) AS delivery_tip_discount,\n        MAX(fee_deduction) AS fee_deduction,\n        MAX(order_amount) AS order_amount,\n        MAX(rate_fee) AS rate_fee,\n        MAX(received_amount) AS received_amount,\n        MAX(reward_amount) AS reward_amount,\n        MAX(service_fee_amounts) AS service_fee_amounts,\n        MAX(transaction_amounts) AS transaction_amounts,\n        MAX(updated_at) AS updated_at,\n        MAX(vat) AS vat\nFROM    baemin_payments_src\nGROUP BY shop_id, deposited_at, status, period_started_at, period_ended_at, settle_code"
+      }
+    },
+    {
+      "name": "prev_baemin_payments_raw",
+      "inputs": [
+        "prev_delivery_app_payments_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    prev_delivery_app_payments_src\nWHERE   app_name = 'baemin'\nAND     created_at_date >= '2020-10-03'\nAND     created_at_date < '2020-10-10'"
+      }
+    },
+    {
+      "name": "baemin_payments_unique",
+      "inputs": [
+        "baemin_payments_raw",
+        "prev_baemin_payments_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  current.*\nFROM    prev_baemin_payments_raw prev RIGHT OUTER JOIN baemin_payments_raw current\nON      (\n  prev.shop_id = current.shop_id AND\n  prev.deposited_at = current.deposited_at AND\n  prev.status = current.status AND\n  prev.period_started_at = current.period_started_at AND\n  prev.period_ended_at = current.period_ended_at AND\n  prev.settle_code = current.settle_code\n)\nWHERE   prev.shop_id is null"
+      }
+    },
+    {
+      "name": "yogiyo_payments_raw",
+      "inputs": [
+        "yogiyo_payments_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  shop_id, deposited_at, period_started_at, period_ended_at, contract_type, payment_number,\n        MAX(certification_fee) AS certification_fee,\n        MAX(created_at) AS created_at,\n        MAX(delivery_tip) AS delivery_tip,\n        MAX(monthly_fee) AS monthly_fee,\n        MAX(offline_amount) AS offline_amount,\n        MAX(order_amount) AS order_amount,\n        MAX(rate_fee) AS rate_fee,\n        MAX(received_amount) AS received_amount,\n        MAX(reserved_amount) AS reserved_amount,\n        MAX(shop_discount) AS shop_discount,\n        MAX(terminal_fee) AS terminal_fee,\n        MAX(transaction_fee) AS transaction_fee,\n        MAX(unpaid_amount) AS unpaid_amount,\n        MAX(updated_at) AS updated_at,\n        MAX(vat) AS vat\nFROM    yogiyo_payments_src\nGROUP BY  shop_id, deposited_at, period_started_at, period_ended_at, contract_type, payment_number"
+      }
+    },
+    {
+      "name": "prev_yogiyo_payments_raw",
+      "inputs": [
+        "prev_delivery_app_payments_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    prev_delivery_app_payments_src\nWHERE   app_name = 'yogiyo'\nAND     created_at_date >= '2020-10-03'\nAND     created_at_date < '2020-10-10'"
+      }
+    },
+    {
+      "name": "yogiyo_payments_unique",
+      "inputs": [
+        "yogiyo_payments_raw",
+        "prev_yogiyo_payments_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  current.*\nFROM    prev_yogiyo_payments_raw prev RIGHT OUTER JOIN yogiyo_payments_raw current\nON      (\n  prev.shop_id = current.shop_id AND\n  prev.deposited_at = current.deposited_at AND\n  prev.period_started_at = current.period_started_at AND\n  prev.period_ended_at = current.period_ended_at AND\n  prev.contract_type = current.contract_type AND\n  prev.payment_number = current.payment_number\n)\nWHERE   prev.shop_id is null"
+      }
+    },
+    {
+      "name": "baedaltong_payments_raw",
+      "inputs": [
+        "baedaltong_payments_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  shop_id,\n        deposited_at,\n        period_started_at,\n        period_ended_at,\n        MAX(created_at) AS created_at,\n        MAX(offline_canceled_amount) AS offline_canceled_amount,\n        MAX(offline_fee) AS offline_fee,\n        MAX(offline_order_amount) AS offline_order_amount,\n        MAX(offline_received_amount) AS offline_received_amount,\n        MAX(offline_vat) AS offline_vat,\n        MAX(online_canceled_amount) AS online_canceled_amount,\n        MAX(online_fee) AS online_fee,\n        MAX(online_order_amount) AS online_order_amount,\n        MAX(online_received_amount) AS online_received_amount,\n        MAX(online_vat) AS online_vat,\n        MAX(previous_reserved_amount) AS previous_reserved_amount,\n        MAX(received_amount) AS received_amount,\n        MAX(reserved_amount) AS reserved_amount,\n        MAX(updated_at) AS updated_at\nFROM    baedaltong_payments_src\nGROUP BY  shop_id, deposited_at, period_started_at, period_ended_at"
+      }
+    },
+    {
+      "name": "prev_baedaltong_payments_raw",
+      "inputs": [
+        "prev_delivery_app_payments_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    prev_delivery_app_payments_src\nWHERE   app_name = 'baedaltong'\nAND     created_at_date >= '2020-10-03'\nAND     created_at_date < '2020-10-10'"
+      }
+    },
+    {
+      "name": "baedaltong_payments_unique",
+      "inputs": [
+        "baedaltong_payments_raw",
+        "prev_baedaltong_payments_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  current.*\nFROM    prev_baedaltong_payments_raw prev RIGHT OUTER JOIN baedaltong_payments_raw current\nON      (\n  prev.shop_id = current.shop_id AND\n  prev.deposited_at = current.deposited_at AND\n  prev.period_started_at = current.period_started_at AND\n  prev.period_ended_at = current.period_ended_at\n)\nWHERE   prev.shop_id is null"
+      }
+    },
+    {
+      "inputs": [
+        "delivery_apps",
+        "baemin_payments_unique"
+      ],
+      "name": "merged_baemin_payments",
+      "options": {
+        "sql": "SELECT  a.business_id,\n        s.*,\n        'baemin' AS app_name\nFROM    (\n    SELECT  *,\n            row_number() OVER (\n                PARTITION BY shop_id, deposited_at, period_started_at, period_ended_at, settle_code\n                ORDER BY status_seq DESC\n            ) AS status_rank\n    FROM    (\n        SELECT *,\n               CASE\n                WHEN status = 'COMPLETE' THEN 2\n                WHEN status = 'REQUEST' THEN 1\n                WHEN status = 'PLAN' THEN 0\n                ELSE 0\n               END AS status_seq\n        FROM   baemin_payments_unique\n        WHERE  received_amount > 0\n    )\n) s, delivery_apps a\nWHERE   status_rank = 1\nAND     s.shop_id = a.id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "delivery_apps",
+        "baedaltong_payments_unique"
+      ],
+      "name": "merged_baedaltong_payments",
+      "options": {
+        "sql": "SELECT  a.business_id,\n        s.*,\n        'baedaltong' AS app_name\nFROM    baedaltong_payments_unique s, delivery_apps a\nWHERE   received_amount > 0\nAND     s.shop_id = a.id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "delivery_apps",
+        "yogiyo_payments_unique"
+      ],
+      "name": "merged_yogiyo_payments",
+      "options": {
+        "sql": "SELECT  a.business_id,\n        s.*,\n        'yogiyo' AS app_name\nFROM    yogiyo_payments_unique s, delivery_apps a\nWHERE   received_amount > 0\nAND     s.shop_id = a.id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merged_baemin_payments",
+        "merged_baedaltong_payments",
+        "merged_yogiyo_payments"
+      ],
+      "name": "delivery_app_payments",
+      "options": {
+        "sql": "SELECT  business_id,\n        app_name,\n        deposited_at,\n        period_started_at,\n        period_ended_at,\n        order_amount + delivery_tip AS online_order_amount,\n        received_amount,\n        status,\n        created_at_date\nFROM    merged_baemin_payments\n\nUNION ALL\n\nSELECT  business_id,\n        app_name,\n        deposited_at,\n        period_started_at,\n        period_ended_at,\n        online_order_amount,\n        received_amount,\n        CAST(null AS string) AS status,\n        created_at_date\nFROM    merged_baedaltong_payments\n\nUNION ALL\n\nSELECT  business_id,\n        app_name,\n        deposited_at,\n        period_started_at,\n        period_ended_at,\n        order_amount + delivery_tip - offline_amount AS online_order_amount,\n        received_amount,\n        CAST(null AS string) AS status,\n        created_at_date\nFROM    merged_yogiyo_payments"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "delivery_app_payments"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/raw/etl/snowdon/delivery_app/delivery_app_payments",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

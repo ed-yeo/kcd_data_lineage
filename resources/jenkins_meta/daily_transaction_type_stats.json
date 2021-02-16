@@ -1,0 +1,105 @@
+{
+  "name": "daily_transaction_type_stats",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "credentials",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "credentials",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "credential_keys",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "credential_keys",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "transactions_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/transactions"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "transactions",
+      "inputs": [
+        "credential_keys",
+        "credentials",
+        "transactions_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    t.*\nFROM      transactions_raw t, credential_keys k, credentials c\nWHERE     t.business_id = k.business_id\nAND       t.credential_key = k.uuid\nAND       k.credential_id = c.id\nAND       c.status = 1\nAND       (\n          t.transacted_at >= '2020-01-01' OR\n          t.purchased_at >= '2020-01-01' OR\n          t.paid_at >= '2020-01-01'\n)\nAND      (\n          t.transacted_at < '2021-12-01' OR\n          t.purchased_at < '2021-12-01' OR\n          t.paid_at < '2021-12-01'\n)"
+      }
+    },
+    {
+      "name": "transactions_without_canceled",
+      "inputs": [
+        "transactions"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      transactions\nWHERE     (purchased_at is not null AND purchase_canceled_at is null)\nOR        (purchased_at is null AND approval_canceled_at is null)"
+      }
+    },
+    {
+      "name": "daily_transaction_type_stats",
+      "inputs": [
+        "transactions_without_canceled"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id,\n        date,\n        sum(IF (type = 'approvals', amount, 0)) as approvals_amount,\n        sum(IF (type = 'approvals', payment, 0)) as approvals_payment,\n        sum(IF (type = 'approvals', count, 0)) as approvals_count,\n        sum(IF (type = 'purchases', payment, 0)) as purchases_payment,\n        sum(IF (type = 'purchases', count, 0)) as purchases_count,\n        sum(IF (type = 'payments', payment, 0)) as payments_payment,\n        sum(IF (type = 'payments', count, 0)) as payments_count\nFROM (\n      SELECT  business_id,\n              'approvals' as type,\n              date_trunc('day', transacted_at) as date,\n              sum(amount) as amount,\n              sum(payment) as payment,\n              count(1) as count\n      FROM    transactions_without_canceled\n      GROUP BY 1, 2, 3\n\n      UNION ALL\n\n      SELECT  business_id,\n              'purchases' as type,\n              date_trunc('day', purchased_at) as date,\n              sum(amount) as amount,\n              sum(payment) as payment,\n              count(1) as count\n      FROM    transactions_without_canceled\n      GROUP BY 1, 2, 3\n\n      UNION ALL\n\n      SELECT  business_id,\n              'payments' as type,\n              date_trunc('day', paid_at) as date,\n              sum(amount) as amount,\n              sum(payment) as payment,\n              count(1) as count\n      FROM    transactions_without_canceled\n      GROUP BY 1, 2, 3\n)\nWHERE date is not null\nGROUP BY 1, 2"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "transactions"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/DR/DR-71/210115/2020/daily_transaction",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "daily_transaction_type_stats"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "format": "csv",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/DR/DR-71/210115/2020/results/daily_transaction_type_stats",
+        "header": "true",
+        "numPartitions": "1",
+        "sep": "|"
+      },
+      "type": "custom"
+    }
+  ]
+}

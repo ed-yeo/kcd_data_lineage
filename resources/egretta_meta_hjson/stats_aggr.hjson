@@ -1,0 +1,108 @@
+{
+  name: stats_aggr
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: stats
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_PATH}/stats
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        stats
+      ]
+      name: by_classification
+      options:
+      {
+        sql:
+          '''
+          SELECT  weekofyear(transacted_at_week) AS time,
+                  coalesce(kcd_classification_1_depth, 'none') as kcd_classification_1_depth,
+                  coalesce(kcd_classification_2_depth, 'none') as kcd_classification_2_depth,
+                  coalesce(kcd_classification_3_depth, 'none') as kcd_classification_3_depth,
+                  coalesce(kcd_classification_3_depth, 'none') as kcd_classification_4_depth,
+                  coalesce(kcd_classification_3_depth, 'none') as kcd_classification_5_depth,
+                  sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                  sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                  sum(IF (year(transacted_at_week) = 2020, tx_count, 0)) as 2020_year_tx_count,
+                  sum(IF (year(transacted_at_week) = 2019, tx_count, 0)) as 2019_year_tx_count,
+                  count(distinct business_id) as business_id_count
+          FROM    stats
+          WHERE   transacted_at_week is not null
+          AND     weekofyear(transacted_at_week) <= weekofyear(current_date())
+          GROUP BY 1, 2, 3, 4, 5, 6
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        stats
+      ]
+      name: by_address
+      options:
+      {
+        sql:
+          '''
+        SELECT  weekofyear(transacted_at_week) AS time,
+                lot_address_1_depth,
+                lot_address_2_depth,
+                lot_address_3_depth,
+                sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                sum(IF (year(transacted_at_week) = 2020, tx_count, 0)) as 2020_year_tx_count,
+                sum(IF (year(transacted_at_week) = 2019, tx_count, 0)) as 2019_year_tx_count,
+                count(distinct business_id) as business_id_count
+        FROM    stats
+        WHERE   transacted_at_week is not null
+        AND     weekofyear(transacted_at_week) <= weekofyear(current_date())
+        GROUP BY 1, 2, 3, 4
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        by_classification
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/by_classification
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        by_address
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/by_address
+      }
+      type: file
+    }
+  ]
+}

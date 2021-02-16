@@ -1,0 +1,1074 @@
+{
+  "name": "dump_incremental",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "report_logs",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "report_logs",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "328893704",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_card_purchases",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_card_purchases",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "324912098",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_purchases_cash_receipts",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_purchases_cash_receipts",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "288604218",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_purchases_invoices",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_purchases_invoices",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "400193164",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_card_sales",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_card_sales",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "12252014",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_sales_cash_receipts",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_sales_cash_receipts",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "1119954188",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_sales_invoices",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_sales_invoices",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "102788559",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "bank_transactions",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "bank_transactions",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "989621729",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "shinhancard_customer_statistics",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "shinhancard_customer_statistics",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "36157548",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "daily_reports",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "daily_reports",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "188505551",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "weekly_reports",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "weekly_reports",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "3125251",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "monthly_reports",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "monthly_reports",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "857224",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "place_comments",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "place_comments",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "188526039",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "place_reviews",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "place_reviews",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "1885130521",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "baemin_payments",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "baemin_payments",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "43579475",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "baemin_orders",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "baemin_orders",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "772383095",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "baemin_sales_vats",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "baemin_sales_vats",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "138185797",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "baedaltong_orders",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "baedaltong_orders",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "5533796",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "baedaltong_payments",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "baedaltong_payments",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "289636",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "yogiyo_orders",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "yogiyo_orders",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "97016777",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "yogiyo_payments",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "yogiyo_payments",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "6855528",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "card_purchases_approvals",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "card_purchases_approvals",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "134407276",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "card_purchases_bills",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "card_purchases_bills",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "23236419",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "card_purchases_payments",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "card_purchases_payments",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "33867292",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "vendor_transactions",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "vendor_transactions",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "47462534",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "vendor_invoices",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "vendor_invoices",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "299296670",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "customer_transactions",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "customer_transactions",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "9935650",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "customer_invoices",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "customer_invoices",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "87339650",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "report_logs"
+      ],
+      "name": "report_logs_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    report_logs\nWHERE   id > 328893704\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hometax_card_purchases"
+      ],
+      "name": "hometax_card_purchases_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    hometax_card_purchases\nWHERE   id > 324912098\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hometax_purchases_cash_receipts"
+      ],
+      "name": "hometax_purchases_cash_receipts_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    hometax_purchases_cash_receipts\nWHERE   id > 288604218\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hometax_purchases_invoices"
+      ],
+      "name": "hometax_purchases_invoices_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    hometax_purchases_invoices\nWHERE   id > 400193164\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hometax_card_sales"
+      ],
+      "name": "hometax_card_sales_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    hometax_card_sales\nWHERE   id > 12252014\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hometax_sales_cash_receipts"
+      ],
+      "name": "hometax_sales_cash_receipts_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    hometax_sales_cash_receipts\nWHERE   id > 1119954188\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hometax_sales_invoices"
+      ],
+      "name": "hometax_sales_invoices_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    hometax_sales_invoices\nWHERE   id > 102788559\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "bank_transactions"
+      ],
+      "name": "bank_transactions_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    bank_transactions\nWHERE   id > 989621729\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "shinhancard_customer_statistics"
+      ],
+      "name": "shinhancard_customer_statistics_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    shinhancard_customer_statistics\nWHERE   id > 36157548\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "daily_reports"
+      ],
+      "name": "daily_reports_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    daily_reports\nWHERE   id > 188505551\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "weekly_reports"
+      ],
+      "name": "weekly_reports_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    weekly_reports\nWHERE   id > 3125251\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "monthly_reports"
+      ],
+      "name": "monthly_reports_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    monthly_reports\nWHERE   id > 857224\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "place_comments"
+      ],
+      "name": "place_comments_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    place_comments\nWHERE   id > 188526039\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "place_reviews"
+      ],
+      "name": "place_reviews_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    place_reviews\nWHERE   id > 1885130521\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "baemin_payments"
+      ],
+      "name": "baemin_payments_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    baemin_payments\nWHERE   id > 43579475\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "baemin_orders"
+      ],
+      "name": "baemin_orders_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    baemin_orders\nWHERE   id > 772383095\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "baemin_sales_vats"
+      ],
+      "name": "baemin_sales_vats_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    baemin_sales_vats\nWHERE   id > 138185797\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "baedaltong_orders"
+      ],
+      "name": "baedaltong_orders_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    baedaltong_orders\nWHERE   id > 5533796\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "baedaltong_payments"
+      ],
+      "name": "baedaltong_payments_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    baedaltong_payments\nWHERE   id > 289636\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "yogiyo_orders"
+      ],
+      "name": "yogiyo_orders_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    yogiyo_orders\nWHERE   id > 97016777\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "yogiyo_payments"
+      ],
+      "name": "yogiyo_payments_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    yogiyo_payments\nWHERE   id > 6855528\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "card_purchases_approvals"
+      ],
+      "name": "card_purchases_approvals_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    card_purchases_approvals\nWHERE   id > 134407276\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "card_purchases_bills"
+      ],
+      "name": "card_purchases_bills_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    card_purchases_bills\nWHERE   id > 23236419\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "card_purchases_payments"
+      ],
+      "name": "card_purchases_payments_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    card_purchases_payments\nWHERE   id > 33867292\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "vendor_transactions"
+      ],
+      "name": "vendor_transactions_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    vendor_transactions\nWHERE   id > 47462534\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "vendor_invoices"
+      ],
+      "name": "vendor_invoices_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    vendor_invoices\nWHERE   id > 299296670\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "customer_transactions"
+      ],
+      "name": "customer_transactions_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    customer_transactions\nWHERE   id > 9935650\n          "
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "customer_invoices"
+      ],
+      "name": "customer_invoices_date",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    customer_invoices\nWHERE   id > 87339650\n          "
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "report_logs_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/report_logs",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_card_purchases_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_card_purchases",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_purchases_cash_receipts_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_purchases_cash_receipts",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_purchases_invoices_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_purchases_invoices",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_card_sales_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_card_sales",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_sales_cash_receipts_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_sales_cash_receipts",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_sales_invoices_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_sales_invoices",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "bank_transactions_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/bank_transactions",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "shinhancard_customer_statistics_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/shinhancard_customer_statistics",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "daily_reports_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/daily_reports",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "weekly_reports_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/weekly_reports",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "monthly_reports_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/monthly_reports",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "place_comments_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/place_comments",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "place_reviews_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/place_reviews",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "baemin_payments_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/baemin_payments",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "baemin_orders_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/baemin_orders",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "baemin_sales_vats_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/baemin_sales_vats",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "baedaltong_orders_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/baedaltong_orders",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "baedaltong_payments_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/baedaltong_payments",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "yogiyo_orders_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/yogiyo_orders",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "yogiyo_payments_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/yogiyo_payments",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "card_purchases_approvals_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/card_purchases_approvals",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "card_purchases_bills_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/card_purchases_bills",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "card_purchases_payments_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/card_purchases_payments",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "vendor_transactions_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/vendor_transactions",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "vendor_invoices_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/vendor_invoices",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "customer_transactions_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/customer_transactions",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "customer_invoices_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/snowdon/incremental/customer_invoices",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    }
+  ]
+}

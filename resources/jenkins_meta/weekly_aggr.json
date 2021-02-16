@@ -1,0 +1,61 @@
+{
+  "name": "weekly_aggr",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "approvals",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/approvals"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "places",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-data/dmp/sources/classification/kcd_places"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "targets_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://thrush/test/shon/corona/targets_20200331"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "approvals",
+        "places",
+        "targets_src"
+      ],
+      "name": "tx_with_meta",
+      "options": {
+        "sql": "SELECT  /*+BROADCAST(p, t) */\n        tx.*,\n        kcd_classification_1_depth,\n        kcd_classification_2_depth,\n        kcd_classification_3_depth,\n        kcd_classification_4_depth,\n        kcd_classification_5_depth,\n        name,\n        type,\n        uid,\n        latitude,\n        longitude,\n        lot_address,\n        lot_address_1_depth,\n        lot_address_2_depth,\n        lot_address_3_depth\nFROM    approvals tx, places p, (\n  SELECT  business_id\n  FROM    targets_src\n  WHERE   transacted_at_month_count = 13\n) t\nWHERE   tx.business_id = p.business_id\nAND     p.business_id = t.business_id\nAND     tx.status = 0\nAND     transacted_at >= '2021-01-04' AND transacted_at < '2021-01-25'\nAND     created_at_date >= '2021-01-04' AND created_at_date < '2021-01-25'"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "tx_with_meta"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://thrush/test/shon/corona_jobs/tx_with_meta"
+      },
+      "type": "file"
+    }
+  ]
+}

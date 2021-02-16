@@ -1,0 +1,303 @@
+{
+  "name": "kcd_classification",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "naver_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=naver"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kakao_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=kakao"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=hometax"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "shinhancard_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=shinhancard"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "bccard_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=bccard_new"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hyundaicard_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=hyundaicard"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "franchise_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_kcd_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/hometax_kcd_mapping.tsv"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_naver_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/place_naver_kcd_mapping.tsv"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_kakao_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/place_kakao_kcd_mapping_cleansing"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_classification",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/kcd_classification.tsv"
+      },
+      "type": "file",
+      "cache": true
+    },
+    {
+      "inputs": [],
+      "name": "shinhancard_kcd_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/shinhancard_to_kcd_20210118.tsv"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "bccard_kcd_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/bccard_to_kcd_20210118.tsv"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hyundaicard_kcd_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/hyundaicard_to_kcd_20210118.tsv"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "franchise_kcd_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/franchise_kcd_mapping"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "custom_business_classification",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/custom_business_classification.tsv"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "hometax_classification",
+        "hometax_kcd_mapping"
+      ],
+      "name": "hometax",
+      "options": {
+        "sql": "  SELECT\n          business_id,\n          kcd_depth_1_code,\n          kcd_depth_2_code,\n          kcd_depth_3_code\n  FROM    hometax_classification\n  JOIN    hometax_kcd_mapping\n  ON  hometax_classification.classification_code = hometax_kcd_mapping.classification_code"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "shinhancard_kcd_mapping",
+        "shinhancard_classification"
+      ],
+      "name": "shinhancard",
+      "options": {
+        "sql": "SELECT    business_id,\n          kcd_depth_1_code,\n          kcd_depth_2_code,\n          kcd_depth_3_code\nFROM  shinhancard_classification\nJOIN  shinhancard_kcd_mapping AS mapping\nON    shinhancard_classification.classification_code = mapping.classification_code"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "bccard_kcd_mapping",
+        "bccard_classification"
+      ],
+      "name": "bccard",
+      "options": {
+        "sql": "SELECT    business_id,\n          kcd_depth_1_code,\n          kcd_depth_2_code,\n          kcd_depth_3_code\nFROM  bccard_classification\nJOIN  bccard_kcd_mapping AS mapping\nON    bccard_classification.depth_3_code = mapping.classification_code"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hyundaicard_kcd_mapping",
+        "hyundaicard_classification"
+      ],
+      "name": "hyundaicard",
+      "options": {
+        "sql": "SELECT    business_id,\n          kcd_depth_1_code,\n          kcd_depth_2_code,\n          kcd_depth_3_code\nFROM  hyundaicard_classification\nJOIN  hyundaicard_kcd_mapping AS mapping\nON    hyundaicard_classification.classification_code = mapping.classification_code"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "kcd_naver_mapping",
+        "naver_classification"
+      ],
+      "name": "naver",
+      "options": {
+        "sql": "SELECT\n      business_id,\n      kcd_naver_mapping.kcd_depth_1_code,\n      kcd_naver_mapping.kcd_depth_2_code,\n      kcd_naver_mapping.kcd_depth_3_code\nFROM  naver_classification\nJOIN  kcd_naver_mapping\nON    naver_classification.depth_1_name = kcd_naver_mapping.naver_depth_1_name\nAND   naver_classification.depth_2_name = kcd_naver_mapping.naver_depth_2_name"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "kcd_kakao_mapping",
+        "kakao_classification"
+      ],
+      "name": "kakao",
+      "options": {
+        "sql": "SELECT\n      business_id,\n      kcd_kakao_mapping.kcd_depth_1_code,\n      kcd_kakao_mapping.kcd_depth_2_code,\n      kcd_kakao_mapping.kcd_depth_3_code\nFROM  kakao_classification\nJOIN  kcd_kakao_mapping\nON    kakao_classification.depth_1_name = kcd_kakao_mapping.depth_1_name\nAND   kakao_classification.depth_2_name = kcd_kakao_mapping.depth_2_name\nAND   nvl(kakao_classification.depth_3_name, 'empty') = nvl(kcd_kakao_mapping.depth_3_name, 'empty')"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "franchise_classification",
+        "franchise_kcd_mapping"
+      ],
+      "name": "franchise",
+      "options": {
+        "sql": "SELECT\n        business_id,\n        kcd_depth_1_code,\n        kcd_depth_2_code,\n        kcd_depth_3_code\nFROM (\n    SELECT\n            c.business_id,\n            m.kcd_depth_1_code,\n            m.kcd_depth_2_code,\n            m.kcd_depth_3_code,\n            row_number() OVER (PARTITION BY c.business_id ORDER BY m.kcd_depth_3_code) AS rank\n    FROM (\n        SELECT business_id, explode(codes) AS code\n        FROM franchise_classification\n    ) AS c\n    JOIN franchise_kcd_mapping AS m\n    ON c.code.company_code = m.franchise_company_code\n    AND c.code.brand_code = m.franchise_brand_code\n)\nWHERE rank =1"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "naver",
+        "kakao",
+        "hometax",
+        "shinhancard",
+        "bccard",
+        "hyundaicard",
+        "franchise"
+      ],
+      "name": "merged",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinColumns": "business_id",
+        "joinType": "full_outer"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "merged"
+      ],
+      "name": "merged_classification",
+      "options": {
+        "sql": "SELECT    business_id, common.*\nFROM (\n    SELECT    business_id,\n              CASE\n                  WHEN   franchise IS NOT NULL AND franchise.kcd_depth_3_code IS NOT NULL THEN struct(\n                                                          franchise.kcd_depth_1_code,\n                                                          franchise.kcd_depth_2_code,\n                                                          franchise.kcd_depth_3_code\n                                                      )\n                  WHEN   bccard IS NOT NULL AND bccard.kcd_depth_3_code IS NOT NULL THEN struct(\n                                                          bccard.kcd_depth_1_code,\n                                                          bccard.kcd_depth_2_code,\n                                                          bccard.kcd_depth_3_code\n                                                      )\n                  WHEN   kakao IS NOT NULL AND kakao.kcd_depth_3_code IS NOT NULL THEN struct(\n                                                          kakao.kcd_depth_1_code,\n                                                          kakao.kcd_depth_2_code,\n                                                          kakao.kcd_depth_3_code\n                                                      )\n                  WHEN   shinhancard IS NOT NULL AND shinhancard.kcd_depth_3_code IS NOT NULL THEN struct(\n                                                          shinhancard.kcd_depth_1_code,\n                                                          shinhancard.kcd_depth_2_code,\n                                                          shinhancard.kcd_depth_3_code\n                                                      )\n                  WHEN   hometax IS NOT NULL AND hometax.kcd_depth_3_code IS NOT NULL THEN struct(\n                                                          hometax.kcd_depth_1_code,\n                                                          hometax.kcd_depth_2_code,\n                                                          hometax.kcd_depth_3_code\n                                                      )\n                  WHEN   hyundaicard IS NOT NULL AND hyundaicard.kcd_depth_3_code IS NOT NULL THEN struct(\n                                                          hyundaicard.kcd_depth_1_code,\n                                                          hyundaicard.kcd_depth_2_code,\n                                                          hyundaicard.kcd_depth_3_code\n                                                      )\n                  WHEN   naver IS NOT NULL AND naver.kcd_depth_3_code IS NOT NULL THEN struct(\n                                                          naver.kcd_depth_1_code,\n                                                          naver.kcd_depth_2_code,\n                                                          naver.kcd_depth_3_code\n                                                      )\n                  WHEN   franchise IS NOT NULL THEN struct(\n                                                          franchise.kcd_depth_1_code,\n                                                          franchise.kcd_depth_2_code,\n                                                          franchise.kcd_depth_3_code\n                                                      )\n                  WHEN   bccard IS NOT NULL THEN struct(\n                                                          bccard.kcd_depth_1_code,\n                                                          bccard.kcd_depth_2_code,\n                                                          bccard.kcd_depth_3_code\n                                                      )\n                  WHEN   kakao IS NOT NULL THEN struct(\n                                                          kakao.kcd_depth_1_code,\n                                                          kakao.kcd_depth_2_code,\n                                                          kakao.kcd_depth_3_code\n                                                      )\n                  WHEN   shinhancard IS NOT NULL THEN struct(\n                                                          shinhancard.kcd_depth_1_code,\n                                                          shinhancard.kcd_depth_2_code,\n                                                          shinhancard.kcd_depth_3_code\n                                                      )\n                  WHEN   hometax IS NOT NULL THEN struct(\n                                                          hometax.kcd_depth_1_code,\n                                                          hometax.kcd_depth_2_code,\n                                                          hometax.kcd_depth_3_code\n                                                      )\n                  WHEN   hyundaicard IS NOT NULL THEN struct(\n                                                          hyundaicard.kcd_depth_1_code,\n                                                          hyundaicard.kcd_depth_2_code,\n                                                          hyundaicard.kcd_depth_3_code\n                                                      )\n                  ELSE\n                                                      struct(\n                                                          naver.kcd_depth_1_code,\n                                                          naver.kcd_depth_2_code,\n                                                          naver.kcd_depth_3_code\n                                                      )\n              END AS common\n    FROM      merged\n)\nWHERE     business_id is not null\nAND       common.kcd_depth_1_code is not null"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merged_classification",
+        "kcd_classification"
+      ],
+      "name": "business_classification",
+      "options": {
+        "sql": "SELECT\n          business_id,\n          depth_1_code,\n          depth_1_name,\n          nvl(depth_2_code, 'X99') AS depth_2_code,\n          nvl(depth_2_name, '분류정보없음') AS depth_2_name,\n          nvl(depth_3_code, 'X99X99') AS depth_3_code,\n          nvl(depth_3_name, '분류정보없음') AS depth_3_name\nFROM (\n        SELECT    business_id, kcd_classification.*\n        FROM  merged_classification\n        JOIN  kcd_classification\n        ON    merged_classification.kcd_depth_1_code = kcd_classification.depth_1_code\n        AND   nvl(merged_classification.kcd_depth_2_code, 'empty') = nvl(kcd_classification.depth_2_code, 'empty')\n        AND   nvl(merged_classification.kcd_depth_3_code, 'empty') = nvl(kcd_classification.depth_3_code, 'empty')\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "custom_business_classification",
+        "business_classification"
+      ],
+      "name": "new_kcd_classification",
+      "options": {
+        "sql": "SELECT\n          nvl(c.business_id, k.business_id) AS business_id,\n          nvl(c.depth_1_code, k.depth_1_code) AS depth_1_code,\n          nvl(c.depth_1_name, k.depth_1_name) AS depth_1_name,\n          nvl(c.depth_2_code, k.depth_2_code) AS depth_2_code,\n          nvl(c.depth_2_name, k.depth_2_name) AS depth_2_name,\n          nvl(c.depth_3_code, k.depth_3_code) AS depth_3_code,\n          nvl(c.depth_3_name, k.depth_3_name) AS depth_3_name\nFROM  business_classification AS k\nFULL OUTER JOIN   custom_business_classification AS c\nON    k.business_id = c.business_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "new_kcd_classification"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=kcd"
+      },
+      "type": "file"
+    }
+  ]
+}

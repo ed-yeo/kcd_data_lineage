@@ -1,0 +1,109 @@
+{
+  "name": "hometax_sales",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "hometax_card_sales_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_card_sales"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_sales_cash_receipts_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_sales_cash_receipts"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_sales_invoices_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_sales_invoices"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "hometax_card_sales_src"
+      ],
+      "name": "hometax_card_sales",
+      "options": {
+        "sql": "  SELECT\n          month AS timestamp,\n          business_id,\n          date_format(date_trunc('MONTH', month), 'yyyy-MM-dd') AS date_id,\n          amount AS amount_sum,\n          count AS tx_count\n  FROM    hometax_card_sales_src\n  WHERE   business_id IS NOT NULL\n  AND     month between '2017-01-01' AND '2021-01-24'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hometax_sales_cash_receipts_src"
+      ],
+      "name": "hometax_sales_cash_receipts",
+      "options": {
+        "sql": "  SELECT\n          timestamp,\n          business_id,\n          date_format(timestamp, 'yyyy-MM-dd') AS date_id,\n          SUM(amount) AS amount_sum,\n          COUNT(1) AS tx_count\n  FROM (\n          SELECT\n                  business_id,\n                  date_trunc('MONTH', sold_at) AS timestamp,\n                  amount\n          FROM    hometax_sales_cash_receipts_src\n          WHERE   business_id IS NOT NULL\n          AND     sold_at between '2017-01-01' AND '2021-01-24'\n  )\n  GROUP BY business_id, timestamp"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hometax_sales_invoices_src"
+      ],
+      "name": "hometax_sales_invoices",
+      "options": {
+        "sql": "  SELECT\n          timestamp,\n          business_id,\n          date_format(timestamp, 'yyyy-MM-dd') AS date_id,\n          SUM(amount) AS amount_sum,\n          COUNT(1) AS tx_count,\n          collect_set(customer_business_classification) AS customer_business_classifications,\n          collect_set(customer_business_category) AS customer_business_categories,\n          collect_set(item_note) AS item_notes\n  FROM (\n          SELECT\n                  business_id,\n                  date_trunc('MONTH', issued_at) AS timestamp,\n                  amount,\n                  customer_business_classification,\n                  customer_business_category,\n                  item_note\n          FROM    hometax_sales_invoices_src\n          WHERE   business_id IS NOT NULL\n          AND     issued_at between '2017-01-01' AND '2021-01-24'\n  )\n  GROUP BY business_id, timestamp"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "hometax_card_sales"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=hometax/name=sales_card",
+        "evenPartitions": "true",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_sales_cash_receipts"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=hometax/name=sales_cash_receipts",
+        "evenPartitions": "true",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_sales_invoices"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=hometax/name=sales_invoices",
+        "evenPartitions": "true",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    }
+  ]
+}

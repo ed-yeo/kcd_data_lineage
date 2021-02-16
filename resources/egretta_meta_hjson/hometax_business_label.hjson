@@ -1,0 +1,180 @@
+{
+  // PARAMS: TEMP_PATH, TARGET_PATH
+  name: hometax_business_label
+  udfs: [
+    {
+          name: intersect
+          class: com.kcd.thrush.utils.spark.udfs.ArrayUtil
+          params: {
+            method: intersect
+          }
+        }
+  ]
+  source:
+  [
+    {
+      inputs:
+      []
+      name: hometax_hometax
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=hometax/name=hometax
+      }
+      type: file
+    }
+    {
+      inputs:
+      []
+      name: hometax_employee
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=hometax/name=employee
+      }
+      type: file
+    }
+    {
+      inputs:
+      []
+      name: hometax_amount
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=hometax/name=amount
+      }
+      type: file
+    }
+    {
+      inputs:
+      []
+      name: ksic_classification
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=classification/name=ksic
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        hometax_hometax
+        hometax_employee
+        hometax_amount
+        ksic_classification
+      ]
+      name: merge
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.MergeSchemaProcess
+        joinColumns: business_id
+        joinType: full_outer
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        merge
+      ]
+      name: business_meta_filtered
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  business_id,
+                  ksic_classification.depth_1_code AS standard_classification_code_1_depth,
+                  ksic_classification.depth_1_2_code AS standard_classification_code_1_2_depth,
+                  hometax_hometax.opend_at,
+                  hometax_hometax.taxation_type,
+                  coalesce(hometax_amount.amount_avg, 0.0) AS amount_avg,
+                  coalesce(hometax_employee.employ_avg, 0.0) AS employ_avg
+          FROM  merge
+          WHERE hometax_hometax.opend_at is not null
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        business_meta_filtered
+      ]
+      name: hometax_business_label
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                      business_id,
+                      employ_avg AS regular_employees_count,
+                      CASE
+                          WHEN    is_small_size = true AND size(intersect(standard_classification_code_1_depth, array('C', 'F', 'H', 'B'))) > 0 AND employ_avg < 10 THEN '소상공인'
+                          WHEN    is_small_size = true AND employ_avg < 5 THEN '소상공인'
+                          WHEN    is_small_size = true  THEN '소기업'
+                          ELSE    null
+                      END AS size_category
+            FROM (
+              SELECT
+                      business_id,
+                      standard_classification_code_1_depth,
+                      standard_classification_code_1_2_depth,
+                      opend_at,
+                      amount_avg,
+                      employ_avg,
+                      CASE
+                          WHEN    taxation_type = '간이과세자' THEN true
+                          WHEN    opend_at < '2016-01-01' OR  opend_at >= '2019-01-01' THEN true
+                          WHEN    standard_classification_code_1_depth is null OR standard_classification_code_1_2_depth IS NULL OR amount_avg IS NULL THEN false
+                          WHEN    size(
+                                      intersect(
+                                          standard_classification_code_1_2_depth,
+                                          array('C10', 'C11', 'C14', 'C15', 'C19', 'C20', 'C21', 'C23', 'C24', 'C25', 'C26', 'C28', 'C29', 'C30', 'C32', 'E36')
+                                      )
+                                  ) > 0  AND  amount_avg <= 12000000000    THEN true
+                          WHEN    size(intersect(standard_classification_code_1_depth, array('D'))) > 0  AND  amount_avg <= 12000000000    THEN true
+                          WHEN    size(
+                                      intersect(
+                                          standard_classification_code_1_2_depth,
+                                          array('C12', 'C13', 'C16', 'C17', 'C18', 'C22', 'C27', 'C31', 'C33')
+                                      )
+                                  ) > 0  AND  amount_avg <= 8000000000    THEN true
+                          WHEN    size(intersect(standard_classification_code_1_depth, array('A', 'B', 'F', 'H', 'K'))) > 0  AND  amount_avg <= 8000000000    THEN true
+                          WHEN    size(intersect(standard_classification_code_1_depth, array('G', 'J'))) > 0  AND  amount_avg <= 5000000000    THEN true
+                          WHEN    size(intersect(standard_classification_code_1_depth, array('E', 'L', 'M', 'N', 'R'))) > 0
+                                  AND  size(intersect(standard_classification_code_1_2_depth, array('E36'))) = 0
+                                  AND  amount_avg <= 3000000000    THEN true
+                          WHEN    size(intersect(standard_classification_code_1_depth, array('I', 'P', 'Q', 'S'))) > 0  AND  amount_avg <= 1000000000    THEN true
+                          WHEN    size(intersect(standard_classification_code_1_2_depth, array('C34'))) > 0  AND  amount_avg <= 1000000000    THEN true
+                          ELSE    false
+                      END AS is_small_size
+              FROM business_meta_filtered
+           )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        hometax_business_label
+      ]
+      name: hometax_business_label_file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=business_label
+      }
+      type: file
+    }
+  ]
+}

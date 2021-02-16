@@ -1,0 +1,71 @@
+{
+  "name": "click_log_to_es",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "ad_group",
+      "options": {
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "ad_group",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "skip_tx": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "tb_kcd_cashnote_web",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-data/raw/catalog_v2/raw/tb=kcd_cashnote_web",
+        "partition_keys": "created_at_date,created_at_hour",
+        "log_leaf_file": "true"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "tb_kcd_cashnote_web"
+      ],
+      "name": "cashnote_web_click",
+      "options": {
+        "sql": "    SELECT  *\n    FROM (\n            SELECT\n                    'click' AS type,\n                    timestamp,\n                    parse_url(current_url, 'QUERY', 'campaign_id') AS campaign_id,\n                    parse_url(current_url, 'QUERY', 'ad_group_id') AS ad_group_id,\n                    parse_url(current_url, 'QUERY', 'creative_id') AS creative_id,\n                    user_id,\n                    true AS status,\n                    'cashnote_web' AS sdk_type\n            FROM (\n                    SELECT  timestamp,\n                            prop_user_id AS user_id,\n                            `prop_$current_url` AS current_url,\n                            row_number() OVER (PARTITION BY _event_id ORDER BY timestamp DESC) AS rank\n                    FROM    tb_kcd_cashnote_web\n                    WHERE   event = '$web_event'\n                    AND     `prop_$event_type` = 'pageview'\n                    AND     prop_user_id IS NOT NULL\n            )\n            WHERE rank = 1\n    )\n    WHERE   campaign_id IS NOT NULL\n    AND     ad_group_id IS NOT NULL\n    AND     creative_id IS NOT NULL"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "cashnote_web_click",
+        "ad_group"
+      ],
+      "name": "add_ad_group_meta",
+      "options": {
+        "sql": "SELECT\n        cashnote_web_click.*,\n        ad_group.user_type AS user_type,\n        ad_group.type AS ad_group_type\nFROM    cashnote_web_click\nLEFT OUTER JOIN ad_group\nON      cashnote_web_click.ad_group_id = ad_group.id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "add_ad_group_meta"
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "message_history-2020-09",
+        "es.nodes": "https://vpc-dmp-es-prod-tw5nccwbgynfhq5ivdolhmaxsq.ap-northeast-2.es.amazonaws.com",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true"
+      },
+      "type": "es"
+    }
+  ]
+}

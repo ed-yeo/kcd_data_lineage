@@ -1,0 +1,91 @@
+{
+  name: purchases
+  udfs:
+  [
+
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: purchases
+      options:
+      {
+        paths: "${PURCHASES_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: purchases_with_sequence
+      inputs:
+      [
+        purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+            SELECT    acquirer_name,
+                      amount,
+                      authorization_number,
+                      base_fee,
+                      business_id,
+                      card_number,
+                      card_type,
+                      credential_key,
+                      etc_fee,
+                      fee,
+                      issuer_name,
+                      masked_card_number,
+                      merchant_number,
+                      paid_at,
+                      payment,
+                      point_fee,
+                      purchase_delayed,
+                      row_number() OVER (
+                          PARTITION BY business_id, credential_key, CAST(transacted_at AS DATE), masked_card_number, amount
+                          ORDER BY purchased_at DESC
+                      ) AS purchase_cancel_seq,
+                      row_number() OVER (
+                          PARTITION BY business_id, credential_key, CAST(transacted_at AS DATE), authorization_number, masked_card_number, amount
+                          ORDER BY purchased_at ASC
+                      ) AS purchase_seq,
+                      purchased_at,
+                      scraping_type,
+                      transacted_at,
+                      vat_fee,
+                      created_at,
+                      updated_at,
+                      created_at_date
+            FROM      purchases
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        purchases_with_sequence
+      ]
+      name: purchases_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: "created_at_date"
+          evenPartitions: "true"
+          numOfRecordPerFile: "2000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

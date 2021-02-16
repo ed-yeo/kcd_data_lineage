@@ -1,0 +1,130 @@
+{
+  "name": "semas_daily_sales_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "targets",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://thrush/test/shon/corona/targets_20200331"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "semas_businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://thrush/dev/data/adhoc/DR-49/matched_targets"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "semas_classification_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/semas_kcd_mapping.csv"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "transactions_stat_with_meta",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/card_sales/transactions_stat_with_meta"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "transactions_stat_with_meta"
+      ],
+      "name": "target_date_standard_period_transactions",
+      "options": {
+        "sql": "SELECT  business_id,\n        MAX(place) AS meta,\n        SUM(IF (weekofyear(time) = weekofyear('2020-12-10') and year(time) = 2019, card_sales_amount, 0)) AS standard_amount,\n        SUM(IF (time = '2020-12-10', card_sales_amount, 0)) AS target_amount\nFROM    transactions_stat_with_meta\nWHERE   time_unit = 'day'\nGROUP BY 1"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "targets",
+        "target_date_standard_period_transactions",
+        "semas_classification_mapping"
+      ],
+      "name": "target_businesses_daily_ratio",
+      "options": {
+        "sql": "SELECT  st.business_id,\n        meta.lot_address_1_depth AS sido,\n        meta.kcd_classification_1_depth AS depth_1_name,\n        meta.kcd_classification_2_depth AS depth_2_name,\n        s.semas_classification,\n        concat_ws(\n            ' ~ ',\n            date_add('2019-01-01', (weekofyear('2020-12-10') - 1) * 7 - 1),\n            date_add('2019-01-01', (weekofyear('2020-12-10') - 1) * 7 + 5)\n        ) as standard_period,\n        '2020-12-10' as target_date,\n        standard_amount,\n        target_amount\nFROM    target_date_standard_period_transactions st, targets t, semas_classification_mapping s\nWHERE   st.business_id = t.business_id\nAND     t.transacted_at_month_count = 13\nAND     meta.lot_address_1_depth NOT IN ('none', 'NULL', '')\nAND     meta.kcd_classification_1_depth = s.kcd_classification_depth_1\nAND     meta.kcd_classification_2_depth = s.kcd_classification_depth_2"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "semas_businesses",
+        "target_date_standard_period_transactions"
+      ],
+      "name": "semas_businesses_daily_ratio",
+      "options": {
+        "sql": "SELECT  b.*,\n        concat_ws(\n            ' ~ ',\n            date_add('2019-01-01', (weekofyear('2020-12-10') - 1) * 7 - 1),\n            date_add('2019-01-01', (weekofyear('2020-12-10') - 1) * 7 + 5)\n        ) as standard_period,\n        '2020-12-10' as target_date,\n        standard_amount,\n        target_amount\nFROM target_date_standard_period_transactions a\nJOIN (\n     SELECT DISTINCT business_id,\n                     sido\n     FROM semas_businesses\n) b ON a.business_id = b.business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "target_businesses_daily_ratio"
+      ],
+      "name": "target_businesses_daily_stat",
+      "options": {
+        "sql": "SELECT *\nFROM\n(\n    SELECT  '통합' as type,\n            '전체' as condition,\n            standard_period,\n            target_date,\n            sum(target_amount) as target_amount_sum,\n            sum(standard_amount) as standard_amount_sum,\n            sum(target_amount) / (sum(standard_amount) / 7) as rate,\n            count(distinct target_businesses_daily_ratio.business_id) as business_count\n    FROM    target_businesses_daily_ratio\n    GROUP BY 1, 2, 3, 4\n\n    UNION ALL\n\n    SELECT  '지역' as type,\n            sido as condition,\n            standard_period,\n            target_date,\n            sum(target_amount) as target_amount_sum,\n            sum(standard_amount) as standard_amount_sum,\n            sum(target_amount) / (sum(standard_amount) / 7) as rate,\n            count(distinct target_businesses_daily_ratio.business_id) as business_count\n    FROM    target_businesses_daily_ratio\n    WHERE   sido is not null\n    GROUP BY 1, 2, 3, 4\n\n    UNION ALL\n\n    SELECT  '업종' as type,\n            semas_classification as condition,\n            standard_period,\n            target_date,\n            sum(target_amount) as target_amount_sum,\n            sum(standard_amount) as standard_amount_sum,\n            sum(target_amount) / (sum(standard_amount) / 7) as rate,\n            count(distinct target_businesses_daily_ratio.business_id) as business_count\n    FROM    target_businesses_daily_ratio\n    WHERE   depth_1_name is not null\n    AND     depth_1_name not in ('부동산', '금융,보험', '사회,공공기관', '언론,미디어')\n    GROUP BY 1, 2, 3, 4\n\n    UNION ALL\n\n    SELECT  '지역 X 업종' as type,\n            concat_ws('>', sido, semas_classification) as condition,\n            standard_period,\n            target_date,\n            sum(target_amount) as target_amount_sum,\n            sum(standard_amount) as standard_amount_sum,\n            sum(target_amount) / (sum(standard_amount) / 7) as rate,\n            count(distinct target_businesses_daily_ratio.business_id) as business_count\n    FROM    target_businesses_daily_ratio\n    WHERE   sido is not null and depth_1_name is not null\n    AND     depth_1_name not in ('부동산', '금융,보험', '사회,공공기관', '언론,미디어')\n    GROUP BY 1, 2, 3, 4\n\n    UNION ALL\n\n    SELECT  '업종상세' as type,\n            concat_ws('>', depth_1_name, depth_2_name) as condition,\n            standard_period,\n            target_date,\n            sum(target_amount) as target_amount_sum,\n            sum(standard_amount) as standard_amount_sum,\n            sum(target_amount) / (sum(standard_amount) / 7) as rate,\n            count(distinct target_businesses_daily_ratio.business_id) as business_count\n    FROM    target_businesses_daily_ratio\n    WHERE   depth_1_name is not null and depth_2_name is not null\n    AND     depth_1_name not in ('부동산', '금융,보험', '사회,공공기관', '언론,미디어')\n    GROUP BY 1, 2, 3, 4\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "semas_businesses_daily_ratio"
+      ],
+      "name": "semas_businesses_daily_stat",
+      "options": {
+        "sql": "SELECT *\nFROM\n(\n    SELECT  '통합' as type,\n            '전체' as condition,\n            standard_period,\n            target_date,\n            sum(target_amount) as target_amount_sum,\n            sum(standard_amount) as standard_amount_sum,\n            sum(target_amount) / (sum(standard_amount) / 7) as rate,\n            count(distinct semas_businesses_daily_ratio.business_id) as business_count\n    FROM    semas_businesses_daily_ratio\n    GROUP BY 1, 2, 3, 4\n\n    UNION ALL\n\n    SELECT  '지역' as type,\n            coalesce(sido, '주소정보없음') as condition,\n            standard_period,\n            target_date,\n            sum(target_amount) as target_amount_sum,\n            sum(standard_amount) as standard_amount_sum,\n            sum(target_amount) / (sum(standard_amount) / 7) as rate,\n            count(distinct semas_businesses_daily_ratio.business_id) as business_count\n    FROM    semas_businesses_daily_ratio\n    GROUP BY 1, 2, 3, 4\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "target_businesses_daily_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "format": "csv",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/semas_stats/2020-12-10/targets",
+        "header": "true",
+        "numPartitions": "1"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "semas_businesses_daily_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "format": "csv",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/semas_stats/2020-12-10/semas_businesses",
+        "header": "true",
+        "numPartitions": "1"
+      },
+      "type": "custom"
+    }
+  ]
+}

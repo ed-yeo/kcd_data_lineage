@@ -1,0 +1,187 @@
+{
+  name: build_hometax_stat
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: hometax_sales_cash_receipts
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/hometax_sales_cash_receipts
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_sales_invoices
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/hometax_sales_invoices
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_purchases_cash_receipts
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/hometax_purchases_cash_receipts
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_purchases_invoices
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/hometax_purchases_invoices
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: hometax_sales_stat
+      inputs:
+      [
+        hometax_sales_cash_receipts
+        hometax_sales_invoices
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd') AS time_key
+          FROM      (
+            SELECT  business_id,
+                    date_trunc('month', written_at) AS time,
+                    'month' AS time_unit,
+                    'hometax_sales_invoices' AS type,
+                    SUM(amount) AS amount
+            FROM    hometax_sales_invoices
+            WHERE   written_at >= '${MIN_DATE}'
+            AND     written_at < '${MAX_DATE}'
+            GROUP BY 1, 2
+
+            UNION ALL
+
+            SELECT  business_id,
+                    date_trunc('month', sold_at) AS time,
+                    'month' AS time_unit,
+                    'hometax_sales_cash_receipts' AS type,
+                    SUM(approved_amount) - SUM(canceled_amount) AS amount
+            FROM    (
+                SELECT  *,
+                        IF (receipt_type = 0, amount, 0) AS approved_amount,
+                        IF (receipt_type = 1, amount, 0) AS canceled_amount
+                FROM    hometax_sales_cash_receipts
+                WHERE   sold_at >= '${MIN_DATE}'
+                AND     sold_at < '${MAX_DATE}'
+            )
+            GROUP BY 1, 2
+          )
+          '''
+      }
+    }
+    {
+      name: hometax_purchases_stat
+      inputs:
+      [
+        hometax_purchases_cash_receipts
+        hometax_purchases_invoices
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  date_trunc('month', written_at) AS time,
+                  'month' AS time_unit,
+                  'hometax_purchases_invoices' AS type,
+                  SUM(amount) AS amount
+          FROM    hometax_purchases_invoices
+          WHERE   written_at >= '${MIN_DATE}'
+          AND     written_at < '${MAX_DATE}'
+          GROUP BY 1, 2
+
+          UNION ALL
+
+          SELECT  business_id,
+                  date_trunc('month', purchased_at) AS time,
+                  'month' AS time_unit,
+                  'hometax_purchases_cash_receipts' AS type,
+                  SUM(approved_amount) - SUM(canceled_amount) AS amount
+          FROM    (
+              SELECT  *,
+                      IF (receipt_type = 0, amount, 0) AS approved_amount,
+                      IF (receipt_type = 1, amount, 0) AS canceled_amount
+              FROM    hometax_purchases_cash_receipts
+              WHERE   purchased_at >= '${MIN_DATE}'
+              AND     purchased_at < '${MAX_DATE}'
+          )
+          GROUP BY 1, 2
+          '''
+      }
+    }
+    {
+      name: hometax_stat
+      inputs:
+      [
+        hometax_sales_stat
+        hometax_purchases_stat
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd') AS time_key
+          FROM      (
+              SELECT    business_id,
+                        time,
+                        time_unit,
+                        SUM(IF (type = 'hometax_sales_invoices', amount, 0)) AS hometax_sales_invoices_amount,
+                        SUM(IF (type = 'hometax_sales_cash_receipts', amount, 0)) AS hometax_sales_cash_receipts_amount,
+                        SUM(IF (type = 'hometax_purchases_invoices', amount, 0)) AS hometax_purchases_invoices_amount,
+                        SUM(IF (type = 'hometax_purchases_cash_receipts', amount, 0)) AS hometax_purchases_cash_receipts_amount
+              FROM      hometax_sales_stat
+              GROUP BY  1, 2, 3
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        hometax_stat
+      ]
+      name: file_sink
+      options:
+      {
+        mode: overwritePartitions
+        path: "${OUTPUT_BASE_PATH}/hometax_stat"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: time_unit,time_key
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: file
+    }
+  ]
+}

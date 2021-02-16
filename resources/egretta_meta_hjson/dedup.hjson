@@ -1,0 +1,257 @@
+{
+  name: dedup
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: current_approvals
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: parquet
+        paths: s3://thrush/test/card_sales_v2/raw_v2/reformat/approvals/created_at_date=${date_id}
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: prev_approvals
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/dev/card_sales_v2/table/approvals
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: current_purchases
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: parquet
+        paths: s3://thrush/test/card_sales_v2/raw_v2/reformat/purchases/created_at_date=${date_id}
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: prev_purchases
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/dev/card_sales_v2/table/purchases
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: current_payments
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: parquet
+        paths: s3://thrush/test/card_sales_v2/raw_v2/reformat/payments/created_at_date=${date_id}
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: prev_payments
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/dev/card_sales_v2/table/payments
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        current_approvals
+        prev_approvals
+      ]
+      name: distinct_approvals
+      options:
+      {
+        sql:
+          '''
+            SELECT  new_approval.*
+            FROM (
+                    SELECT
+                            business_id, transacted_at, authorization_number, amount,
+                            MIN(acquirer_name) AS acquirer_name,
+                            MIN(card_number) AS card_number,
+                            MIN(card_type) AS card_type,
+                            MIN(encrypted_card_number) AS encrypted_card_number,
+                            MIN(installment) AS installment,
+                            MIN(issuer_name) AS issuer_name,
+                            MIN(merchant_number) AS merchant_number,
+                            MIN(status) AS status,
+                            MIN(created_at) AS created_at,
+                            MIN(created_at_date) AS created_at_date,
+                            MIN(transacted_at_date) AS transacted_at_date,
+                            MIN(amount_abs) AS amount_abs,
+                            MIN(masked_card_number) AS masked_card_number
+                    FROM     current_approvals
+                    GROUP BY business_id, transacted_at, authorization_number, amount
+            ) AS new_approval
+            LEFT OUTER JOIN (
+                    SELECT DISTINCT business_id, transacted_at, authorization_number, amount
+                    FROM  prev_approvals
+                    WHERE created_at_date >='${_7_day_ago}'
+                    AND   created_at_date < '${_1_day_ago}'
+            ) AS old_approvals
+            ON  new_approval.business_id = old_approvals.business_id
+            AND new_approval.transacted_at = old_approvals.transacted_at
+            AND new_approval.authorization_number = old_approvals.authorization_number
+            AND new_approval.amount = old_approvals.amount
+            WHERE old_approvals.business_id IS NULL
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        current_purchases
+        prev_purchases
+      ]
+      name: distinct_purchases
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    new_purchases.*
+            FROM (
+                    SELECT
+                            business_id, authorization_number, masked_card_number, amount, purchased_at, paid_at,
+                            MIN(acquirer_name) AS acquirer_name,
+                            MIN(amount_abs) AS amount_abs,
+                            MIN(base_fee) AS base_fee,
+                            MIN(card_number) AS card_number,
+                            MIN(card_type) AS card_type,
+                            MIN(created_at) AS created_at,
+                            MIN(created_at_date) AS created_at_date,
+                            MIN(etc_fee) AS etc_fee,
+                            MIN(fee) AS fee,
+                            MIN(issuer_name) AS issuer_name,
+                            MIN(merchant_number) AS merchant_number,
+                            MIN(payment) AS payment,
+                            MIN(point_fee) AS point_fee,
+                            MIN(transacted_at) AS transacted_at,
+                            MIN(transacted_at_date) AS transacted_at_date,
+                            MIN(vat_fee) AS vat_fee
+                    FROM    current_purchases
+                    GROUP BY business_id, authorization_number, masked_card_number, amount, purchased_at, paid_at
+            ) AS new_purchases
+            LEFT OUTER JOIN (
+                    SELECT DISTINCT business_id, authorization_number, masked_card_number, amount, purchased_at, paid_at
+                    FROM  prev_purchases
+                    WHERE created_at_date >='${_7_day_ago}'
+                    AND   created_at_date < '${_1_day_ago}'
+            ) AS old_purchases
+            ON  new_purchases.business_id = old_purchases.business_id
+            AND new_purchases.authorization_number = old_purchases.authorization_number
+            AND new_purchases.masked_card_number = old_purchases.masked_card_number
+            AND new_purchases.amount = old_purchases.amount
+            AND new_purchases.purchased_at = old_purchases.purchased_at
+            AND new_purchases.paid_at = old_purchases.paid_at
+            WHERE   old_purchases.business_id IS NULL
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        current_payments
+        prev_payments
+      ]
+      name: distinct_payments
+      options:
+      {
+        sql:
+          '''
+            SELECT  new_payments.*
+            FROM (
+                    SELECT
+                            business_id, merchant_number, bank_name, received_at,
+                            MIN(account_number) AS account_number,
+                            MIN(created_at_date) AS created_at_date,
+                            MIN(etc_amount) AS etc_amount,
+                            MIN(issuer_name) AS issuer_name,
+                            MIN(received_amount) AS received_amount,
+                            MIN(reserved_amount) AS reserved_amount,
+                            MIN(sales_amount) AS sales_amount,
+                            MIN(sales_count) AS sales_count,
+                            MIN(vat_fee_amount) AS vat_fee_amount
+                    FROM     current_payments
+                    GROUP BY business_id, merchant_number, bank_name, received_at
+            ) AS new_payments
+            LEFT OUTER JOIN (
+                    SELECT DISTINCT business_id, merchant_number, bank_name, received_at
+                    FROM  prev_payments
+                    WHERE created_at_date >='${_7_day_ago}'
+                    AND   created_at_date < '${_1_day_ago}'
+            ) AS old_payments
+            ON  new_payments.business_id = old_payments.business_id
+            AND new_payments.merchant_number = old_payments.merchant_number
+            AND new_payments.bank_name = old_payments.bank_name
+            AND new_payments.received_at = old_payments.received_at
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        distinct_approvals
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://thrush/test/card_sales_v2/table/approvals/created_at_date=${date_id}
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        distinct_purchases
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://thrush/test/card_sales_v2/table/purchases/created_at_date=${date_id}
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        distinct_payments
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://thrush/test/card_sales_v2/table/payments/created_at_date=${date_id}
+      }
+      type: file
+    }
+  ]
+}

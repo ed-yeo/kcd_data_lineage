@@ -1,0 +1,134 @@
+{
+  "name": "place_table_graph_format",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "place_indexes",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-data/place_table/latest/place_indexes"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "place_info",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-data/place_table/latest/place_info"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "place_menus",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-data/place_table/latest/place_menus"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "place_reviews",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-data/place_table/latest/place_reviews"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "place_indexes"
+      ],
+      "name": "place_indexes_graph_format",
+      "options": {
+        "sql": "    SELECT\n        timestamp,\n        registration_number AS from,\n        concat(place_uid, '_', place_type) AS to,\n        'place_indexes' as label,\n        to_json(\n           struct(\n               issuer,\n               merchant_number,\n               place_uid,\n               place_type,\n               registration_number\n           )\n        ) AS props\n    FROM\n        place_indexes"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "place_info"
+      ],
+      "name": "place_info_graph_format",
+      "options": {
+        "sql": "    SELECT\n        timestamp,\n        concat(place_uid, '_', place_type) AS from,\n        concat(place_uid, '_', place_type) AS to,\n        'place_info' as label,\n        to_json(struct(\n            classification,\n            images,\n            latitude,\n            longitude,\n            lot_address,\n            phone_number,\n            place_uid,\n            street_address,\n            nvl(review_count, 0) AS review_count,\n            avg_review_rating,\n            registration_number,\n            name\n        )) AS props\n    FROM\n        place_info"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "place_menus"
+      ],
+      "name": "place_menus_graph_format",
+      "options": {
+        "sql": "     SELECT\n         timestamp,\n         concat(place_uid, '_', place_type) AS from,\n         java_method('java.util.UUID', 'randomUUID') AS to,\n         'place_menus' as label,\n         to_json(struct(\n             description,\n             image,\n             name,\n             place_type,\n             place_uid,\n             price,\n             priority\n         )) AS props\n     FROM\n         place_menus"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "place_reviews"
+      ],
+      "name": "place_reviews_graph_format",
+      "options": {
+        "sql": "    SELECT\n        timestamp,\n        concat(place_uid, '_', place_type) AS from,\n        concat(review_id, '_', review_type) AS to,\n        'place_reviews' as label,\n        to_json(struct(\n            author,\n            contents,\n            image,\n            place_type,\n            place_uid,\n            rating,\n            review_id,\n            review_type,\n            title,\n            written_at\n        )) AS props\n    FROM\n         place_reviews"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "place_indexes_graph_format"
+      ],
+      "name": "place_indexes_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-data/place_table/graph_format/place_indexes"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "place_info_graph_format"
+      ],
+      "name": "place_info_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-data/place_table/graph_format/place_info"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "place_menus_graph_format"
+      ],
+      "name": "place_menus_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-data/place_table/graph_format/place_menus"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "place_reviews_graph_format"
+      ],
+      "name": "place_reviews_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-data/place_table/graph_format/place_reviews"
+      },
+      "type": "file"
+    }
+  ]
+}

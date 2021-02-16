@@ -1,0 +1,104 @@
+{
+  "name": "business_location_kcd",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "hometax",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=hometax"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "place_naver",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=place_naver"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "place_kakao",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=place_kakao"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "naver_basic",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=naver_basic"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kakao_basic",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=kakao_basic"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "hometax",
+        "businesses",
+        "place_naver",
+        "place_kakao",
+        "naver_basic",
+        "kakao_basic"
+      ],
+      "name": "merged",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinColumns": "business_id",
+        "joinType": "full_outer"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "merged"
+      ],
+      "name": "common_location",
+      "options": {
+        "sql": "SELECT\n          business_id,\n          common.*\nFROM (\n        SELECT\n                  business_id,\n                  CASE\n                      WHEN place_naver IS NOT NULL THEN struct(\n                                                                place_naver.geo_point,\n                                                                place_naver.full_address,\n                                                                place_naver.b_code,\n                                                                place_naver.sido,\n                                                                place_naver.sido_code,\n                                                                place_naver.sigungu,\n                                                                place_naver.sigungu_code,\n                                                                place_naver.dong,\n                                                                place_naver.h_codes\n                                                              )\n                      WHEN place_kakao IS NOT NULL THEN struct(\n                                                                place_kakao.geo_point,\n                                                                place_kakao.full_address,\n                                                                place_kakao.b_code,\n                                                                place_kakao.sido,\n                                                                place_kakao.sido_code,\n                                                                place_kakao.sigungu,\n                                                                place_kakao.sigungu_code,\n                                                                place_kakao.dong,\n                                                                place_kakao.h_codes\n                                                              )\n                      WHEN naver_basic IS NOT NULL THEN struct(\n                                                                naver_basic.geo_point,\n                                                                naver_basic.full_address,\n                                                                naver_basic.b_code,\n                                                                naver_basic.sido,\n                                                                naver_basic.sido_code,\n                                                                naver_basic.sigungu,\n                                                                naver_basic.sigungu_code,\n                                                                naver_basic.dong,\n                                                                naver_basic.h_codes\n                                                              )\n                      WHEN kakao_basic IS NOT NULL THEN struct(\n                                                                kakao_basic.geo_point,\n                                                                kakao_basic.full_address,\n                                                                kakao_basic.b_code,\n                                                                kakao_basic.sido,\n                                                                kakao_basic.sido_code,\n                                                                kakao_basic.sigungu,\n                                                                kakao_basic.sigungu_code,\n                                                                kakao_basic.dong,\n                                                                kakao_basic.h_codes\n                                                              )\n                      WHEN hometax IS NOT NULL THEN struct(\n                                                              hometax.geo_point,\n                                                              hometax.full_address,\n                                                              hometax.b_code,\n                                                              hometax.sido,\n                                                              hometax.sido_code,\n                                                              hometax.sigungu,\n                                                              hometax.sigungu_code,\n                                                              hometax.dong,\n                                                              hometax.h_codes\n                                                            )\n                      ELSE struct(\n                                   businesses.geo_point,\n                                   businesses.full_address,\n                                   businesses.b_code,\n                                   businesses.sido,\n                                   businesses.sido_code,\n                                   businesses.sigungu,\n                                   businesses.sigungu_code,\n                                   businesses.dong,\n                                   businesses.h_codes\n                                 )\n                  END AS common\n        FROM      merged\n)\nWHERE business_id is not null"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "common_location"
+      ],
+      "name": "common_location_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=common",
+        "numPartitions": "10"
+      },
+      "type": "file"
+    }
+  ]
+}

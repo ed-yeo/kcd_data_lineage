@@ -1,0 +1,88 @@
+{
+  //DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD
+  name: jdbc_sink
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: hometax_businesses
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "hometax_businesses"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        hometax_businesses
+      ]
+      name: result
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    id,
+                    business_id,
+                    name,
+                    address,
+                    phone_number,
+                    owner_name,
+                    owner_birthday,
+                    owner_nationality,
+                    owner_email,
+                    opened_at,
+                    operation_status,
+                    taxation_type,
+                    classification_name,
+                    classification_code,
+                    login,
+                    official_name,
+                    official_code,
+                    official_number,
+                    tax_refunds_count,
+                    created_at,
+                    current_timestamp() AS updated_at,
+                    business_id % 10 AS regular_employees_count,
+                    '소상공인' AS size_category
+            FROM   hometax_businesses
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        result
+      ]
+      name: jdbc_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        operation: upsert
+        dbtable: hometax_businesses
+        conflictColumns: business_id
+        updateColumns: regular_employees_count,size_category,updated_at
+        typeCastColumns: size_category:hometax_business_size_category
+      }
+      type: jdbc
+    }
+  ]
+}

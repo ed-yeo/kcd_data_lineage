@@ -1,0 +1,58 @@
+{
+  "name": "hometax_business_label_upload",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "hometax_businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/hometax_businesses"
+      },
+      "type": "file",
+      "cache": true
+    },
+    {
+      "inputs": [],
+      "name": "business_label",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=hometax/name=business_label"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "hometax_businesses",
+        "business_label"
+      ],
+      "name": "result",
+      "options": {
+        "sql": "  SELECT  b.id,\n          b.business_id,\n          b.name,\n          b.address,\n          b.phone_number,\n          b.owner_name,\n          b.owner_birthday,\n          b.owner_nationality,\n          b.owner_email,\n          b.opened_at,\n          b.operation_status,\n          b.taxation_type,\n          b.item_name,\n          b.item_code,\n          b.login,\n          b.official_name,\n          b.official_code,\n          b.official_number,\n          b.tax_refunds_count,\n          b.created_at,\n          current_timestamp() AS updated_at,\n          l.regular_employees_count,\n          l.size_category,\n          b.owner_address,\n          b.type_name\n  FROM    hometax_businesses b LEFT OUTER JOIN business_label l\n  ON      b.business_id = l.business_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "result"
+      ],
+      "name": "jdbc_sink",
+      "options": {
+        "driver": "org.postgresql.Driver",
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "operation": "upsert",
+        "dbtable": "hometax_businesses",
+        "conflictColumns": "business_id",
+        "updateColumns": "regular_employees_count,size_category,updated_at",
+        "typeCastColumns": "size_category:hometax_business_size_category"
+      },
+      "type": "jdbc"
+    }
+  ]
+}

@@ -1,0 +1,203 @@
+{
+  name: build_hometax_invoices
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_SNAPSHOT_DB_PATH}/businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_sales_invoices_src
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/hometax_sales_invoices
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_purchases_invoices_src
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/hometax_purchases_invoices
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: hometax_sales_invoices
+      inputs:
+      [
+        hometax_sales_invoices_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    hometax_sales_invoices_src
+          WHERE   created_at_date >= '${MIN_DATE}'
+          AND     created_at_date < '${MAX_DATE}'
+          '''
+      }
+    }
+    {
+      name: hometax_purchases_invoices
+      inputs:
+      [
+        hometax_purchases_invoices_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    hometax_purchases_invoices_src
+          WHERE   created_at_date >= '${MIN_DATE}'
+          AND     created_at_date < '${MAX_DATE}'
+          '''
+      }
+    }
+    //
+    {
+      name: hometax_invoices
+      inputs:
+      [
+        businesses
+        hometax_sales_invoices
+        hometax_purchases_invoices
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  /*+ BROADCAST(b) */
+                  i.*,
+                  b.id AS trader_business_id
+          FROM    (
+            SELECT  id,
+                    business_id,
+                    tax_invoice,
+                    invoice_type,
+                    issue_type,
+                    received,
+                    CAST(null AS boolean) AS paid,
+                    price,
+                    tax,
+                    amount,
+                    note,
+                    customer_registration_number AS registration_number,
+                    customer_workplace_number AS workplace_number,
+                    customer_business_name AS business_name,
+                    customer_business_classification AS business_classification,
+                    customer_business_category AS business_category,
+                    customer_owner_name AS owner_name,
+                    customer_email AS email,
+                    items_count,
+                    item_unit,
+                    item_price,
+                    item_name,
+                    item_note,
+                    authorization_number,
+                    written_at,
+                    issued_at,
+                    sent_at,
+                    created_at,
+                    created_at_date,
+                    updated_at,
+                    customer_address AS address,
+                    original_authorization_number,
+                    true AS is_sales,
+                    false AS is_purchases,
+                    amount < 0 AS canceled,
+                    invoice_type in ('일반(수정)', '수입(수정)', '위수탁(수정)', '영세율(수정)', '영세율위수탁(수정)') AS revised,
+                    tax_invoice AND invoice_type in ('일반', '위수탁') AND tax = 0 AND ABS(price) >= 10 AS invalid_tax,
+                    invoice_type like '%영세율%' AS zero_rate
+            FROM    hometax_sales_invoices
+
+            UNION ALL
+
+            SELECT  id,
+                    business_id,
+                    tax_invoice,
+                    invoice_type,
+                    issue_type,
+                    CAST(null AS boolean) AS received,
+                    paid,
+                    price,
+                    tax,
+                    amount,
+                    note,
+                    vendor_registration_number AS registration_number,
+                    vendor_workplace_number AS workplace_number,
+                    vendor_business_name AS business_name,
+                    vendor_business_classification AS business_classification,
+                    vendor_business_category AS business_category,
+                    vendor_owner_name AS owner_name,
+                    vendor_email AS email,
+                    items_count,
+                    item_unit,
+                    item_price,
+                    item_name,
+                    item_note,
+                    authorization_number,
+                    written_at,
+                    issued_at,
+                    sent_at,
+                    created_at,
+                    created_at_date,
+                    updated_at,
+                    vendor_address AS address,
+                    original_authorization_number,
+                    false AS is_sales,
+                    true AS is_purchases,
+                    amount < 0 AS canceled,
+                    invoice_type in ('일반(수정)', '수입(수정)', '위수탁(수정)', '영세율(수정)', '영세율위수탁(수정)') AS revised,
+                    tax_invoice AND invoice_type in ('일반', '위수탁') AND tax = 0 AND ABS(price) >= 10 AS invalid_tax,
+                    invoice_type like '%영세율%' AS zero_rate
+            FROM    hometax_purchases_invoices
+          ) i LEFT OUTER JOIN businesses b
+          ON (i.registration_number = b.registration_number)
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        hometax_invoices
+      ]
+      name: file_sink
+      options:
+      {
+        mode: overwritePartitions
+        path: "${OUTPUT_PATH}"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: created_at_date
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

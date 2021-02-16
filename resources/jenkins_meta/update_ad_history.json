@@ -1,0 +1,68 @@
+{
+  "name": "target_extract_log",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "ad_history",
+      "options": {
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "ad_history",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "target_messages",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/target_messages/date_id=2021-01-29/ts=08_15"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "target_messages",
+        "ad_history"
+      ],
+      "name": "update_ad_history",
+      "options": {
+        "sql": "  SELECT\n          n.message_id,\n          n.campaign_id,\n          n.ad_group_id,\n          n.creative_id,\n          n.business_id,\n          n.user_id,\n          n.step,\n          n.status,\n          n.message,\n          n.error_detail,\n          current_timestamp() AS created_at,\n          current_timestamp() AS updated_at\n  FROM (\n          SELECT\n                  CONCAT(\n                      meta.campaign_id, meta.ad_group_id, meta.creative_id,\n                      '_',\n                      meta.business_id, meta.user_id\n                  ) AS message_id,\n                  CAST(meta.campaign_id AS INT) AS campaign_id,\n                  CAST(meta.ad_group_id AS INT) AS ad_group_id,\n                  CAST(meta.creative_id AS INT) AS creative_id,\n                  CAST(meta.business_id AS INT) AS business_id,\n                  CAST(meta.user_id AS INT) AS user_id,\n                  'EXTRACT' AS step,\n                  IF(status.valid = true, 'SUCCESS', 'FAIL') AS status,\n                  status.error AS message,\n                  '' AS error_detail\n          FROM    target_messages\n          WHERE   meta.campaign_id = 2\n  ) AS n\n  LEFT OUTER JOIN ad_history\n  ON  n.message_id = ad_history.message_id\n  WHERE   ad_history.message_id IS NULL"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "update_ad_history"
+      ],
+      "name": "dedup",
+      "options": {
+        "sql": "  SELECT\n          message_id,\n          campaign_id,\n          ad_group_id,\n          creative_id,\n          business_id,\n          user_id,\n          step,\n          status,\n          message,\n          error_detail,\n          created_at,\n          updated_at\n  FROM (\n      SELECT\n              *,\n              row_number() OVER (PARTITION BY message_id ORDER BY created_at DESC) AS rank\n      FROM    update_ad_history\n  )\n  WHERE rank = 1"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "dedup"
+      ],
+      "name": "ad_history_db_sink",
+      "options": {
+        "driver": "org.postgresql.Driver",
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "ad_history",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "mode": "append"
+      },
+      "type": "jdbc"
+    }
+  ]
+}

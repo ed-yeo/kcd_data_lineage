@@ -1,0 +1,425 @@
+{
+  "name": "build_card_sales_all",
+  "udfs": [
+    {
+      "name": "estimate_paid_at",
+      "class": "com.kcd.thrush.cardsales.spark.udfs.EstimatePaidAt",
+      "params": {
+        "business_days_path": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/business_days"
+      }
+    },
+    {
+      "name": "mask_card_number",
+      "class": "com.kcd.thrush.udfs.MarkCardNumberUDF",
+      "params": {}
+    },
+    {
+      "name": "purchase_delayed",
+      "class": "com.kcd.thrush.cardsales.spark.udfs.PurchaseDelayed",
+      "params": {
+        "business_days_path": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/business_days"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses",
+      "type": "jdbc",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production-slave-1.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "businesses",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "500000"
+      }
+    },
+    {
+      "inputs": [],
+      "name": "card_merchants",
+      "type": "jdbc",
+      "cache": true,
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production-slave-1.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "card_merchants",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "500000"
+      }
+    },
+    {
+      "inputs": [],
+      "name": "credential_keys",
+      "type": "jdbc",
+      "cache": true,
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production-slave-1.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "credential_keys",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "500000"
+      }
+    },
+    {
+      "inputs": [],
+      "name": "prev_approvals_raw",
+      "options": {
+        "paths": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/approvals",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_sales_approvals_raw",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource",
+        "paths": "s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=24/hour=12,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=24/hour=13,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=24/hour=14,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=24/hour=15,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=24/hour=16,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=24/hour=17,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=24/hour=18,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=24/hour=19,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=24/hour=20,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=24/hour=21,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=24/hour=22,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=24/hour=23,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=25/hour=00,s3://staging-card-sales/staging-card-sales-approvals/year=2021/month=01/day=25/hour=01",
+        "format": "json",
+        "partition_keys": "year,month,day,hour",
+        "log_leaf_file": "true",
+        "mergeSchema": "true",
+        "extraColumns": "credential_key:string,scraping_type:string"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "prev_purchases_raw",
+      "options": {
+        "paths": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/purchases",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_sales_purchases_raw",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource",
+        "paths": "s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=24/hour=12,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=24/hour=13,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=24/hour=14,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=24/hour=15,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=24/hour=16,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=24/hour=17,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=24/hour=18,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=24/hour=19,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=24/hour=20,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=24/hour=21,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=24/hour=22,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=24/hour=23,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=25/hour=00,s3://staging-card-sales/staging-card-sales-purchases/year=2021/month=01/day=25/hour=01",
+        "format": "json",
+        "partition_keys": "year,month,day,hour",
+        "log_leaf_file": "true",
+        "mergeSchema": "true",
+        "extraColumns": "credential_key:string,scraping_type:string"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "prev_transactions_raw",
+      "options": {
+        "paths": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/visits",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "current_approvals_raw",
+      "inputs": [
+        "credential_keys",
+        "card_sales_approvals_raw"
+      ],
+      "type": "sql",
+      "cache": true,
+      "options": {
+        "sql": "SELECT    business_id,\n          credential_key,\n          transacted_at,\n          authorization_number,\n          amount,\n          MIN(acquirer_name) AS acquirer_name,\n          MIN(card_number) AS card_number,\n          MIN(card_type) AS card_type,\n          MIN(encrypted_card_number) AS encrypted_card_number,\n          MIN(installment) AS installment,\n          MIN(issuer_name) AS issuer_name,\n          MIN(masked_card_number) AS masked_card_number,\n          MIN(merchant_number) AS merchant_number,\n          MIN(scraping_type) AS scraping_type,\n          MIN(status) AS status,\n          MIN(created_at) AS created_at,\n          MIN(updated_at) AS updated_at,\n          MIN(created_at_date) AS created_at_date\nFROM      (\n   SELECT   *, date_format(created_at, 'yyyy-MM-dd') AS created_at_date\n   FROM (\n           SELECT   trim(IF (affiCardNm = '', null, affiCardNm)) AS acquirer_name,\n                    CAST(authAmt AS int) AS amount,\n                    trim(IF (authNo = '', null, authNo)) AS authorization_number,\n                    CAST(a.business_id AS int) AS business_id,\n                    trim(replace(cardNo, '', '')) AS card_number,\n                    CAST(trim(cardKnd) AS int) AS card_type,\n                    COALESCE(credential_key, k.uuid) AS credential_key,\n                    trim(IF (cardRealNo = '', null, cardRealNo)) AS encrypted_card_number,\n                    IF (insTrmNm is null, 0, CAST(insTrmNm AS int)) AS installment,\n                    trim(IF (cardNm = '', null, replace(cardNm, '카드', ''))) AS issuer_name,\n                    mask_card_number(trim(replace(cardNo, '', ''))) AS masked_card_number,\n                    trim(IF (merNo = '', null, merNo)) AS merchant_number,\n                    scraping_type,\n                    IF (authClassNm = '승인', 0, 1) AS status,\n                    to_timestamp(unix_timestamp(concat_ws(' ', trnsDate, trnsTime), 'yyyyMMdd HHmmss')) AS transacted_at,\n                    to_timestamp(\n                     concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')\n                    ) AS created_at,\n                    to_timestamp(\n                     concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')\n                    ) AS updated_at\n           FROM     card_sales_approvals_raw a LEFT OUTER JOIN credential_keys k\n           ON       a.business_id = k.business_id\n           WHERE    cardNo is not null\n   )\n)\nWHERE     business_id is not null\nAND       authorization_number is not null\nAND       transacted_at is not null\nGROUP BY  business_id, credential_key, transacted_at, authorization_number, amount",
+        "old_sql": "UNION ALL\n\nSELECT    trim(IF (afficardnm = '', null, afficardnm)) AS acquirer_name,\n          CAST(authamt AS int) AS amount,\n          trim(IF (authno = '', null, authno)) AS authorization_number,\n          CAST(a.business_id AS int) AS business_id,\n          trim(replace(cardno, '', '')) AS card_number,\n          CAST(trim(cardknd) AS int) AS card_type,\n          COALESCE(credential_key, k.uuid) AS credential_key,\n          trim(IF (cardrealno = '', null, cardrealno)) AS encrypted_card_number,\n          IF (instrmnm is null, 0, CAST(instrmnm AS int)) AS installment,\n          trim(IF (cardnm = '', null, replace(cardnm, '카드', ''))) AS issuer_name,\n          mask_card_number(trim(replace(cardno, '', ''))) AS masked_card_number,\n          trim(IF (merno = '', null, merno)) AS merchant_number,\n          scraping_type,\n          IF (authclassnm = '승인', 0, 1) AS status,\n          to_timestamp(unix_timestamp(concat_ws(' ', trnsdate, trnstime), 'yyyyMMdd HHmmss')) AS transacted_at,\n          to_timestamp(\n           concat(created_at_date, ' ', created_at_hour, ':00:00.000')\n          ) AS created_at,\n          to_timestamp(\n           concat(created_at_date, ' ', created_at_hour, ':00:00.000')\n          ) AS updated_at\n FROM     catalog_approvals_raw a LEFT OUTER JOIN credential_keys k\n ON       a.business_id = k.business_id\n WHERE    cardno is not null"
+      }
+    },
+    {
+      "name": "prev_approvals",
+      "inputs": [
+        "prev_approvals_raw",
+        "current_approvals_raw"
+      ],
+      "type": "sql",
+      "cache": true,
+      "options": {
+        "sql": " SELECT   p.*\n FROM (\n          SELECT  DISTINCT business_id, credential_key, authorization_number\n          FROM    current_approvals_raw\n ) AS c\n JOIN (\n         SELECT   *\n         FROM     prev_approvals_raw\n         WHERE    created_at_date >= '2020-12-15'\n         AND      created_at_date < '2021-01-25'\n ) AS p\n ON        (\n  p.business_id = c.business_id AND\n  p.credential_key = c.credential_key AND\n  p.authorization_number = c.authorization_number\n)"
+      }
+    },
+    {
+      "name": "current_approvals_dedup",
+      "inputs": [
+        "current_approvals_raw",
+        "prev_approvals"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    c.*\nFROM      current_approvals_raw AS c\nLEFT ANTI JOIN prev_approvals p\nON        (\n  p.business_id = c.business_id AND\n  p.credential_key = c.credential_key AND\n  p.transacted_at = c.transacted_at AND\n  p.authorization_number = c.authorization_number AND\n  p.amount = c.amount AND\n  p.credential_key = c.credential_key\n)"
+      }
+    },
+    {
+      "name": "current_approvals",
+      "inputs": [
+        "businesses",
+        "card_merchants",
+        "current_approvals_dedup"
+      ],
+      "type": "sql",
+      "cache": true,
+      "options": {
+        "sql": "SELECT    acquirer_name,\n          amount,\n          authorization_number,\n          business_id,\n          card_number,\n          card_type,\n          credential_key,\n          encrypted_card_number,\n          estimated_fee AS fee,\n          estimated_paid_at,\n          installment,\n          issuer_name,\n          masked_card_number,\n          merchant_number,\n          amount - estimated_fee - estimated_vat_fee AS payment,\n          scraping_type,\n          status,\n          transacted_at,\n          NULLIF(estimated_vat_fee, 0) AS vat_fee,\n          created_at,\n          updated_at,\n          row_number() OVER (\n              PARTITION BY business_id, credential_key, CAST(transacted_at AS DATE), masked_card_number, authorization_number, amount, status\n              ORDER BY created_at DESC\n          ) AS approval_seq,\n          created_at_date\nFROM      (\n    SELECT    a.*,\n              estimate_paid_at(\n                  a.issuer_name,\n                  c.bank_name,\n                  a.transacted_at,\n                  COALESCE(c.calculated_purchase_period, 1),\n                  COALESCE(c.calculated_payment_period, c.payment_period),\n                  c.paid_on_weekends\n              ) AS estimated_paid_at,\n              CASE\n                  WHEN card_type = 1 THEN\n                      CAST((a.amount * COALESCE(c.calculated_credit_fee_rate, c.credit_fee_rate) / 100) AS INTEGER)\n                  ELSE\n                      CAST((a.amount * COALESCE(c.calculated_check_fee_rate, c.check_fee_rate_c) / 100) AS INTEGER)\n              END AS estimated_fee,\n              CASE\n                  WHEN b.vat_withheld AND a.transacted_at > '2019-01-01' THEN\n                      CAST((a.amount * 4 / 110 / 10) AS INTEGER) * 10\n                  ELSE\n                      0\n              END AS estimated_vat_fee\n    FROM      current_approvals_dedup a, businesses b, card_merchants c\n    WHERE     a.business_id = b.id\n    AND       a.business_id = c.business_id\n    AND       a.issuer_name = c.issuer_name\n    AND       a.merchant_number = c.merchant_number\n)"
+      }
+    },
+    {
+      "name": "current_purchases_raw",
+      "inputs": [
+        "credential_keys",
+        "card_sales_purchases_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *,\n        date_format(created_at, 'yyyy-MM-dd') AS created_at_date\nFROM    (\n  SELECT  trim(IF (affiCardNm = '', null, affiCardNm)) AS acquirer_name,\n          CAST(pcaAmt AS int) AS amount,\n          trim(IF (authNo = '', null, authNo)) AS authorization_number,\n          CAST(basicFee AS int) AS base_fee,\n          CAST(a.business_id AS int) AS business_id,\n          trim(replace(cardNo, '-', '')) AS card_number,\n          CAST(trim(cardClss) AS int) AS card_type,\n          COALESCE(credential_key, k.uuid) AS credential_key,\n          CAST(etcFee AS int) AS etc_fee,\n          CAST(fee AS int) AS fee,\n          trim(IF (cardNm = '', null, replace(cardNm, '카드', ''))) AS issuer_name,\n          mask_card_number(trim(replace(cardNo, '-', ''))) AS masked_card_number,\n          trim(IF (merNo = '', null, merNo)) AS merchant_number,\n          to_timestamp(unix_timestamp(pymScdDate , 'yyyyMMdd')) AS paid_at,\n          CAST(pymAmt AS int) AS payment,\n          CAST(pointFee AS int) AS point_fee,\n          to_timestamp(unix_timestamp(pcaDate , 'yyyyMMdd')) AS purchased_at,\n          scraping_type,\n          to_timestamp(unix_timestamp(trnsDate , 'yyyyMMdd')) AS transacted_at,\n          CAST(vatFee AS int) AS vat_fee,\n          to_timestamp(\n           concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')\n          ) AS created_at,\n          to_timestamp(\n           concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')\n          ) AS updated_at\n  FROM    card_sales_purchases_raw a LEFT OUTER JOIN credential_keys k\n  ON      a.business_id = k.business_id\n  WHERE   cardNo is not null\n)",
+        "old_sql": "UNION ALL\n\nSELECT  trim(IF (afficardnm = '', null, afficardnm)) AS acquirer_name,\n        CAST(pcaamt AS int) AS amount,\n        trim(IF (authno = '', null, authno)) AS authorization_number,\n        CAST(basicfee AS int) AS base_fee,\n        CAST(a.business_id AS int) AS business_id,\n        trim(replace(cardno, '-', '')) AS card_number,\n        CAST(trim(cardclss) AS int) AS card_type,\n        COALESCE(credential_key, k.uuid) AS credential_key,\n        CAST(etcfee AS int) AS etc_fee,\n        CAST(fee AS int) AS fee,\n        trim(IF (cardnm = '', null, replace(cardnm, '카드', ''))) AS issuer_name,\n        mask_card_number(trim(replace(cardno, '-', ''))) AS masked_card_number,\n        trim(IF (merno = '', null, merno)) AS merchant_number,\n        to_timestamp(unix_timestamp(pymscddate , 'yyyyMMdd')) AS paid_at,\n        CAST(pymamt AS int) AS payment,\n        CAST(pointfee AS int) AS point_fee,\n        to_timestamp(unix_timestamp(pcadate , 'yyyyMMdd')) AS purchased_at,\n        scraping_type,\n        to_timestamp(unix_timestamp(trnsdate , 'yyyyMMdd')) AS transacted_at,\n        CAST(vatfee AS int) AS vat_fee,\n        to_timestamp(\n         concat(created_at_date, ' ', created_at_hour, ':00:00.000')\n        ) AS created_at,\n        to_timestamp(\n         concat(created_at_date, ' ', created_at_hour, ':00:00.000')\n        ) AS updated_at,\n        created_at_date\nFROM    catalog_purchases_raw a LEFT OUTER JOIN credential_keys k\nON      a.business_id = k.business_id\nWHERE   cardno is not null"
+      }
+    },
+    {
+      "name": "current_purchases_reformat",
+      "inputs": [
+        "card_merchants",
+        "current_purchases_raw"
+      ],
+      "type": "sql",
+      "cache": true,
+      "options": {
+        "sql": "SELECT    business_id,\n        credential_key,\n        authorization_number,\n        masked_card_number,\n        amount,\n        purchased_at,\n        paid_at,\n        MIN(acquirer_name) AS acquirer_name,\n        MIN(base_fee) AS base_fee,\n        MIN(card_number) AS card_number,\n        MIN(card_type) AS card_type,\n        MIN(etc_fee) AS etc_fee,\n        MIN(fee) AS fee,\n        MIN(issuer_name) AS issuer_name,\n        MIN(merchant_number) AS merchant_number,\n        MIN(payment) AS payment,\n        MIN(point_fee) AS point_fee,\n        MIN(purchase_delayed) AS purchase_delayed,\n        MIN(scraping_type) AS scraping_type,\n        MIN(transacted_at) AS transacted_at,\n        MIN(vat_fee) AS vat_fee,\n        MIN(created_at) AS created_at,\n        MIN(updated_at) AS updated_at,\n        MIN(created_at_date) AS created_at_date\nFROM (\n        SELECT    a.acquirer_name,\n                  a.amount,\n                  a.authorization_number,\n                  a.base_fee,\n                  a.business_id,\n                  a.card_number,\n                  a.card_type,\n                  a.credential_key,\n                  a.etc_fee,\n                  a.fee,\n                  a.issuer_name,\n                  a.masked_card_number,\n                  a.merchant_number,\n                  COALESCE(a.paid_at,\n                      estimate_paid_at(\n                          a.issuer_name,\n                          c.bank_name,\n                          a.transacted_at,\n                          COALESCE(c.calculated_purchase_period, 1),\n                          COALESCE(c.calculated_payment_period, c.payment_period),\n                          c.paid_on_weekends\n                      )\n                  ) AS paid_at,\n                  a.payment,\n                  a.point_fee,\n                  purchase_delayed(a.issuer_name, a.transacted_at, a.purchased_at) AS purchase_delayed,\n                  a.purchased_at,\n                  a.scraping_type,\n                  a.transacted_at,\n                  a.vat_fee,\n                  a.created_at,\n                  a.updated_at,\n                  a.created_at_date\n        FROM      current_purchases_raw a, card_merchants c\n        WHERE     a.business_id is not null\n        AND       a.issuer_name is not null\n        AND       a.card_number is not null\n        AND       a.purchased_at is not null\n        AND       a.business_id = c.business_id\n        AND       a.issuer_name = c.issuer_name\n        AND       a.merchant_number = c.merchant_number\n)\nGROUP BY  1, 2, 3, 4, 5, 6, 7"
+      }
+    },
+    {
+      "name": "prev_purchases",
+      "inputs": [
+        "prev_purchases_raw",
+        "current_purchases_reformat"
+      ],
+      "type": "sql",
+      "cache": true,
+      "options": {
+        "sql": "SELECT   p.*\nFROM  (\n      SELECT  DISTINCT business_id, credential_key, masked_card_number\n      FROM    current_purchases_reformat\n) AS c\nJOIN (\n     SELECT   *\n     FROM     prev_purchases_raw\n     WHERE    created_at_date >= '2020-12-15'\n     AND      created_at_date < '2021-01-25'\n) AS p\nON        (\n  p.business_id = c.business_id AND\n  p.masked_card_number = c.masked_card_number AND\n  p.credential_key = c.credential_key\n)"
+      }
+    },
+    {
+      "name": "current_purchases_dedup",
+      "inputs": [
+        "current_purchases_reformat",
+        "prev_purchases"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    c.*\nFROM      current_purchases_reformat AS c\nLEFT ANTI JOIN prev_purchases p\nON        (\n  p.business_id = c.business_id AND\n  p.authorization_number = c.authorization_number AND\n  p.masked_card_number = c.masked_card_number AND\n  p.amount = c.amount AND\n  p.purchased_at = c.purchased_at AND\n  p.paid_at = c.paid_at AND\n  p.credential_key = c.credential_key\n)"
+      }
+    },
+    {
+      "name": "current_purchases",
+      "inputs": [
+        "current_purchases_dedup"
+      ],
+      "type": "sql",
+      "cache": true,
+      "options": {
+        "sql": "SELECT    acquirer_name,\n          amount,\n          authorization_number,\n          base_fee,\n          business_id,\n          card_number,\n          card_type,\n          credential_key,\n          etc_fee,\n          fee,\n          issuer_name,\n          masked_card_number,\n          merchant_number,\n          paid_at,\n          payment,\n          point_fee,\n          purchase_delayed,\n          row_number() OVER (\n              PARTITION BY business_id, credential_key, transacted_at, masked_card_number, amount\n              ORDER BY purchased_at DESC, authorization_number\n          ) AS purchase_cancel_seq,\n          row_number() OVER (\n              PARTITION BY business_id, credential_key, CAST(transacted_at AS DATE), authorization_number, masked_card_number, amount\n              ORDER BY purchased_at ASC\n          ) AS purchase_seq,\n          purchased_at,\n          scraping_type,\n          transacted_at,\n          vat_fee,\n          created_at,\n          updated_at,\n          created_at_date\nFROM      current_purchases_dedup"
+      }
+    },
+    {
+      "name": "current_approval_candidates",
+      "inputs": [
+        "current_approvals"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    struct(approved.*) AS approved,\n          struct(canceled.*) AS canceled,\n          COALESCE(\n            date_format(approved.created_at, 'yyyy-MM-dd'),\n            date_format(canceled.created_at, 'yyyy-MM-dd')\n          ) AS created_at_date\nFROM      (\n  SELECT  *\n  FROM    current_approvals\n  WHERE   status = 0\n) approved FULL OUTER JOIN (\n  SELECT  *\n  FROM    current_approvals\n  WHERE   status = 1\n) canceled\nON (\n  approved.business_id = canceled.business_id AND\n  approved.credential_key = canceled.credential_key AND\n  approved.amount = -canceled.amount AND\n  approved.masked_card_number = canceled.masked_card_number AND\n  approved.authorization_number = canceled.authorization_number AND\n  CAST(approved.transacted_at AS DATE) = CAST(canceled.transacted_at AS DATE) AND\n  approved.approval_seq = canceled.approval_seq\n)"
+      }
+    },
+    {
+      "name": "prev_approval_candidates",
+      "inputs": [
+        "prev_approvals",
+        "current_approval_candidates"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "  SELECT    /*+ BROADCAST(canceled) */\n            struct(approved.*) AS approved,\n            struct(canceled.*) AS canceled,\n            COALESCE(approved.created_at_date, canceled.created_at_date) AS created_at_date\n  FROM      (\n    SELECT  *\n    FROM    prev_approvals\n    WHERE   status = 0\n  ) approved INNER JOIN (\n    SELECT  canceled.*\n    FROM    current_approval_candidates\n    WHERE   approved.business_id is null\n  ) canceled\n  ON (\n    approved.business_id = canceled.business_id AND\n    approved.credential_key = canceled.credential_key AND\n    approved.amount = -canceled.amount AND\n    approved.masked_card_number = canceled.masked_card_number AND\n    approved.authorization_number = canceled.authorization_number\n  )"
+      }
+    },
+    {
+      "name": "approval_candidates",
+      "inputs": [
+        "current_approval_candidates",
+        "prev_approval_candidates"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    approved.*,\n          IF(canceled.business_id IS NULL,\n              CAST(null AS TIMESTAMP),\n              canceled.transacted_at\n          ) AS approval_canceled_at,\n\n          IF(canceled.business_id IS NULL,\n              'approved',\n              'cancel'\n          ) AS type\nFROM (\n    SELECT * FROM current_approval_candidates\n\n    UNION ALL\n\n    SELECT * FROM prev_approval_candidates\n)\nWHERE approved.business_id IS NOT NULL"
+      }
+    },
+    {
+      "name": "current_purchase_candidates",
+      "inputs": [
+        "current_purchases"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    struct(purchased.*) AS purchased,\n          struct(canceled.*) AS canceled,\n          COALESCE(purchased.created_at_date, canceled.created_at_date) AS created_at_date\nFROM      (\n  SELECT  *\n  FROM    current_purchases\n  WHERE   amount > 0\n) purchased FULL OUTER JOIN (\n  SELECT  *\n  FROM    current_purchases\n  WHERE   amount < 0\n) canceled\nON  (\n  purchased.business_id = canceled.business_id AND\n  purchased.credential_key = canceled.credential_key AND\n  purchased.amount = -canceled.amount AND\n  purchased.masked_card_number = canceled.masked_card_number AND\n  (\n      purchased.card_type = 4 AND\n      purchased.authorization_number = canceled.authorization_number OR\n      (\n          purchased.card_type != 4 AND\n          CAST(purchased.transacted_at AS DATE) = CAST(canceled.transacted_at AS DATE) AND\n          purchased.purchase_cancel_seq = canceled.purchase_cancel_seq\n      )\n  )\n)"
+      }
+    },
+    {
+      "name": "prev_purchase_candidates",
+      "inputs": [
+        "prev_purchases",
+        "current_purchase_candidates"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    /*+ BROADCAST(canceled) */\n          struct(purchased.*) AS purchased,\n          struct(canceled.*) AS canceled,\n          COALESCE(purchased.created_at_date, canceled.created_at_date) AS created_at_date\nFROM      (\n  SELECT  *\n  FROM    prev_purchases\n  WHERE   amount > 0\n) purchased INNER JOIN (\n  SELECT  canceled.*\n  FROM    current_purchase_candidates\n  WHERE   purchased.business_id is null\n) canceled\nON  (\n  purchased.business_id = canceled.business_id AND\n  purchased.credential_key = canceled.credential_key AND\n  purchased.amount = -canceled.amount AND\n  purchased.masked_card_number = canceled.masked_card_number AND\n  (\n      purchased.card_type = 4 AND\n      purchased.authorization_number = canceled.authorization_number OR\n      (\n          purchased.card_type != 4 AND\n          CAST(purchased.transacted_at AS DATE) = CAST(canceled.transacted_at AS DATE) AND\n          purchased.purchase_cancel_seq = canceled.purchase_cancel_seq\n      )\n  )\n)"
+      }
+    },
+    {
+      "name": "purchase_candidates",
+      "inputs": [
+        "current_purchase_candidates",
+        "prev_purchase_candidates"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    purchased.*,\n          IF(canceled.business_id IS NULL,\n              CAST(null AS TIMESTAMP),\n              canceled.purchased_at) AS purchase_canceled_at,\n\n          IF(canceled.business_id IS NULL,\n          'purchased',\n           'purchase_cancel') AS type\nFROM (\n    SELECT * FROM current_purchase_candidates\n    UNION ALL\n    SELECT * FROM prev_purchase_candidates\n)\nWHERE purchased.business_id IS NOT NULL"
+      }
+    },
+    {
+      "name": "transaction_candidates",
+      "inputs": [
+        "approval_candidates",
+        "purchase_candidates"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    struct(a.*) as approval,\n          struct(p.*) as purchase,\n          COALESCE(a.created_at_date, p.created_at_date) AS created_at_date\nFROM      approval_candidates a FULL OUTER JOIN purchase_candidates p\nON    (\n  a.business_id = p.business_id AND\n  a.credential_key = p.credential_key AND\n  a.authorization_number = p.authorization_number AND\n  CAST(a.transacted_at AS DATE) = CAST(p.transacted_at AS DATE) AND\n  a.issuer_name = p.issuer_name AND\n  a.amount = p.amount AND\n  (\n      p.issuer_name = '비씨'\n      OR (\n        a.masked_card_number = p.masked_card_number AND\n        a.approval_seq = p.purchase_seq\n      )\n  )\n)"
+      }
+    },
+    {
+      "name": "current_transactions",
+      "inputs": [
+        "transaction_candidates"
+      ],
+      "type": "sql",
+      "cache": true,
+      "options": {
+        "sql": "SELECT    DISTINCT\n            acquirer_name,\n            amount,\n            approval_canceled_at,\n            approval_seq,\n            authorization_number,\n            base_fee,\n            business_id,\n            card_number,\n            card_type,\n            credential_key,\n            encrypted_card_number,\n            estimated_paid_at,\n            etc_fee,\n            fee,\n            installment,\n            issuer_name,\n            masked_card_number,\n            merchant_number,\n            paid_at,\n            payment,\n            point_fee,\n            purchase_cancel_seq,\n            purchase_canceled_at,\n            purchase_delayed,\n            purchase_seq,\n            purchased_at,\n            scraping_type,\n            status,\n            transacted_at,\n            vat_fee,\n            created_at,\n            updated_at,\n            created_at_date\nFROM        (\n  SELECT    IF(approval.business_id IS NOT NULL, approval.acquirer_name, purchase.acquirer_name) AS acquirer_name,\n            IF(approval.business_id IS NOT NULL, approval.amount, purchase.amount) AS amount,\n            IF(approval.business_id IS NOT NULL, CAST(approval.approval_seq AS integer), CAST(null AS integer)) AS approval_seq,\n            IF(approval.business_id IS NOT NULL, approval.authorization_number, purchase.authorization_number) AS authorization_number,\n\n            IF(purchase.business_id IS NOT NULL, purchase.base_fee, CAST(null AS integer)) AS base_fee,\n            IF(purchase.business_id IS NOT NULL, purchase.etc_fee, CAST(null AS integer)) AS etc_fee,\n            IF(purchase.business_id IS NOT NULL, purchase.fee, approval.fee) AS fee,\n            IF(purchase.business_id IS NOT NULL, purchase.vat_fee, approval.vat_fee) AS vat_fee,\n\n            IF(approval.business_id IS NOT NULL, approval.business_id, purchase.business_id) AS business_id,\n            IF(approval.business_id IS NOT NULL, approval.card_number, purchase.card_number) AS card_number,\n            IF(approval.business_id IS NOT NULL, approval.card_type, purchase.card_type) AS card_type,\n            IF(approval.business_id IS NOT NULL, approval.credential_key, purchase.credential_key) AS credential_key,\n            IF(approval.business_id IS NOT NULL, approval.encrypted_card_number, CAST(null AS string)) AS encrypted_card_number,\n            IF(approval.business_id IS NOT NULL, approval.estimated_paid_at, CAST(null AS timestamp)) AS estimated_paid_at,\n            IF(approval.business_id IS NOT NULL, approval.installment, CAST(null AS integer)) AS installment,\n            IF(approval.business_id IS NOT NULL, approval.issuer_name, purchase.issuer_name) AS issuer_name,\n            IF(approval.business_id IS NOT NULL, approval.masked_card_number, purchase.masked_card_number) AS masked_card_number,\n            IF(approval.business_id IS NOT NULL, approval.merchant_number, purchase.merchant_number) AS merchant_number,\n\n            IF(purchase.business_id IS NOT NULL, purchase.paid_at, CAST(null AS timestamp)) AS paid_at,\n            IF(purchase.business_id IS NOT NULL, purchase.payment, approval.payment) AS payment,\n            IF(purchase.business_id IS NOT NULL, purchase.point_fee, CAST(null AS integer)) AS point_fee,\n            IF(purchase.business_id IS NOT NULL, CAST(purchase.purchase_cancel_seq AS integer), CAST(null AS integer)) AS purchase_cancel_seq,\n            IF(purchase.business_id IS NOT NULL, purchase.purchase_canceled_at, CAST(null AS timestamp)) AS purchase_canceled_at,\n            IF(purchase.business_id IS NOT NULL, purchase.purchase_delayed, CAST(null AS boolean)) AS purchase_delayed,\n            IF(purchase.business_id IS NOT NULL, CAST(purchase.purchase_seq AS integer), CAST(null AS integer)) AS purchase_seq,\n            IF(purchase.business_id IS NOT NULL, purchase.purchased_at, CAST(null AS timestamp)) AS purchased_at,\n\n            IF(approval.business_id IS NOT NULL, approval.scraping_type, purchase.scraping_type) AS scraping_type,\n            IF(approval.business_id IS NOT NULL, approval.status, CAST(null AS integer)) AS status,\n            IF(approval.business_id IS NOT NULL, approval.transacted_at, purchase.transacted_at) AS transacted_at,\n            IF(approval.business_id IS NOT NULL, approval.approval_canceled_at, CAST(null AS timestamp)) AS approval_canceled_at,\n            IF(approval.business_id IS NOT NULL, approval.created_at, purchase.created_at) AS created_at,\n            IF(approval.business_id IS NOT NULL, approval.updated_at, purchase.updated_at) AS updated_at,\n            IF(approval.business_id IS NOT NULL, date_format(approval.created_at, 'yyyy-MM-dd'), date_format(purchase.created_at, 'yyyy-MM-dd')) AS created_at_date\n  FROM      transaction_candidates\n  WHERE     approval.business_id is not null OR purchase.business_id is not null\n)"
+      }
+    },
+    {
+      "name": "prev_transactions",
+      "inputs": [
+        "current_transactions",
+        "prev_transactions_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    p.*\nFROM  (\n          SELECT DISTINCT business_id, credential_key\n          FROM    current_transactions\n) AS c\nJOIN (\n          SELECT  *\n          FROM    prev_transactions_raw\n          WHERE   created_at_date >= '2020-12-15'\n          AND     created_at_date < '2021-01-25'\n\n) AS p\nON    (\n  p.business_id = c.business_id AND\n  p.credential_key = c.credential_key\n)"
+      }
+    },
+    {
+      "name": "merged_transactions",
+      "inputs": [
+        "prev_transactions",
+        "current_transactions"
+      ],
+      "type": "sql",
+      "cache": true,
+      "options": {
+        "sql": "SELECT    IF(current.business_id IS NOT NULL, true, false) AS is_current,\n          IF(current.business_id IS NOT NULL, current.acquirer_name, prev.acquirer_name) AS acquirer_name,\n          IF(current.business_id IS NOT NULL, current.amount, prev.amount) AS amount,\n          IF(current.business_id IS NOT NULL, current.authorization_number, prev.authorization_number) AS authorization_number,\n          CAST(COALESCE(current.approval_seq, prev.approval_seq) AS integer) AS approval_seq,\n          COALESCE(current.base_fee, prev.base_fee) AS base_fee,\n          IF(current.business_id IS NOT NULL, current.business_id, prev.business_id) AS business_id,\n          IF(current.business_id IS NOT NULL, current.card_number, prev.card_number) AS card_number,\n          COALESCE(current.card_type, prev.card_type) AS card_type,\n          COALESCE(current.credential_key, prev.credential_key) AS credential_key,\n          COALESCE(current.encrypted_card_number, prev.encrypted_card_number) AS encrypted_card_number,\n          COALESCE(current.estimated_paid_at, prev.estimated_paid_at) AS estimated_paid_at,\n          COALESCE(current.etc_fee, prev.etc_fee) AS etc_fee,\n          COALESCE(current.fee, prev.fee) AS fee,\n          COALESCE(current.installment, prev.installment) AS installment,\n          COALESCE(current.issuer_name, prev.issuer_name) AS issuer_name,\n          COALESCE(current.masked_card_number, prev.masked_card_number) AS masked_card_number,\n          COALESCE(current.merchant_number, prev.merchant_number) AS merchant_number,\n          COALESCE(current.paid_at, prev.paid_at) AS paid_at,\n          COALESCE(current.payment, prev.payment) AS payment,\n          COALESCE(current.point_fee, prev.point_fee) AS point_fee,\n          CAST(COALESCE(current.purchase_cancel_seq, prev.purchase_cancel_seq) AS integer) AS purchase_cancel_seq,\n          COALESCE(current.purchase_canceled_at, prev.purchase_canceled_at) AS purchase_canceled_at,\n          COALESCE(current.purchase_delayed, prev.purchase_delayed) AS purchase_delayed,\n          CAST(COALESCE(current.purchase_seq, prev.purchase_seq) AS integer) AS purchase_seq,\n          COALESCE(current.purchased_at, prev.purchased_at) AS purchased_at,\n          COALESCE(current.scraping_type, prev.scraping_type) AS scraping_type,\n          COALESCE(current.status, prev.status) AS status,\n          COALESCE(current.approval_canceled_at, prev.approval_canceled_at) AS approval_canceled_at,\n          COALESCE(current.vat_fee, prev.vat_fee) AS vat_fee,\n          IF(current.business_id IS NOT NULL, COALESCE(prev.visit_order, 0) + 1, prev.visit_order) AS visit_order,\n          IF(prev.business_id IS NULL OR current.transacted_at > prev.transacted_at, current.transacted_at, prev.transacted_at) AS transacted_at,\n          IF(prev.business_id IS NULL OR current.created_at < prev.created_at, current.created_at, prev.created_at) AS created_at,\n          IF(prev.business_id IS NULL OR current.updated_at > prev.updated_at, current.updated_at, prev.updated_at) AS updated_at,\n          IF(prev.business_id IS NULL OR current.created_at_date < prev.created_at_date, current.created_at_date, prev.created_at_date) AS created_at_date\nFROM      prev_transactions prev\nFULL OUTER JOIN current_transactions current\nON        (\n  prev.business_id = current.business_id AND\n  prev.credential_key = current.credential_key AND\n  prev.authorization_number = current.authorization_number AND\n  CAST(prev.transacted_at AS DATE) = CAST(current.transacted_at AS DATE) AND\n  prev.issuer_name = current.issuer_name AND\n  prev.amount = current.amount AND\n  (\n      current.issuer_name = '비씨' OR\n      (\n        prev.masked_card_number = current.masked_card_number AND\n        COALESCE(prev.approval_seq, prev.purchase_seq) = COALESCE(current.approval_seq, current.purchase_seq) AND\n        CAST(prev.transacted_at AS DATE) = CAST(current.transacted_at AS DATE)\n      )\n  )\n)",
+        "old_sql": "CAST(COALESCE(prev.purchased_at, prev.transacted_at) AS DATE) = CAST(COALESCE(current.purchased_at, current.transacted_at) AS DATE)"
+      }
+    },
+    {
+      "name": "transactions_updated",
+      "inputs": [
+        "merged_transactions"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    acquirer_name,\n          amount,\n          approval_canceled_at,\n          approval_seq,\n          authorization_number,\n          base_fee,\n          business_id,\n          card_number,\n          card_type,\n          credential_key,\n          encrypted_card_number,\n          estimated_paid_at,\n          etc_fee,\n          fee,\n          installment,\n          issuer_name,\n          masked_card_number,\n          merchant_number,\n          paid_at,\n          payment,\n          point_fee,\n          purchase_cancel_seq,\n          purchase_canceled_at,\n          purchase_delayed,\n          purchase_seq,\n          purchased_at,\n          scraping_type,\n          status,\n          transacted_at,\n          vat_fee,\n          created_at,\n          updated_at,\n          created_at_date\nFROM      merged_transactions\nWHERE     is_current = true"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "current_approvals"
+      ],
+      "name": "approvals_sink",
+      "type": "file",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/snowdon/card_sales_incremental/approvals/date_id=2021-01-27/ts=09_50",
+        "format": "parquet"
+      }
+    },
+    {
+      "inputs": [
+        "current_purchases"
+      ],
+      "name": "purchases_sink",
+      "type": "file",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/snowdon/card_sales_incremental/purchases/date_id=2021-01-27/ts=09_50",
+        "format": "parquet"
+      }
+    },
+    {
+      "inputs": [
+        "merged_transactions"
+      ],
+      "name": "transactions_sink",
+      "type": "file",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/snowdon/card_sales_incremental/transactions_merged/date_id=2021-01-27/ts=09_50",
+        "format": "parquet"
+      }
+    },
+    {
+      "inputs": [
+        "transactions_updated"
+      ],
+      "name": "transactions_sink",
+      "type": "file",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/snowdon/card_sales_incremental/transactions_updated/date_id=2021-01-27/ts=09_50",
+        "format": "parquet"
+      }
+    },
+    {
+      "inputs": [
+        "card_merchants"
+      ],
+      "name": "card_merchants_sink",
+      "type": "file",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/snowdon/card_sales_incremental/db/date_id=2021-01-27/ts=09_50/card_merchants",
+        "format": "parquet"
+      }
+    },
+    {
+      "inputs": [
+        "credential_keys"
+      ],
+      "name": "credential_keys_sink",
+      "type": "file",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/snowdon/card_sales_incremental/db/date_id=2021-01-27/ts=09_50/credential_keys",
+        "format": "parquet"
+      }
+    }
+  ]
+}

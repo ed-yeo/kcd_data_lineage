@@ -1,0 +1,86 @@
+{
+  name: build_bank_accounts_stat
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: bank_accounts
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_SNAPSHOT_DB_PATH}/bank_accounts
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: bank_transactions
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/bank_transactions
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: bank_accounts_stat
+      inputs:
+      [
+        bank_accounts
+        bank_transactions
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+            SELECT    a.*,
+                      date_trunc('day', t.transacted_at) AS time,
+                      date_format(t.transacted_at, 'yyyy-MM-dd') AS time_key,
+                      'day' AS time_unit,
+                      t.balance
+            FROM      bank_accounts a, (
+              SELECT  *
+              FROM    (
+                  SELECT  *,
+                          row_number() OVER (
+                              PARTITION BY bank_account_id, CAST(transacted_at AS DATE)
+                              ORDER BY transacted_at DESC
+                          ) AS seq
+                  FROM    bank_transactions
+                  WHERE   transacted_at >= '${MIN_DATE}'
+                  AND     transacted_at < '${MAX_DATE}'
+              )
+              WHERE   seq = 1
+            ) t
+            WHERE     a.id = t.bank_account_id
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        bank_accounts_stat
+      ]
+      name: file_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_BASE_PATH}/bank_accounts_stat"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: time_unit,time_key
+          evenPartitions: "true"
+          numOfRecordPerFile: "4000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "name": "paynote_user_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "card_payments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/incremental/card_payments"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "merchant_meta",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_cubes/dimension/name=merchant_meta"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "merchant_meta"
+      ],
+      "name": "merchant",
+      "options": {
+        "sql": "SELECT    registration_number, card_issuer, merchant_number,\n          named_struct(\n              'merchant', merchant.info.merchant,\n              'kakao', places.kakao.name,\n              'naver', places.naver.name\n          ) AS name,\n          classification,\n          location\nFROM      merchant_meta"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "card_payments"
+      ],
+      "name": "card_payments_stat",
+      "options": {
+        "sql": "  SELECT\n          user_id, timestamp,\n          registration_number, card_issuer, merchant_number,\n          SUM(amount) AS amount_sum,\n          COUNT(1) AS tx_count\n  FROM (\n          SELECT\n                  user_id,\n                  date_trunc('MONTH', approved_at) AS timestamp,\n                  registration_number, card_issuer, merchant_number,\n                  amount\n          FROM    card_payments\n          WHERE   approved_at between '2019-01-01' AND '2021-01-29'\n          AND     card_issuer IS NOT NULL\n )\n GROUP BY user_id, timestamp, registration_number, card_issuer, merchant_number"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "card_payments_stat",
+        "merchant"
+      ],
+      "name": "merged",
+      "options": {
+        "sql": "SELECT\n          *,\n          array(\n            classification.depth_1_name,\n            CONCAT(classification.depth_1_name, '>', classification.depth_2_name),\n            CONCAT(classification.depth_1_name, '>', classification.depth_2_name, '>', classification.depth_3_name)\n          ) AS classification_names,\n          array(\n            location.sido,\n            CONCAT(location.sido, '>', location.sigungu),\n            CONCAT(location.sido, '>', location.sigungu, '>', location.dong)\n          ) AS location_names\nFROM (\n        SELECT\n                  date_format(timestamp, 'yyyy-MM-dd') AS date_id,\n                  card_payments_stat.timestamp,\n                  card_payments_stat.user_id,\n                  card_payments_stat.registration_number,\n                  card_payments_stat.card_issuer,\n                  card_payments_stat.merchant_number,\n                  card_payments_stat.amount_sum AS card_payments_amount_sum,\n                  card_payments_stat.tx_count AS card_payments_tx_count,\n                  merchant.name,\n                  merchant.classification.kcd AS classification,\n                  merchant.location.common AS location\n        FROM      card_payments_stat\n        LEFT OUTER JOIN   merchant\n        ON        card_payments_stat.registration_number = merchant.registration_number\n        AND       card_payments_stat.card_issuer = merchant.card_issuer\n        AND       card_payments_stat.merchant_number = merchant.merchant_number\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "merged"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_cubes/fact/time_unit=MONTH/name=paynote_user_stats",
+        "evenPartitions": "true",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    }
+  ]
+}

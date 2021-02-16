@@ -1,0 +1,120 @@
+{
+  name: target_send_log
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: ad_history
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "ad_history"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+      inputs:
+      []
+      name: rest_sink
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_DIR}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        ad_history
+        rest_sink
+      ]
+      name: update_ad_history
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    ad_history.message_id,
+                    ad_history.campaign_id,
+                    ad_history.ad_group_id,
+                    ad_history.creative_id,
+                    ad_history.business_id,
+                    ad_history.user_id,
+                    rest.step,
+                    rest.status,
+                    rest.message,
+                    rest.error_detail,
+                    ad_history.created_at,
+                    rest.updated_at
+          FROM      ad_history
+          JOIN      (
+                      SELECT
+                              request.message_id,
+                              'SEND' AS step,
+                              response.status,
+                              response.body AS message,
+                              '' AS error_detail,
+                              current_timestamp() AS updated_at
+                      FROM (
+                          SELECT
+                                  explode(request) AS request,
+                                  response
+                          FROM rest_sink
+                      )
+          ) AS rest
+          ON       ad_history.message_id = rest.message_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        update_ad_history
+      ]
+      name: ad_history_db_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        dbtable: ad_history
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        operation: upsert
+        conflictColumns: message_id
+        updateColumns: step,status,message,error_detail,updated_at
+      }
+      type: jdbc
+    }
+    /*
+    {
+      "inputs": [
+        target_users_stat
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "${targetIndexName}",
+        "es.nodes": "https://search-thrush-es-dev-5orl3xki356vpypuseokns5qc4.ap-northeast-2.es.amazonaws.com"
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+      },
+      "type": "es"
+    }
+    */
+  ]
+}

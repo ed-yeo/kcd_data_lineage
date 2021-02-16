@@ -1,0 +1,77 @@
+{
+  name: parse_receipt
+  udfs: [
+    {
+      name: parse_receipt
+      class: com.kcd.thrush.pos.spark.udfs.ParsePosReceiptUDF
+      params: {}
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: receipt_raw
+      options:
+      {
+        format: json
+        paths: ${POS_RECEIPT_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        receipt_raw
+      ]
+      name: parsed
+      options:
+      {
+        sql:
+          '''
+          SELECT    timestamp, business_id, client_id, name AS origin_name, custom_name, pos_x, pos_y, privacy_safe_address, receipt, created_at_date,
+                    pos_receipt.*
+
+          FROM (
+                  SELECT    *,
+                            parse_receipt(receipt, name) AS pos_receipt
+                  FROM (
+                          SELECT    timestamp, business_id, client_id, name, custom_name, pos_x, pos_y, privacy_safe_address, receipt, created_at_date,
+                                    row_number() OVER (PARTITION BY _event_id ORDER BY timestamp DESC) AS rank
+                          FROM      receipt_raw
+                          WHERE     created_at_date between '${FROM_DATE}' AND '${TO_DATE}'
+                          AND       masked != true
+                  )
+                  WHERE rank = 1
+          )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        parsed
+      ]
+      name: file_sink
+      options: {
+        mode: overwritePartitions
+        path: "${OUTPUT_BASE_PATH}"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: "created_at_date"
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+        checkpoint: "false"
+      }
+      type: custom
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "name": "upload",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "weekly_region_sales_recaps_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://thrush/test/shon/corona_jobs/weekly_region_sales_recaps"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "weekly_category_sales_recaps_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://thrush/test/shon/corona_jobs/weekly_category_sales_recaps"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "weekly_region_search_interests_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://thrush/test/shon/corona_jobs/weekly_region_search_interests"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "weekly_region_sales_recaps_src"
+      ],
+      "name": "weekly_region_sales_recaps",
+      "options": {
+        "sql": "SELECT  *,\n        current_timestamp() AS created_at,\n        current_timestamp() AS updated_at\nFROM    weekly_region_sales_recaps_src\nWHERE   weekofyear(week) < weekofyear(current_timestamp())\nAND     weekofyear(week) >= weekofyear(current_timestamp()) - 7"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "weekly_category_sales_recaps_src"
+      ],
+      "name": "weekly_category_sales_recaps",
+      "options": {
+        "sql": "SELECT  *,\n        current_timestamp() AS created_at,\n        current_timestamp() AS updated_at\nFROM    weekly_category_sales_recaps_src\nWHERE   weekofyear(week) < weekofyear(current_timestamp())\nAND     weekofyear(week) >= weekofyear(current_timestamp()) - 7"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "weekly_region_search_interests_src"
+      ],
+      "name": "weekly_region_search_interests",
+      "options": {
+        "sql": "SELECT  *,\n        current_timestamp() AS created_at,\n        current_timestamp() AS updated_at\nFROM    weekly_region_search_interests_src\nWHERE   weekofyear(week) < weekofyear(current_timestamp())\nAND     weekofyear(week) >= weekofyear(current_timestamp()) - 7"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "weekly_region_sales_recaps"
+      ],
+      "name": "weekly_region_sales_recaps_sink",
+      "options": {
+        "driver": "org.postgresql.Driver",
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "weekly_region_sales_recaps",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "operation": "upsert",
+        "conflictColumns": "sido,sigungu,week",
+        "updateColumns": "sales_amount,visitors_count,businesses_count,updated_at"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [
+        "weekly_category_sales_recaps"
+      ],
+      "name": "weekly_category_sales_recaps_sink",
+      "options": {
+        "driver": "org.postgresql.Driver",
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "weekly_category_sales_recaps",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "operation": "upsert",
+        "conflictColumns": "category,subcategory,week",
+        "updateColumns": "sales_amount,visitors_count,businesses_count,updated_at"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [
+        "weekly_region_search_interests"
+      ],
+      "name": "weekly_region_search_interests_sink",
+      "options": {
+        "driver": "org.postgresql.Driver",
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "weekly_region_search_interests",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "operation": "upsert",
+        "conflictColumns": "sido,sigungu,week",
+        "updateColumns": "score,updated_at"
+      },
+      "type": "jdbc"
+    }
+  ]
+}

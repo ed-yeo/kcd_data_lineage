@@ -1,0 +1,86 @@
+{
+  name: build_card_purchases
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: card_purchases_approvals_src
+      options:
+      {
+        paths: "${CARD_PURCHASES_APPROVALS_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: card_purchases_approvals
+      inputs:
+      [
+        card_purchases_approvals_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      card_purchases_approvals_src
+          WHERE     created_at_date >= '${MIN_DATE}'
+          AND       created_at_date < '${MAX_DATE}'
+          '''
+      }
+    }
+    {
+      name: card_purchases
+      inputs:
+      [
+        card_purchases_approvals
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      (
+             SELECT *,
+                    CAST(approved_at AS long) - CAST(lag(approved_at, 1) over (
+                        PARTITION BY business_id, authorization_number, status, amount
+                        ORDER BY approved_at
+                    ) AS long) as buffer
+             FROM   card_purchases_approvals
+             WHERE  currency = 0
+             AND    amount IS NOT NULL
+          )
+          WHERE buffer is null OR buffer > 1000 * 60
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        card_purchases
+      ]
+      name: file_sink
+      options: {
+        mode: overwrite
+        path: "${OUTPUT_PATH}"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: created_at_date
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

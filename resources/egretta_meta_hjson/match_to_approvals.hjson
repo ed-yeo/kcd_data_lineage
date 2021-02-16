@@ -1,0 +1,140 @@
+{
+  //OUTPUT_BASE_PATH
+  name: match_to_approvals
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: approval_candidates
+      options:
+      {
+        paths: "${OUTPUT_BASE_PATH}/candidates/approvals_current"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    // approvals with canceled on same day. no need to be updated later.
+    {
+     name: approvals_with_cancel
+     inputs:
+     [
+       approval_candidates
+     ]
+     type: sql
+     options:
+     {
+       sql:
+         '''
+         SELECT    approved.*,
+                   canceled.transacted_at AS approval_canceled_at,
+                   'cancel' AS type
+         FROM      approval_candidates
+         WHERE     approved.business_id is not null AND canceled.business_id is not null
+         '''
+     }
+   }
+   // prev approval's status need to be updated from approved to canceled.
+   {
+      name: approvals_with_late_cancel
+      inputs:
+      [
+        approval_candidates
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    p.*,
+                    c.transacted_at AS approval_canceled_at,
+                    'late_cancel' AS type
+          FROM      (
+              SELECT    approved.*
+              FROM      approval_candidates
+              WHERE     canceled.business_id is null
+          ) p, (
+              SELECT    canceled.*
+              FROM      approval_candidates
+              WHERE     approved.business_id is null
+          ) c
+          WHERE     p.business_id = c.business_id
+          AND       p.credential_key = c.credential_key
+          AND       p.amount = -c.amount
+          AND       p.card_number = c.card_number
+          AND       p.authorization_number = c.authorization_number
+          '''
+      }
+    }
+    // same date canceled approvals are already subtracted, so only late canceld approvals need to be subtracted
+    {
+      name: approvals_without_cancel
+      inputs:
+      [
+        approval_candidates
+        approvals_with_late_cancel
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    /*+ BROADCAST(c) */
+                    p.approved.*,
+                    CAST(null AS TIMESTAMP) AS approval_canceled_at,
+                    'approved' AS type
+          FROM      approval_candidates p LEFT ANTI JOIN approvals_with_late_cancel c
+          ON (
+            p.approved.business_id = c.business_id AND
+            p.approved.credential_key = c.credential_key AND
+            abs(p.approved.amount) = abs(c.amount) AND
+            p.approved.card_number = c.card_number AND
+            p.approved.authorization_number = c.authorization_number AND
+            c.approval_canceled_at is not null
+          )
+          WHERE     p.canceled.business_id is null
+          '''
+      }
+    }
+    {
+      name: merged_approvals
+      inputs:
+      [
+        approvals_without_cancel
+        approvals_with_cancel
+        approvals_with_late_cancel
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  * FROM approvals_without_cancel
+          UNION ALL
+          SELECT  * FROM approvals_with_cancel
+          UNION ALL
+          SELECT  * FROM approvals_with_late_cancel
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        merged_approvals
+      ]
+      name: file_sink
+      options: {
+          mode: overwrite
+          path: "${OUTPUT_BASE_PATH}/merged/approvals_current"
+          format: parquet
+      }
+      type: file
+    }
+  ]
+}

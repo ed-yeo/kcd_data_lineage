@@ -1,0 +1,65 @@
+{
+  name: build_session
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: transactions
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/dev/card_sales_v2/table/transactions
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        transactions
+      ]
+      name: txs
+      options:
+      {
+        sql:
+          '''
+          SELECT  encrypted_card_number,
+                  collect_list(
+                    struct(
+                      business_id,
+                      transacted_at
+                    )
+                  ) AS histories
+          FROM    transactions
+          WHERE   encrypted_card_number is not null
+          AND     transaction_canceled_at IS NULL AND purchase_canceled_at IS NULL
+          AND     transacted_at between '${from_date_id}' AND '${to_date_id}'
+          AND     created_at_date >= '${from_date_id}'
+          GROUP BY encrypted_card_number
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        txs
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${output_path}/txs"
+      }
+      type: file
+    }
+  ]
+}

@@ -1,0 +1,283 @@
+{
+  name: total_region_code
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: region_code_mapping
+      options:
+      {
+        format: csv
+        paths: ${REGION_CODE_MAPPING}
+        read: "{\"delimiter\":\"\\\\t\"}"
+        columns: sido_name,sigungu_name,region_name,h_dong_name,b_dong_name,region_code,h_code,created_at,b_code
+      }
+      type: file
+      cache: true
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        region_code_mapping
+      ]
+      name: total_region_code_mapping
+      options:
+      {
+        sql:
+          '''
+            SELECT  DISTINCT h_code, b_code, region_code
+            FROM    region_code_mapping
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        region_code_mapping
+      ]
+      name: region_sido
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    h_code AS code,
+                    sido_name AS sido,
+                    h_code AS sido_code,
+                    sido_name AS full_address
+            FROM    region_code_mapping
+            WHERE   sido_name = sigungu_name
+            AND     sido_name = h_dong_name
+            AND     h_code not in (3611000000, 4110500000, 4210500000, 4884000000)
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        region_code_mapping
+      ]
+      name: region_sigungu
+      options:
+      {
+        sql:
+          '''
+            SELECT      '4884000000' AS code, '경상남도' AS sido, '4800000000' AS sido_code, '남해군' AS sigungu, '4884000000' AS sigungu_code, '경상남도 남해군' AS full_address
+
+            UNION ALL
+
+            SELECT      '3611000000' AS code, '세종특별자치시' AS sido,  '3600000000' AS sido_code, '세종특별자치시' AS sigungu, '3611000000' AS sigungu_code, '세종특별자치시' AS full_address
+
+            UNION ALL
+
+            SELECT
+                    h_code AS code,
+                    sido_name AS sido,
+                    CONCAT( substring(h_code, 0, 2), '00000000') AS sido_code,
+                    sigungu_name AS sigungu,
+                    h_code AS sigungu_code,
+                    CONCAT(sido_name, ' ', sigungu_name) AS full_address
+            FROM    region_code_mapping
+            WHERE   sido_name != sigungu_name
+            AND     sigungu_name = h_dong_name
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        region_code_mapping
+        region_sigungu
+      ]
+      name: region_h_dong
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    h_dong.*,
+                    region_sigungu.sido_code,
+                    region_sigungu.sigungu_code
+            FROM (
+                    SELECT
+                            code, sido, sigungu, dong, full_address,
+                            collect_set(b_code) AS mapping_codes
+                    FROM (
+                        SELECT
+                                h_code AS code,
+                                sido_name AS sido,
+                                sigungu_name AS sigungu,
+                                h_dong_name AS dong,
+                                b_code,
+                                CONCAT(sido_name, ' ', sigungu_name, ' ', h_dong_name) AS full_address
+                        FROM    region_code_mapping
+                        WHERE   sido_name != sigungu_name
+                        AND     sigungu_name != h_dong_name
+
+                        UNION ALL
+
+                        SELECT
+                                h_code AS code,
+                                sido_name AS sido,
+                                sigungu_name AS sigungu,
+                                h_dong_name AS dong,
+                                b_code,
+                                CONCAT(sido_name, ' ', h_dong_name) AS full_address
+                        FROM    region_code_mapping
+                        WHERE   sido_name = '세종특별자치시'
+                        AND     sigungu_name != h_dong_name
+                    )
+                    GROUP BY code, sido, sigungu, dong, full_address
+            ) AS h_dong
+            JOIN region_sigungu
+            ON h_dong.sido = region_sigungu.sido
+            AND h_dong.sigungu = region_sigungu.sigungu
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        region_code_mapping
+        region_sigungu
+      ]
+      name: region_b_dong
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    b_dong.*,
+                    region_sigungu.sido_code,
+                    region_sigungu.sigungu_code
+            FROM (
+                    SELECT
+                            code, sido, sigungu, dong, full_address,
+                            collect_set(h_code) AS mapping_codes
+                    FROM (
+                        SELECT
+                                b_code AS code,
+                                sido_name AS sido,
+                                sigungu_name AS sigungu,
+                                b_dong_name AS dong,
+                                h_code,
+                                CONCAT(sido_name, ' ', sigungu_name, ' ', b_dong_name) AS full_address
+                        FROM    region_code_mapping
+                        WHERE   sido_name != sigungu_name
+                        AND     replace(sigungu_name, ' ', '')  != b_dong_name
+                        AND     sigungu_name != b_dong_name
+
+                        UNION ALL
+
+                        SELECT
+                                b_code AS code,
+                                sido_name AS sido,
+                                sigungu_name AS sigungu,
+                                b_dong_name AS dong,
+                                h_code,
+                                CONCAT(sido_name, ' ', b_dong_name) AS full_address
+                        FROM    region_code_mapping
+                        WHERE   sido_name = '세종특별자치시'
+                        AND     replace(sigungu_name, ' ', '')  != b_dong_name
+                        AND     sigungu_name != b_dong_name
+                    )
+                    GROUP BY code, sido, sigungu, dong, full_address
+            ) AS b_dong
+            JOIN region_sigungu
+            ON b_dong.sido = region_sigungu.sido
+            AND b_dong.sigungu = region_sigungu.sigungu
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        region_sido
+      ]
+      name: region_sido_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${LOOKUP_DIR}/subject=${SUBJECT}/name=total_region_code/region_type=sido
+        numPartitions: "1"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        region_sigungu
+      ]
+      name: region_sigungu_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${LOOKUP_DIR}/subject=${SUBJECT}/name=total_region_code/region_type=sigungu
+        numPartitions: "1"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        region_h_dong
+      ]
+      name: region_h_dong_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${LOOKUP_DIR}/subject=${SUBJECT}/name=total_region_code/region_type=h_dong
+        numPartitions: "10"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        region_b_dong
+      ]
+      name: region_b_dong_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${LOOKUP_DIR}/subject=${SUBJECT}/name=total_region_code/region_type=b_dong
+        numPartitions: "10"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        total_region_code_mapping
+      ]
+      name: total_region_code_mapping_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${LOOKUP_DIR}/subject=${SUBJECT}/name=region_code_mapping
+        numPartitions: "10"
+      }
+      type: file
+    }
+  ]
+}

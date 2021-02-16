@@ -1,0 +1,555 @@
+{
+  name: build_delivery_app_orders
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: delivery_apps
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_SNAPSHOT_DB_PATH}/delivery_apps
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: baemin_orders_src
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/baemin_orders
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: baemin_sales_vats_src
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/baemin_sales_vats
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: yogiyo_orders_src
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/yogiyo_orders
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: baedaltong_orders_src
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/baedaltong_orders
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: baemin_sales_vats_raw
+      inputs:
+      [
+        baemin_sales_vats_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  shop_id,
+                  ordered_at,
+                  order_number,
+                  collect_list(struct(order_type, payment_method, payment, vat, amount)) AS sales_vats
+          FROM    baemin_sales_vats_src
+          GROUP BY shop_id, ordered_at, order_number
+          '''
+      }
+    }
+    {
+      name: baemin_orders_raw
+      inputs:
+      [
+        baemin_orders_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  order_number,
+                  ordered_at,
+                  accepted_at,
+                  arrived_at,
+                  amount,
+                  delivery_tip,
+                  takeout_discount,
+                  discount,
+                  payment,
+                  payment_method,
+                  status,
+                  reserved,
+                  service_type,
+                  shop_name,
+                  shop_number,
+                  shop_category,
+                  delivery_type,
+                  items,
+                  created_at,
+                  updated_at,
+                  shop_id,
+                  CAST(null AS string) AS delivery_addesss,
+                  CAST(null AS double) AS fee_rate,
+                  CAST(null AS bigint) AS franchise_discount,
+                  CAST(null AS string) AS order_method,
+                  CAST(null AS bigint) AS shop_discount,
+                  amount + delivery_tip AS order_amount,
+                  payment_method in ('BARO', 'RIDER') AS paid_online,
+                  payment_method in ('MEET') AS paid_offline,
+                  CAST(null AS boolean) AS vat_returnable,
+                  status = 'CLOSED' AS closed,
+                  status = 'CANCELLED' AS canceled,
+                  created_at_date
+          FROM    (
+            SELECT  *,
+                    row_number() OVER (
+                      PARTITION BY shop_id, order_number
+                      ORDER BY status_seq DESC, created_at DESC
+                    ) AS status_rank
+            FROM    (
+              SELECT  *,
+                      CASE
+                        WHEN status = 'CANCELLED' THEN 1
+                        ELSE 0
+                      END AS status_seq
+              FROM    baemin_orders_src
+              WHERE   created_at_date >= '${MIN_DATE}'
+              AND     created_at_date < '${MAX_DATE}'
+            )
+          )
+          WHERE   status_rank = 1
+          '''
+      }
+    }
+
+    {
+      name: yogiyo_orders_raw
+      inputs:
+      [
+        yogiyo_orders_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  shop_id,
+                  order_number,
+                  ordered_at,
+                  delivery_addesss,
+                  amount,
+                  delivery_tip,
+                  shop_discount,
+                  franchise_discount,
+                  payment_method,
+                  status,
+                  shop_name,
+                  created_at,
+                  updated_at,
+                  shop_number,
+                  CAST(null AS timestamp) AS accepted_at,
+                  CAST(null AS timestamp) AS arrived_at,
+                  CAST(null AS string) AS delivery_type,
+                  CAST(null AS bigint) AS discount,
+                  CAST(null AS double) AS fee_rate,
+                  CAST(null AS string) AS items,
+                  CAST(null AS string) AS order_method,
+                  CAST(null AS bigint) AS payment,
+                  CAST(null AS boolean) AS reserved,
+                  null AS sales_vats,
+                  CAST(null AS string) AS service_type,
+                  CAST(null AS string) AS shop_category,
+                  CAST(null AS bigint) AS takeout_discount,
+                  amount + delivery_tip AS order_amount,
+                  payment_method in ('온라인 결제') AS paid_online,
+                  CAST(null AS boolean) AS vat_returnable,
+                  payment_method in ('현금', '신용카드') AS paid_offline,
+                  status = '성공' AS closed,
+                  status = '취소' AS canceled,
+                  created_at_date
+          FROM    (
+            SELECT  *,
+                    row_number() OVER (
+                      PARTITION BY shop_id, order_number
+                      ORDER BY status_seq DESC, created_at DESC
+                    ) AS status_rank
+            FROM    (
+              SELECT  *,
+                      CASE
+                        WHEN status = '취소' THEN 1
+                        ELSE 0
+                      END AS status_seq
+              FROM    yogiyo_orders_src
+              WHERE   created_at_date >= '${MIN_DATE}'
+              AND     created_at_date < '${MAX_DATE}'
+            )
+          )
+          WHERE   status_rank = 1
+          '''
+      }
+    }
+    {
+      name: baedaltong_orders_raw
+      inputs:
+      [
+        baedaltong_orders_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  shop_id,
+                  order_number,
+                  ordered_at,
+                  amount,
+                  payment,
+                  fee_rate,
+                  order_method,
+                  payment_method,
+                  status,
+                  shop_name,
+                  shop_number,
+                  created_at,
+                  updated_at,
+                  CAST(null AS timestamp) AS accepted_at,
+                  CAST(null AS timestamp) AS arrived_at,
+                  CAST(null AS string) AS delivery_addesss,
+                  CAST(null AS bigint) AS delivery_tip,
+                  CAST(null AS string) AS delivery_type,
+                  CAST(null AS bigint) AS discount,
+                  CAST(null AS bigint) AS franchise_discount,
+                  CAST(null AS string) AS items,
+                  CAST(null AS boolean) AS reserved,
+                  null AS sales_vats,
+                  CAST(null AS string) AS service_type,
+                  CAST(null AS integer) AS shop_category,
+                  CAST(null AS bigint) AS shop_discount,
+                  CAST(null AS bigint) AS takeout_discount,
+                  amount AS order_amount,
+                  payment_method not in (
+                    '배달원에게 현금결제',
+                    '배달원에게 현금결제(결제완료)',
+                    '배달원에게 신용카드결제',
+                    '배달원에게 신용카드결제(결제완료)'
+                  ) AS paid_online,
+                  payment_method in (
+                    '배달원에게 현금결제',
+                    '배달원에게 현금결제(결제완료)',
+                    '배달원에게 신용카드결제',
+                    '배달원에게 신용카드결제(결제완료)'
+                  ) AS paid_offline,
+                  payment_method not in (
+                    '배달원에게 신용카드결제',
+                    '배달원에게 신용카드결제(결제완료)'
+                  ) AS vat_returnable,
+                  status = '결제' AS closed,
+                  status = '취소' AS canceled,
+                  created_at_date
+          FROM    (
+            SELECT  *,
+                    row_number() OVER (
+                      PARTITION BY shop_id, order_number
+                      ORDER BY status_seq DESC, created_at DESC
+                    ) AS status_rank
+            FROM    (
+              SELECT  *,
+                      CASE
+                        WHEN status = '취소' THEN 1
+                        ELSE 0
+                      END AS status_seq
+              FROM    baedaltong_orders_src
+              WHERE   created_at_date >= '${MIN_DATE}'
+              AND     created_at_date < '${MAX_DATE}'
+            )
+          )
+          '''
+      }
+    }
+    //
+    {
+      inputs:
+      [
+        delivery_apps
+        baemin_orders_raw
+        baemin_sales_vats_raw
+      ]
+      name: baemin_orders
+      options:
+      {
+        sql:
+          '''
+          SELECT  a.business_id,
+                  a.accepted_at,
+                  a.amount,
+                  a.arrived_at,
+                  a.created_at,
+                  a.delivery_addesss,
+                  a.delivery_tip,
+                  a.delivery_type,
+                  a.discount,
+                  a.fee_rate,
+                  a.franchise_discount,
+                  a.items,
+                  a.order_method,
+                  a.order_number,
+                  a.ordered_at,
+                  a.payment,
+                  a.payment_method,
+                  a.reserved,
+                  v.sales_vats,
+                  a.service_type,
+                  a.shop_category,
+                  a.shop_discount,
+                  a.shop_id,
+                  a.shop_name,
+                  a.shop_number,
+                  a.status,
+                  a.takeout_discount,
+                  a.updated_at,
+                  a.order_amount,
+                  a.paid_online,
+                  a.paid_offline,
+                  a.vat_returnable,
+                  a.closed,
+                  a.canceled,
+                  a.app_name,
+                  a.created_at_date
+          FROM    (
+            SELECT  /*+ BROADCAST(a) */
+                    a.business_id,
+                    o.*,
+                    'baemin' AS app_name
+            FROM    baemin_orders_raw o, delivery_apps a
+            WHERE   o.shop_id = a.id
+          ) a LEFT OUTER JOIN baemin_sales_vats_raw v
+          ON  (
+            a.shop_id = v.shop_id  AND
+            CAST(a.ordered_at AS DATE) = CAST(v.ordered_at AS DATE) AND
+            a.order_number = v.order_number
+          )
+          '''
+
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        delivery_apps
+        baedaltong_orders_raw
+      ]
+      name: baedaltong_orders
+      options:
+      {
+        sql:
+          '''
+          SELECT    /*+ BROADCAST(a) */
+                    a.business_id,
+                    o.*,
+                    'baedaltong' AS app_name
+          FROM      baedaltong_orders_raw o, delivery_apps a
+          WHERE     o.shop_id = a.id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        delivery_apps
+        yogiyo_orders_raw
+      ]
+      name: yogiyo_orders
+      options:
+      {
+        sql:
+          '''
+            SELECT  /*+ BROADCAST(a) */
+                    a.business_id,
+                    o.*,
+                    'yogiyo' AS app_name
+            FROM    yogiyo_orders_raw o, delivery_apps a
+            WHERE   o.shop_id = a.id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        baemin_orders
+        baedaltong_orders
+        yogiyo_orders
+      ]
+      name: delivery_app_orders
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  accepted_at,
+                  amount,
+                  arrived_at,
+                  created_at,
+                  delivery_addesss,
+                  delivery_tip,
+                  delivery_type,
+                  discount,
+                  fee_rate,
+                  franchise_discount,
+                  items,
+                  order_method,
+                  order_number,
+                  ordered_at,
+                  payment,
+                  payment_method,
+                  reserved,
+                  sales_vats,
+                  service_type,
+                  shop_category,
+                  shop_discount,
+                  shop_id,
+                  shop_name,
+                  shop_number,
+                  status,
+                  takeout_discount,
+                  updated_at,
+                  order_amount,
+                  paid_online,
+                  paid_offline,
+                  vat_returnable,
+                  closed,
+                  canceled,
+                  app_name,
+                  created_at_date
+          FROM    baemin_orders
+
+          UNION ALL
+
+          SELECT  business_id,
+                  accepted_at,
+                  amount,
+                  arrived_at,
+                  created_at,
+                  delivery_addesss,
+                  delivery_tip,
+                  delivery_type,
+                  discount,
+                  fee_rate,
+                  franchise_discount,
+                  items,
+                  order_method,
+                  order_number,
+                  ordered_at,
+                  payment,
+                  payment_method,
+                  reserved,
+                  sales_vats,
+                  service_type,
+                  shop_category,
+                  shop_discount,
+                  shop_id,
+                  shop_name,
+                  shop_number,
+                  status,
+                  takeout_discount,
+                  updated_at,
+                  order_amount,
+                  paid_online,
+                  paid_offline,
+                  vat_returnable,
+                  closed,
+                  canceled,
+                  app_name,
+                  created_at_date
+          FROM    baedaltong_orders
+
+          UNION ALL
+
+          SELECT  business_id,
+                  accepted_at,
+                  amount,
+                  arrived_at,
+                  created_at,
+                  delivery_addesss,
+                  delivery_tip,
+                  delivery_type,
+                  discount,
+                  fee_rate,
+                  franchise_discount,
+                  items,
+                  order_method,
+                  order_number,
+                  ordered_at,
+                  payment,
+                  payment_method,
+                  reserved,
+                  sales_vats,
+                  service_type,
+                  shop_category,
+                  shop_discount,
+                  shop_id,
+                  shop_name,
+                  shop_number,
+                  status,
+                  takeout_discount,
+                  updated_at,
+                  order_amount,
+                  paid_online,
+                  paid_offline,
+                  vat_returnable,
+                  closed,
+                  canceled,
+                  app_name,
+                  created_at_date
+          FROM    yogiyo_orders
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        delivery_app_orders
+      ]
+      name: file_sink
+      options:
+      {
+        mode: overwritePartitions
+        path: ${OUTPUT_BASE_PATH}/delivery_app_orders
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: "created_at_date"
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

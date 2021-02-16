@@ -1,0 +1,238 @@
+{
+  // PREV_MIN_DATE <= prev < MIN_DATE
+  // MIN_DATE <= current < MAX_DATE
+  name: pos_add_visit_order
+  udfs: [
+    {
+       name: pos_add_visit_order
+       class: com.kcd.thrush.pos.spark.udfs.AppendVisitCount
+       params: {
+         windowDays: "365"
+         countWindow: "43200000"
+       }
+     }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: pos_payments_distinct_src
+      options:
+      {
+        format: parquet
+        paths: "${INPUT_PATH}"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    // build current pos_payments/prev pos_payments
+    {
+      inputs:
+      [
+        pos_payments_distinct_src
+      ]
+      name: prev_pos_payments_approved
+      options:
+      {
+        sql:
+          '''
+          SELECT
+            *
+          FROM
+            pos_payments_distinct_src
+          WHERE
+            created_at_date >= date_sub(to_date('${MIN_DATE}'), 365) AND created_at_date < '${MIN_DATE}' AND
+            (amount >= 0 AND card_number is not null AND card_number != '')
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_payments_distinct_src
+      ]
+      name: current_pos_payments_approved
+      options:
+      {
+        sql:
+          '''
+          SELECT
+            *
+          FROM
+            pos_payments_distinct_src
+          WHERE
+            created_at_date >= '${MIN_DATE}' AND created_at_date < '${MAX_DATE}' AND
+            (amount >= 0 AND card_number is not null AND card_number != '')
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_payments_distinct_src
+      ]
+      name: current_pos_payments_canceled
+      options:
+      {
+        sql:
+          '''
+          SELECT
+            *
+          FROM
+            pos_payments_distinct_src
+          WHERE
+            created_at_date >= '${MIN_DATE}' AND created_at_date < '${MAX_DATE}' AND
+            NOT (amount >= 0 AND card_number is not null AND card_number != '')
+          '''
+      }
+      type: sql
+    }
+    // add visit order
+    {
+      inputs:
+      [
+        prev_pos_payments_approved
+        current_pos_payments_approved
+      ]
+      name: current_visits_approved
+      options:
+      {
+        sql:
+          '''
+          SELECT
+            _event_id,
+            `type`,
+            amount,
+            authorization_number,
+            bill_key,
+            bill_no,
+            business_id,
+            card_number,
+            client_id,
+            index,
+            issuer_name,
+            label_name,
+            merchant_number,
+            order_status,
+            paid_at,
+            payment_key,
+            pos_no,
+            pos_type,
+            service_name,
+            shop_code,
+            store_key,
+            timestamp,
+            visit_order,
+            created_at_date
+          FROM    (
+            SELECT  pos_tx.*
+            FROM    (
+              SELECT  explode(pos_add_visit_order(histories)) AS pos_tx
+              FROM    (
+                SELECT  business_id,
+                        card_number,
+                        collect_list(struct(*)) AS histories
+                FROM    (
+                  SELECT * FROM prev_pos_payments_approved
+                  UNION ALL
+                  SELECT * FROM current_pos_payments_approved
+                )
+                GROUP BY business_id, issuer_name, card_number
+              )
+            )
+          )
+          WHERE   created_at_date >= '${MIN_DATE}' -- leave current
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        current_pos_payments_canceled
+      ]
+      name: current_visits_canceled
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  _event_id,
+                  `type`,
+                  amount,
+                  authorization_number,
+                  bill_key,
+                  bill_no,
+                  business_id,
+                  card_number,
+                  client_id,
+                  index,
+                  issuer_name,
+                  label_name,
+                  merchant_number,
+                  order_status,
+                  paid_at,
+                  payment_key,
+                  pos_no,
+                  pos_type,
+                  service_name,
+                  shop_code,
+                  store_key,
+                  timestamp,
+                  CAST(null AS int) AS visit_order,
+                  created_at_date
+          FROM
+              current_pos_payments_canceled
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        current_visits_canceled
+        current_visits_approved
+      ]
+      name: visits
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    current_visits_approved
+
+          UNION ALL
+
+          SELECT  *
+          FROM    current_visits_canceled
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        visits
+      ]
+      name: file_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: created_at_date
+          evenPartitions: "true"
+          numOfRecordPerFile: "4000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

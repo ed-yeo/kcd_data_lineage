@@ -1,0 +1,74 @@
+{
+  "name": "match_to_approvals",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "approval_candidates",
+      "options": {
+        "paths": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/matches/candidates/approvals_current",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "approvals_with_cancel",
+      "inputs": [
+        "approval_candidates"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    approved.*,\n          canceled.transacted_at AS approval_canceled_at,\n          'cancel' AS type\nFROM      approval_candidates\nWHERE     approved.business_id is not null AND canceled.business_id is not null"
+      }
+    },
+    {
+      "name": "approvals_with_late_cancel",
+      "inputs": [
+        "approval_candidates"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    p.*,\n          c.transacted_at AS approval_canceled_at,\n          'late_cancel' AS type\nFROM      (\n    SELECT    approved.*\n    FROM      approval_candidates\n    WHERE     canceled.business_id is null\n) p, (\n    SELECT    canceled.*\n    FROM      approval_candidates\n    WHERE     approved.business_id is null\n) c\nWHERE     p.business_id = c.business_id\nAND       p.credential_key = c.credential_key\nAND       p.amount = -c.amount\nAND       p.card_number = c.card_number\nAND       p.authorization_number = c.authorization_number"
+      }
+    },
+    {
+      "name": "approvals_without_cancel",
+      "inputs": [
+        "approval_candidates",
+        "approvals_with_late_cancel"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    /*+ BROADCAST(c) */\n          p.approved.*,\n          CAST(null AS TIMESTAMP) AS approval_canceled_at,\n          'approved' AS type\nFROM      approval_candidates p LEFT ANTI JOIN approvals_with_late_cancel c\nON (\n  p.approved.business_id = c.business_id AND\n  p.approved.credential_key = c.credential_key AND\n  abs(p.approved.amount) = abs(c.amount) AND\n  p.approved.card_number = c.card_number AND\n  p.approved.authorization_number = c.authorization_number AND\n  c.approval_canceled_at is not null\n)\nWHERE     p.canceled.business_id is null"
+      }
+    },
+    {
+      "name": "merged_approvals",
+      "inputs": [
+        "approvals_without_cancel",
+        "approvals_with_cancel",
+        "approvals_with_late_cancel"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  * FROM approvals_without_cancel\nUNION ALL\nSELECT  * FROM approvals_with_cancel\nUNION ALL\nSELECT  * FROM approvals_with_late_cancel"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "merged_approvals"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/matches/merged/approvals_current",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

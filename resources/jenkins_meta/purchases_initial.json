@@ -1,0 +1,161 @@
+{
+  "name": "purchases",
+  "udfs": [
+    {
+      "name": "estimate_paid_at",
+      "class": "com.kcd.thrush.cardsales.spark.udfs.EstimatePaidAt",
+      "params": {
+        "business_days_path": "s3://kcd-data/raw/db/snowdon/snapshot/latest/business_days"
+      }
+    },
+    {
+      "name": "mask_card_number",
+      "class": "com.kcd.thrush.udfs.MarkCardNumberUDF",
+      "params": {}
+    },
+    {
+      "name": "purchase_delayed",
+      "class": "com.kcd.thrush.cardsales.spark.udfs.PurchaseDelayed",
+      "params": {
+        "business_days_path": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/business_days"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_merchants",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/card_merchants",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "credential_keys",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/credential_keys",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "current_purchases_raw",
+      "options": {
+        "paths": "s3://kcd-logs-raw/dev/dumps/2019-08-27/card_sales_purchases",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "after_purchases_raw",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource",
+        "paths": "s3://kcd-logs-raw/dev/card_sales/incremental/purchases",
+        "format": "parquet",
+        "partition_keys": "year,month,day,hour",
+        "log_leaf_file": "true",
+        "mergeSchema": "true",
+        "extraColumns": "credential_key:string,scraping_type:string"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "catalog_purchases_raw",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=owl_api_card_sales_purchases",
+        "format": "json",
+        "partition_keys": "created_at_date,created_at_hour",
+        "log_leaf_file": "true",
+        "mergeSchema": "true",
+        "extraColumns": "credential_key:string,scraping_type:string"
+      },
+      "type": "custom"
+    }
+  ],
+  "process": [
+    {
+      "name": "current_purchases",
+      "inputs": [
+        "credential_keys",
+        "current_purchases_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *,\n        date_format(created_at, 'yyyy-MM-dd') AS created_at_date\nFROM    (\n  SELECT  trim(acquirer_name) AS acquirer_name,\n          CAST(amount AS int) AS amount,\n          trim(authorization_number) AS authorization_number,\n          CAST(base_fee AS int) AS base_fee,\n          CAST(a.business_id AS int) AS business_id,\n          trim(card_number) AS card_number,\n          CAST(card_type AS int) AS card_type,\n          k.uuid AS credential_key,\n          CAST(etc_fee AS int) AS etc_fee,\n          CAST(fee AS int) AS fee,\n          trim(issuer_name) AS issuer_name,\n          mask_card_number(trim(card_number)) AS masked_card_number,\n          trim(merchant_number) AS merchant_number,\n          to_timestamp(unix_timestamp(paid_at , 'yyyyMMdd')) AS paid_at,\n          CAST(payment AS int) AS payment,\n          CAST(point_fee AS int) AS point_fee,\n          to_timestamp(unix_timestamp(purchased_at , 'yyyyMMdd')) AS purchased_at,\n          CAST(null AS string) AS scraping_type,\n          to_timestamp(unix_timestamp(transacted_at , 'yyyyMMdd')) AS transacted_at,\n          CAST(vat_fee AS int) AS vat_fee,\n          a.created_at,\n          a.updated_at\n  FROM    current_purchases_raw a INNER JOIN credential_keys k\n  ON      a.business_id = k.business_id\n)"
+      }
+    },
+    {
+      "name": "catalog_purchases_filtered",
+      "inputs": [
+        "catalog_purchases_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": " SELECT   *\n FROM     catalog_purchases_raw\n WHERE    created_at_date >= '2020-12-25'\n AND      created_at_date < '2021-01-25'"
+      }
+    },
+    {
+      "name": "after_purchases",
+      "inputs": [
+        "credential_keys",
+        "after_purchases_raw",
+        "catalog_purchases_filtered"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *,\n        date_format(created_at, 'yyyy-MM-dd') AS created_at_date\nFROM    (\n  SELECT  trim(IF (affiCardNm = '', null, affiCardNm)) AS acquirer_name,\n          CAST(pcaAmt AS int) AS amount,\n          trim(IF (authNo = '', null, authNo)) AS authorization_number,\n          CAST(basicFee AS int) AS base_fee,\n          CAST(a.business_id AS int) AS business_id,\n          trim(replace(cardNo, '-', '')) AS card_number,\n          CAST(trim(cardClss) AS int) AS card_type,\n          COALESCE(credential_key, k.uuid) AS credential_key,\n          CAST(etcFee AS int) AS etc_fee,\n          CAST(fee AS int) AS fee,\n          trim(IF (cardNm = '', null, replace(cardNm, '카드', ''))) AS issuer_name,\n          mask_card_number(trim(replace(cardNo, '-', ''))) AS masked_card_number,\n          trim(IF (merNo = '', null, merNo)) AS merchant_number,\n          to_timestamp(unix_timestamp(pymScdDate , 'yyyyMMdd')) AS paid_at,\n          CAST(pymAmt AS int) AS payment,\n          CAST(pointFee AS int) AS point_fee,\n          to_timestamp(unix_timestamp(pcaDate , 'yyyyMMdd')) AS purchased_at,\n          scraping_type,\n          to_timestamp(unix_timestamp(trnsDate , 'yyyyMMdd')) AS transacted_at,\n          CAST(vatFee AS int) AS vat_fee,\n          to_timestamp(\n           concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')\n          ) AS created_at,\n          to_timestamp(\n           concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')\n          ) AS updated_at\n  FROM    after_purchases_raw a LEFT OUTER JOIN credential_keys k\n  ON      a.business_id = k.business_id\n  WHERE   cardNo is not null\n)\n\nUNION ALL\n\nSELECT  trim(IF (afficardnm = '', null, afficardnm)) AS acquirer_name,\n        CAST(pcaamt AS int) AS amount,\n        trim(IF (authno = '', null, authno)) AS authorization_number,\n        CAST(basicfee AS int) AS base_fee,\n        CAST(a.business_id AS int) AS business_id,\n        trim(replace(cardno, '-', '')) AS card_number,\n        CAST(trim(cardclss) AS int) AS card_type,\n        COALESCE(credential_key, k.uuid) AS credential_key,\n        CAST(etcfee AS int) AS etc_fee,\n        CAST(fee AS int) AS fee,\n        trim(IF (cardnm = '', null, replace(cardnm, '카드', ''))) AS issuer_name,\n        mask_card_number(trim(replace(cardno, '-', ''))) AS masked_card_number,\n        trim(IF (merno = '', null, merno)) AS merchant_number,\n        to_timestamp(unix_timestamp(pymscddate , 'yyyyMMdd')) AS paid_at,\n        CAST(pymamt AS int) AS payment,\n        CAST(pointfee AS int) AS point_fee,\n        to_timestamp(unix_timestamp(pcadate , 'yyyyMMdd')) AS purchased_at,\n        scraping_type,\n        to_timestamp(unix_timestamp(trnsdate , 'yyyyMMdd')) AS transacted_at,\n        CAST(vatfee AS int) AS vat_fee,\n        to_timestamp(\n         concat(created_at_date, ' ', created_at_hour, ':00:00.000')\n        ) AS created_at,\n        to_timestamp(\n         concat(created_at_date, ' ', created_at_hour, ':00:00.000')\n        ) AS updated_at,\n        created_at_date\nFROM    catalog_purchases_filtered a LEFT OUTER JOIN credential_keys k\nON      a.business_id = k.business_id\nWHERE   cardno is not null"
+      }
+    },
+    {
+      "name": "reformat_purchases",
+      "inputs": [
+        "card_merchants",
+        "current_purchases",
+        "after_purchases"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    a.acquirer_name,\n          a.amount,\n          a.authorization_number,\n          a.base_fee,\n          a.business_id,\n          a.card_number,\n          a.card_type,\n          a.credential_key,\n          a.etc_fee,\n          a.fee,\n          a.issuer_name,\n          a.masked_card_number,\n          a.merchant_number,\n          COALESCE(a.paid_at,\n              estimate_paid_at(\n                  a.issuer_name,\n                  c.bank_name,\n                  a.transacted_at,\n                  COALESCE(c.calculated_purchase_period, 1),\n                  COALESCE(c.calculated_payment_period, c.payment_period),\n                  c.paid_on_weekends\n              )\n          ) AS paid_at,\n          a.payment,\n          a.point_fee,\n          purchase_delayed(a.issuer_name, a.transacted_at, a.purchased_at) AS purchase_delayed,\n          a.purchased_at,\n          a.scraping_type,\n          a.transacted_at,\n          a.vat_fee,\n          a.created_at,\n          a.updated_at,\n          a.created_at_date\nFROM      (\n  SELECT * FROM current_purchases\n\n  UNION ALL\n\n  SELECT * FROM after_purchases\n) a, card_merchants c\nWHERE     a.business_id is not null\nAND       a.issuer_name is not null\nAND       a.card_number is not null\nAND       a.purchased_at is not null\nAND       a.business_id = c.business_id\nAND       a.issuer_name = c.issuer_name\nAND       a.merchant_number = c.merchant_number"
+      }
+    },
+    {
+      "name": "purchases",
+      "inputs": [
+        "reformat_purchases"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "  SELECT    acquirer_name,\n            amount,\n            authorization_number,\n            base_fee,\n            business_id,\n            card_number,\n            card_type,\n            credential_key,\n            etc_fee,\n            fee,\n            issuer_name,\n            masked_card_number,\n            merchant_number,\n            paid_at,\n            payment,\n            point_fee,\n            purchase_delayed,\n            purchased_at,\n            scraping_type,\n            transacted_at,\n            vat_fee,\n            created_at,\n            updated_at,\n            created_at_date\n  FROM      (\n    SELECT    business_id,\n              credential_key,\n              authorization_number,\n              masked_card_number,\n              amount,\n              purchased_at,\n              paid_at,\n              MIN(acquirer_name) AS acquirer_name,\n              MIN(base_fee) AS base_fee,\n              MIN(card_number) AS card_number,\n              MIN(card_type) AS card_type,\n              MIN(etc_fee) AS etc_fee,\n              MIN(fee) AS fee,\n              MIN(issuer_name) AS issuer_name,\n              MIN(merchant_number) AS merchant_number,\n              MIN(payment) AS payment,\n              MIN(point_fee) AS point_fee,\n              MIN(purchase_delayed) AS purchase_delayed,\n              MIN(scraping_type) AS scraping_type,\n              MIN(transacted_at) AS transacted_at,\n              MIN(vat_fee) AS vat_fee,\n              MIN(created_at) AS created_at,\n              MIN(updated_at) AS updated_at,\n              MIN(created_at_date) AS created_at_date\n    FROM      reformat_purchases\n    GROUP BY  1, 2, 3, 4, 5, 6, 7\n  )"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "purchases"
+      ],
+      "name": "purchases_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-data-staging/raw/etl/snowdon/card_sales/tmp/purchases",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

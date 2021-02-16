@@ -1,0 +1,106 @@
+{
+  "name": "check_daily_report",
+  "udfs": [
+    {
+      "name": "compareTowRowWithLongValue",
+      "class": "com.kcd.thrush.utils.spark.udfs.CompareUtil",
+      "params": {
+        "method": "rowWithLongValue"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "old_report_logs",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/report_logs/user_type=cashnote/report_name=daily_reports/old_report_logs/date_id=2021-01-28/group_id=e365a43e-c321-4f54-a6f5-dbc1245228a6"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "new_report_logs",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/report/snowdon/daily_report/date_id=2021-01-28"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "old_report_logs"
+      ],
+      "name": "formatted_old_report_logs",
+      "options": {
+        "sql": "SELECT\n        business_id, user_id,\n        struct(\n            card_sales_amount,\n            card_sales_count,\n            card_sales_fee,\n            card_sales_vat_fee,\n            card_sales_payment,\n            card_sales_new_amount,\n            card_sales_returning_amount,\n            card_sales_monthly_amount,\n            hourly_sales_0_6_amount,\n            hourly_sales_6_11_amount,\n            hourly_sales_11_14_amount,\n            hourly_sales_14_17_amount,\n            hourly_sales_17_24_amount,\n            today_payments_kb,\n            today_payments_nh,\n            today_payments_lotte,\n            today_payments_baemin,\n            today_payments_bc,\n            today_payments_samsung,\n            today_payments_shinhan,\n            today_payments_hana,\n            today_payments_hyundai,\n            delivery_app_sales_baemin_amount,\n            delivery_app_sales_yogiyo_amount,\n            delivery_app_sales_baedaltong_amount,\n            delivery_app_sales_monthly_amount,\n            card_purchases_monthly_amount,\n            hometax_sales_monthly_invoice_amount,\n            hometax_sales_monthly_cash_amount,\n            hometax_purchases_monthly_cash_amount,\n            hometax_purchases_monthly_invoice_amount\n        ) AS data\nFROM old_report_logs"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "new_report_logs"
+      ],
+      "name": "formatted_new_report_logs",
+      "options": {
+        "sql": "SELECT\n        business_id,\n        struct(\n            card_sales_amount,\n            card_sales_count,\n            card_sales_fee,\n            card_sales_vat_fee,\n            card_sales_payment,\n            card_sales_new_amount,\n            card_sales_returning_amount,\n            card_sales_monthly_amount,\n            hourly_sales_0_6_amount,\n            hourly_sales_6_11_amount,\n            hourly_sales_11_14_amount,\n            hourly_sales_14_17_amount,\n            hourly_sales_17_24_amount,\n            today_payments_kb,\n            today_payments_nh,\n            today_payments_lotte,\n            today_payments_baemin,\n            today_payments_bc,\n            today_payments_samsung,\n            today_payments_shinhan,\n            today_payments_hana,\n            today_payments_hyundai,\n            delivery_app_sales_baemin_amount,\n            delivery_app_sales_yogiyo_amount,\n            delivery_app_sales_baedaltong_amount,\n            delivery_app_sales_monthly_amount,\n            card_purchases_monthly_amount,\n            hometax_sales_monthly_invoice_amount,\n            hometax_sales_monthly_cash_amount,\n            hometax_purchases_monthly_cash_amount,\n            hometax_purchases_monthly_invoice_amount\n        ) AS data\nFROM new_report_logs"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "formatted_old_report_logs",
+        "formatted_new_report_logs"
+      ],
+      "name": "diff",
+      "options": {
+        "sql": "SELECT\n        dim,\n        matched_cnt,\n        (all_cnt - matched_cnt) AS unmatched_cnt,\n        (matched_cnt / all_cnt * 100) AS matched_ratio\nFROM (\n    SELECT\n            *,\n            (SELECT count(distinct(business_id)) AS all_business_cnt FROM formatted_old_report_logs) AS all_cnt\n    FROM (\n        SELECT\n                dim,\n                count(distinct(business_id)) AS matched_cnt\n        FROM (\n            SELECT\n                    business_id, user_id,\n                    matched._1 AS dim,\n                    matched._2 AS val\n            FROM (\n                SELECT\n                        o.business_id, o.user_id,\n                        explode(compareTowRowWithLongValue(o.data, n.data)) AS matched\n                FROM formatted_old_report_logs AS o\n                LEFT OUTER JOIN formatted_new_report_logs AS n\n                ON o.business_id = n.business_id\n            )\n        )\n        WHERE val = true\n        GROUP BY dim\n    )\n)"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "diff"
+      ],
+      "name": "add_field",
+      "options": {
+        "sql": "  SELECT\n            to_timestamp('2021-01-28', 'yyyy-MM-dd') AS timestamp,\n            '2021-01-28' AS report_date,\n            'e365a43e-c321-4f54-a6f5-dbc1245228a6' AS group_id,\n            *\n  FROM      diff"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "diff"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/message/debug/daily_report_diff/date_id=2021-01-28/group_id=e365a43e-c321-4f54-a6f5-dbc1245228a6",
+        "numPartitions": "1"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "add_field"
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "report_diff",
+        "es.nodes": "https://vpc-dmp-es-prod-tw5nccwbgynfhq5ivdolhmaxsq.ap-northeast-2.es.amazonaws.com",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true"
+      },
+      "type": "es"
+    }
+  ]
+}

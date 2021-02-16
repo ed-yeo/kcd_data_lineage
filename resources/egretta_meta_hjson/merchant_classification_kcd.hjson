@@ -1,0 +1,319 @@
+{
+  // PARAMS: TEMP_PATH, TARGET_PATH
+  name: merchant_classification_kcd
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: naver_classification
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=classification/name=naver
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: kakao_classification
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=classification/name=kakao
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: shinhancard_classification
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=classification/name=shinhancard
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: bccard_classification
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=classification/name=bccard
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: kcd_naver_mapping
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}"
+        paths: ${LOOKUP_DIR}/subject=classification_v2/place_naver_kcd_mapping.tsv
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: kcd_kakao_mapping
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}"
+        paths: ${LOOKUP_DIR}/subject=classification_v2/place_kakao_kcd_mapping_cleansing
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: kcd_classification
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}"
+        paths: ${LOOKUP_DIR}/subject=classification_v2/kcd_classification.tsv
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: kcd_shinhancard_mapping
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}"
+        paths: ${LOOKUP_DIR}/subject=classification_v2/shinhancard_kcd_mapping.tsv
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: kcd_bccard_mapping
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}"
+        paths: ${LOOKUP_DIR}/subject=classification_v2/bccard_kcd_mapping.tsv
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        kcd_naver_mapping
+        naver_classification
+      ]
+      name: naver
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                registration_number, card_issuer, merchant_number,
+                kcd_naver_mapping.kcd_depth_1_code,
+                kcd_naver_mapping.kcd_depth_2_code,
+                kcd_naver_mapping.kcd_depth_3_code
+          FROM  naver_classification
+          JOIN  kcd_naver_mapping
+          ON    naver_classification.depth_1_name = kcd_naver_mapping.naver_depth_1_name
+          AND   naver_classification.depth_2_name = kcd_naver_mapping.naver_depth_2_name
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        kcd_kakao_mapping
+        kakao_classification
+      ]
+      name: kakao
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                registration_number, card_issuer, merchant_number,
+                kcd_kakao_mapping.kcd_depth_1_code,
+                kcd_kakao_mapping.kcd_depth_2_code,
+                kcd_kakao_mapping.kcd_depth_3_code
+          FROM  kakao_classification
+          JOIN  kcd_kakao_mapping
+          ON    kakao_classification.depth_1_name = kcd_kakao_mapping.depth_1_name
+          AND   kakao_classification.depth_2_name = kcd_kakao_mapping.depth_2_name
+          AND   nvl(kakao_classification.depth_3_name, 'empty') = nvl(kcd_kakao_mapping.depth_3_name, 'empty')
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        kcd_shinhancard_mapping
+        shinhancard_classification
+      ]
+      name: shinhancard
+      options:
+      {
+        sql:
+          '''
+          SELECT    registration_number, card_issuer, merchant_number,
+                    mapping.kcd_depth_1_code,
+                    mapping.kcd_depth_2_code,
+                    mapping.kcd_depth_3_code
+          FROM shinhancard_classification
+          JOIN kcd_shinhancard_mapping AS mapping
+          ON shinhancard_classification.classification_code = mapping.classification_code
+          WHERE kcd_depth_1_code is not null
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        kcd_bccard_mapping
+        bccard_classification
+      ]
+      name: bccard
+      options:
+      {
+        sql:
+          '''
+          SELECT    registration_number, card_issuer, merchant_number,
+                    mapping.kcd_depth_1_code,
+                    mapping.kcd_depth_2_code,
+                    mapping.kcd_depth_3_code
+          FROM  bccard_classification
+          JOIN  kcd_bccard_mapping AS mapping
+          ON bccard_classification.depth_3_code = mapping.classification_code
+          WHERE kcd_depth_1_code is not null
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        naver
+        kakao
+        shinhancard
+        bccard
+      ]
+      name: merged
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.MergeSchemaProcess
+        joinColumns: registration_number,card_issuer,merchant_number
+        joinType: full_outer
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        merged
+      ]
+      name: merged_classification
+      options:
+      {
+        sql:
+          '''
+          SELECT    registration_number, card_issuer, merchant_number, common.*
+          FROM (
+              SELECT    registration_number, card_issuer, merchant_number,
+                        CASE
+                            WHEN   bccard IS NOT NULL AND bccard.kcd_depth_3_code IS NOT NULL THEN struct(
+                                                                    bccard.kcd_depth_1_code,
+                                                                    bccard.kcd_depth_2_code,
+                                                                    bccard.kcd_depth_3_code
+                                                                )
+                            WHEN   kakao IS NOT NULL AND kakao.kcd_depth_3_code IS NOT NULL THEN struct(
+                                                                    kakao.kcd_depth_1_code,
+                                                                    kakao.kcd_depth_2_code,
+                                                                    kakao.kcd_depth_3_code
+                                                                )
+                            WHEN   shinhancard IS NOT NULL AND shinhancard.kcd_depth_3_code IS NOT NULL THEN struct(
+                                                                    shinhancard.kcd_depth_1_code,
+                                                                    shinhancard.kcd_depth_2_code,
+                                                                    shinhancard.kcd_depth_3_code
+                                                                )
+                            WHEN   naver IS NOT NULL AND naver.kcd_depth_3_code IS NOT NULL THEN struct(
+                                                                    naver.kcd_depth_1_code,
+                                                                    naver.kcd_depth_2_code,
+                                                                    naver.kcd_depth_3_code
+                                                                )
+                            WHEN   bccard IS NOT NULL THEN struct(
+                                                                    bccard.kcd_depth_1_code,
+                                                                    bccard.kcd_depth_2_code,
+                                                                    bccard.kcd_depth_3_code
+                                                                )
+                            WHEN   kakao IS NOT NULL THEN struct(
+                                                                    kakao.kcd_depth_1_code,
+                                                                    kakao.kcd_depth_2_code,
+                                                                    kakao.kcd_depth_3_code
+                                                                )
+                            WHEN   shinhancard IS NOT NULL THEN struct(
+                                                                    shinhancard.kcd_depth_1_code,
+                                                                    shinhancard.kcd_depth_2_code,
+                                                                    shinhancard.kcd_depth_3_code
+                                                                )
+                            ELSE
+                                                                struct(
+                                                                    naver.kcd_depth_1_code,
+                                                                    naver.kcd_depth_2_code,
+                                                                    naver.kcd_depth_3_code
+                                                                )
+                        END AS common
+              FROM      merged
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        merged_classification
+        kcd_classification
+      ]
+      name: business_classification
+      options:
+      {
+        sql:
+          '''
+          SELECT    registration_number, card_issuer, merchant_number, kcd_classification.*
+          FROM  merged_classification
+          JOIN  kcd_classification
+          ON    merged_classification.kcd_depth_1_code = kcd_classification.depth_1_code
+          AND   merged_classification.kcd_depth_2_code = kcd_classification.depth_2_code
+          AND   nvl(merged_classification.kcd_depth_3_code, 'empty') = nvl(kcd_classification.depth_3_code, 'empty')
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        business_classification
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=kcd
+      }
+      type: file
+    }
+  ]
+}

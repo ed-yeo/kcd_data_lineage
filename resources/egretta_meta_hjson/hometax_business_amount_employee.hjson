@@ -1,0 +1,209 @@
+{
+  name: hometax_business_amount_employee
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: hometax_sales_declarations
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/hometax_sales_declarations
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_businesses
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/hometax_businesses
+      }
+      type: file
+      cache: true
+    }
+    {
+      inputs: []
+      name: hometax_wht_declarations
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/hometax_wht_declarations
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        hometax_sales_declarations
+        hometax_businesses
+      ]
+      name: hometax_amount
+      options:
+      {
+        sql:
+          '''
+            SELECT  business_id,
+                    amount_sum,
+                    fromYear, toYear,
+                    year_cnt,
+                    (amount_sum / year_cnt) AS amount_avg
+            FROM (
+                SELECT
+                         sales.business_id,
+                         sales.amount_sum,
+                         sales.year_cnt,
+                         CAST(YEAR(opend_at) AS INT) AS fromYear,
+                         CAST(YEAR(current_date()) AS INT) AS toYear
+                FROM (
+                    SELECT business_id, SUM(amount) AS amount_sum, COUNT(DISTINCT YEAR(date)) AS year_cnt
+                    FROM hometax_sales_declarations
+                    WHERE form_type = '부가가치세신고서'
+                    GROUP BY business_id
+                ) sales
+                JOIN (
+                    SELECT business_id, opend_at
+                    FROM (
+                        SELECT business_id, taxation_type, to_date(opened_at, 'yyyyMMdd') AS opend_at
+                        FROM hometax_businesses
+                    )
+                    WHERE opend_at > '${OLD_OPEN_DATE}' AND opend_at < '${LAST_YEAR_START_DATE}'
+                    AND taxation_type != '간이과세자'
+                ) valid_businesses
+                ON sales.business_id = valid_businesses.business_id
+            )
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        hometax_wht_declarations
+      ]
+      name: wht
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    w.business_id,
+                    w.imputed_at,
+                    CASE
+                        WHEN declare_period = '반기' THEN fulltime_employees_count * 6
+                        ELSE fulltime_employees_count
+                    END AS fulltime_employees_count
+            FROM hometax_wht_declarations w
+            JOIN (
+                SELECT business_id, imputed_at, max(declared_at) AS declared_at
+                FROM  hometax_wht_declarations
+                GROUP BY business_id, imputed_at
+            ) AS latest_wht
+            ON w.business_id = latest_wht.business_id
+            AND w.imputed_at = latest_wht.imputed_at
+            AND w.declared_at = latest_wht.declared_at
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hometax_businesses
+      ]
+      name: businesses
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    business_id,
+                    opend_at,
+                    CASE
+                        WHEN opend_at < '${LAST_YEAR_START_DATE}' THEN '${LAST_YEAR_START_DATE}'
+                        WHEN date_trunc('MONTH', opend_at) <= date_trunc('MONTH', add_months(current_date(), -12)) THEN date_trunc('MONTH', add_months(current_date(), -12))
+                        ELSE  date_trunc('MONTH', opend_at)
+                    END AS from_date,
+                    CASE
+                        WHEN opend_at < '${LAST_YEAR_START_DATE}' THEN '${CURRENT_YEAR_START_DATE}'
+                        ELSE  date_trunc('MONTH', current_date())
+                    END AS to_date
+
+            FROM (
+                SELECT business_id, to_date(opened_at, 'yyyyMMdd') AS opend_at
+                FROM hometax_businesses
+            )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        wht
+        businesses
+      ]
+      name: hometax_employee
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                   wht.business_id,
+                   from_date, to_date,
+                   SUM(fulltime_employees_count) AS employ_count,
+                   ceil(months_between(to_date, from_date)) AS month_cnt,
+                   CAST(
+                       format_number(SUM(fulltime_employees_count) / ceil(months_between(to_date, from_date)), 2)
+                       AS DOUBLE
+                   ) AS employ_avg
+          FROM     wht
+          JOIN     businesses
+          ON wht.business_id = businesses.business_id
+          WHERE wht.imputed_at >= from_date AND  wht.imputed_at < to_date
+          GROUP BY wht.business_id, opend_at, from_date, to_date
+          '''
+      }
+      type: sql
+      cache: true
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        hometax_employee
+      ]
+      name: hometax_employee_file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=employee
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        hometax_amount
+      ]
+      name: hometax_amount_file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=amount
+      }
+      type: file
+    }
+  ]
+}

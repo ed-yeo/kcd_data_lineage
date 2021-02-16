@@ -1,0 +1,53 @@
+{
+  "name": "delivery",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "delivery_apps",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/delivery_apps"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "place_comments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/place_comments"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "place_comments",
+        "delivery_apps"
+      ],
+      "name": "comments",
+      "options": {
+        "sql": "SELECT\n          c.timestamp,\n          date_format(c.timestamp, 'yyyy-MM-dd') AS date_id,\n          delivery_apps.business_id,\n          c.count,\n          c.avg_rating,\n          lower(replace(delivery_apps.type, 'DeliveryApps::', '')) AS name\nFROM (\n  SELECT\n          timestamp,\n          delivery_app_id,\n          COUNT(1) AS count,\n          AVG(rating) AS avg_rating\n  FROM (\n          SELECT\n                  source_id AS delivery_app_id,\n                  date_trunc('MONTH', authored_at) AS timestamp,\n                  rating\n          FROM    place_comments\n          WHERE   created_at_date between '2017-01-01' AND '2020-07-20'\n          AND     source_type = 'DeliveryApp'\n  )\n  GROUP BY timestamp, delivery_app_id\n) AS c\nJOIN delivery_apps\nON c.delivery_app_id = delivery_apps.id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "comments"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=delivery_app_comments",
+        "evenPartitions": "true",
+        "partitions": "name,date_id"
+      },
+      "type": "file"
+    }
+  ]
+}

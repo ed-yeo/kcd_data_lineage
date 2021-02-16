@@ -1,0 +1,106 @@
+{
+  "name": "build_bank_transactions",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "bank_accounts",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/bank_accounts"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "bank_transactions_src",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=owl_db_bank_transactions"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "prev_bank_transactions_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/bank/bank_transactions_merged"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "bank_transactions_formatted",
+      "inputs": [
+        "bank_transactions_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    (\n  SELECT  CAST(bank_account_id AS int) AS bank_account_id,\n          CAST(withdrawal AS bigint) AS withdrawal,\n          CAST(deposit AS bigint) AS deposit,\n          CAST(balance AS bigint) AS balance,\n          CAST(note AS string) AS note,\n          CAST(content AS string) AS content,\n          CAST(processing_branch AS string) AS processing_branch,\n          to_timestamp(transacted_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS transacted_at,\n          to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS created_at,\n          to_timestamp(updated_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS updated_at,\n          date_format(to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS'), 'yyyy-MM-dd') AS created_at_date\n  FROM    bank_transactions_src\n)\nWHERE   created_at_date >= '2021-01-27'\nAND     created_at_date < '2021-01-28'"
+      }
+    },
+    {
+      "name": "bank_transactions",
+      "inputs": [
+        "bank_transactions_formatted"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  bank_account_id,\n        transacted_at,\n        balance,\n        MAX(withdrawal) AS withdrawal,\n        MAX(deposit) AS deposit,\n        MAX(note) AS note,\n        MAX(content) AS content,\n        MAX(processing_branch) AS processing_branch,\n        MAX(created_at) AS created_at,\n        MAX(updated_at) AS updated_at\nFROM    bank_transactions_formatted\nGROUP BY bank_account_id, transacted_at, balance"
+      }
+    },
+    {
+      "name": "prev_bank_transactions",
+      "inputs": [
+        "prev_bank_transactions_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    prev_bank_transactions_src\nWHERE   created_at_date >= '2021-01-18'\nAND     created_at_date < '2021-01-27'"
+      }
+    },
+    {
+      "name": "bank_transactions_unique",
+      "inputs": [
+        "bank_transactions",
+        "prev_bank_transactions"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  current.*\nFROM    prev_bank_transactions prev RIGHT OUTER JOIN bank_transactions current\nON      (\n  prev.bank_account_id = current.bank_account_id AND\n  prev.transacted_at = current.transacted_at AND\n  prev.balance = current.balance\n)\nWHERE   prev.bank_account_id is null"
+      }
+    },
+    {
+      "name": "merged_bank_transactions",
+      "inputs": [
+        "bank_accounts",
+        "bank_transactions_unique"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *,\n        row_number() OVER (\n            PARTITION BY bank_account_id, CAST(transacted_at AS DATE)\n            ORDER BY transacted_at DESC\n        ) AS seq\nFROM    (\n  SELECT  t.bank_account_id,\n          t.withdrawal,\n          t.deposit,\n          t.balance,\n          t.note,\n          t.content,\n          t.processing_branch,\n          t.transacted_at,\n          t.created_at,\n          t.updated_at,\n          a.business_id,\n          a.bank_name,\n          a.account_type,\n          a.account_number,\n          a.created_at AS account_created_at,\n          a.updated_at AS account_updated_at,\n          a.credential_id,\n          a.name,\n          a.uuid,\n          a.holder_name,\n          date_format(t.created_at, 'yyyy-MM-dd') AS created_at_date\n  FROM    bank_transactions_unique t LEFT OUTER JOIN bank_accounts a\n  ON      t.bank_account_id = a.id\n)\nWHERE   created_at_date is not null"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "merged_bank_transactions"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/test/raw/etl/snowdon/bank/bank_transactions_merged",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

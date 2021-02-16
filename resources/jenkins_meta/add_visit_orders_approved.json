@@ -1,0 +1,61 @@
+{
+  "name": "add_visit_orders_approved",
+  "udfs": [
+    {
+      "name": "append_visit_count",
+      "class": "com.kcd.thrush.cardsales.spark.udfs.AppendVisitCount",
+      "params": {
+        "windowDays": "365",
+        "minTransactedAt": "968483501807",
+        "maxTransactedAt": "1599289901807"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "transactions_raw",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/transactions",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "transactions_approved",
+      "inputs": [
+        "transactions_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    transactions_raw\nWHERE   created_at_date >= '1999-09-10'\nAND     transacted_at >= '1999-09-10'\nAND     (\n  (purchased_at is not null AND purchase_canceled_at is null) OR\n  (purchased_at is null AND approval_canceled_at is null)\n)"
+      }
+    },
+    {
+      "name": "visits_approved",
+      "inputs": [
+        "transactions_approved"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  tx.acquirer_name,\n        tx.amount,\n        tx.approval_canceled_at,\n        tx.approval_seq,\n        tx.authorization_number,\n        tx.base_fee,\n        tx.business_id,\n        tx.card_number,\n        tx.card_type,\n        tx.credential_key,\n        tx.encrypted_card_number,\n        tx.estimated_paid_at,\n        tx.etc_fee,\n        tx.fee,\n        tx.installment,\n        tx.issuer_name,\n        tx.masked_card_number,\n        tx.merchant_number,\n        tx.paid_at,\n        tx.payment,\n        tx.point_fee,\n        tx.purchase_cancel_seq,\n        tx.purchase_canceled_at,\n        tx.purchase_delayed,\n        tx.purchase_seq,\n        tx.purchased_at,\n        tx.scraping_type,\n        tx.status,\n        tx.transacted_at,\n        tx.vat_fee,\n        tx.visit_order,\n        tx.created_at,\n        tx.updated_at,\n        tx.created_at_date\nFROM    (\n  SELECT  explode(append_visit_count(histories)) AS tx\n  FROM    (\n    SELECT  key,\n            business_id,\n            credential_key,\n            collect_list(struct(*)) AS histories\n    FROM    (\n       SELECT acquirer_name,\n              amount,\n              approval_canceled_at,\n              approval_seq,\n              authorization_number,\n              base_fee,\n              business_id,\n              card_number,\n              card_type,\n              credential_key,\n              encrypted_card_number,\n              estimated_paid_at,\n              etc_fee,\n              fee,\n              installment,\n              issuer_name,\n              masked_card_number,\n              merchant_number,\n              paid_at,\n              payment,\n              point_fee,\n              purchase_cancel_seq,\n              purchase_canceled_at,\n              purchase_delayed,\n              purchase_seq,\n              purchased_at,\n              scraping_type,\n              status,\n              transacted_at,\n              vat_fee,\n              created_at,\n              updated_at,\n              date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n              COALESCE(encrypted_card_number, CONCAT_WS('_', issuer_name, card_number)) AS key\n       FROM   transactions_approved\n    )\n    GROUP BY key, business_id, credential_key\n  )\n)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "visits_approved"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/etl/snowdon/card_sales/visits_approved",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

@@ -1,0 +1,167 @@
+{
+  "name": "registration_number_card_sales",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "cashnote_cardsales",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=cardsales/name=sales_transactions"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "paynote_users",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=paynote_user_id/subject=users/name=users"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_payments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/incremental/card_payments"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "businesses"
+      ],
+      "name": "mappings",
+      "options": {
+        "sql": "SELECT    registration_number, id AS business_id\nFROM      businesses"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "mappings",
+        "cashnote_cardsales"
+      ],
+      "name": "cashnote",
+      "options": {
+        "sql": "  SELECT  registration_number,\n          SUM(amount_sum) AS amount_sum,\n          SUM(tx_count) AS tx_count\n  FROM (\n          SELECT\n                  mappings.registration_number,\n                  c.*\n          FROM    (\n                      SELECT  *\n                      FROM    cashnote_cardsales\n                      WHERE   date_id between '2020-08-01' AND '2021-01-28'\n          ) c\n          JOIN    mappings\n          ON      c.business_id = mappings.business_id\n  )\n  GROUP BY registration_number"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "card_payments",
+        "paynote_users"
+      ],
+      "name": "payments_with_user_demo",
+      "options": {
+        "sql": " SELECT\n         payment.*,\n         paynote_users.gender,\n         paynote_users.age_band\n FROM (\n     SELECT\n             date_trunc('MONTH', approved_at) AS timestamp,\n             registration_number,\n             user_id,\n             amount\n     FROM    card_payments\n     WHERE   approved_at between '2020-08-01' AND '2021-01-28'\n     AND     card_issuer IS NOT NULL\n ) AS payment\n JOIN paynote_users\n ON payment.user_id = paynote_users.user_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "payments_with_user_demo"
+      ],
+      "name": "paynote_stat",
+      "options": {
+        "sql": "  SELECT\n          timestamp, registration_number, gender, age_band,\n          concat(age_band, '_', gender) AS age_band_gender,\n          SUM(amount) AS amount_sum,\n          COUNT(1) AS tx_count\n  FROM   payments_with_user_demo\n  GROUP BY timestamp, registration_number, gender, age_band"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "paynote_stat"
+      ],
+      "name": "paynote_stat_gender",
+      "options": {
+        "sql": "SELECT\n        registration_number,\n        collect_list(\n          named_struct('key', gender, 'values', struct(amount_sum, tx_count))\n        ) AS stats\nFROM (\n          SELECT\n                  registration_number,\n                  gender,\n                  SUM(amount_sum) AS amount_sum,\n                  SUM(tx_count) AS tx_count\n          FROM   paynote_stat\n          GROUP BY registration_number, gender\n)\nGROUP BY registration_number"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "paynote_stat"
+      ],
+      "name": "paynote_stat_age_band",
+      "options": {
+        "sql": "  SELECT\n          registration_number,\n          collect_list(\n            named_struct('key', age_band, 'values', struct(amount_sum, tx_count))\n          ) AS stats\n  FROM (\n          SELECT\n                  registration_number,\n                  age_band,\n                  SUM(amount_sum) AS amount_sum,\n                  SUM(tx_count) AS tx_count\n          FROM   paynote_stat\n          GROUP BY registration_number, age_band\n )\n GROUP BY registration_number"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "paynote_stat"
+      ],
+      "name": "paynote_stat_age_band_gender",
+      "options": {
+        "sql": "  SELECT\n          registration_number,\n          SUM(amount_sum) AS total_amount_sum,\n          SUM(tx_count) AS total_tx_count,\n          collect_list(\n            named_struct('key', age_band_gender, 'values', struct(amount_sum, tx_count))\n          ) AS stats\n FROM     (\n             SELECT\n                     registration_number,\n                     age_band_gender,\n                     SUM(amount_sum) AS amount_sum,\n                     SUM(tx_count) AS tx_count\n             FROM   paynote_stat\n             GROUP BY registration_number, age_band_gender\n )\n GROUP BY registration_number"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "cashnote"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=cardsales/name=cashnote"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "paynote_stat_gender"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=cardsales/name=paynote_gender"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "paynote_stat_age_band"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=cardsales/name=paynote_age_band"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "paynote_stat_age_band_gender"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=cardsales/name=paynote_age_band_gender"
+      },
+      "type": "file"
+    }
+  ]
+}

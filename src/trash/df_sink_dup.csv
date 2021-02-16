@@ -1,0 +1,17 @@
+,sink,sink_options_paths,source,filename,jobname,src_attr,sink_attr,sink_role,type,sink_options_paths_cnt
+0,s3://kcd-de-production/raw/db/snowdon/snapshot/businesses,s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-12-30/hour=11/businesses,1,1,1,1,1,1,1,1
+1,s3://kcd-de-production/raw/db/snowdon/snapshot/businesses,s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2021-01-02/hour=11/businesses,1,1,1,1,1,1,1,1
+2,s3://kcd-de-production/raw/db/snowdon/snapshot/businesses,s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses,16,16,16,16,16,16,16,16
+3,s3://kcd-de-production/raw/db/snowdon/snapshot/card_merchants,s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-12-30/hour=11/card_merchants,2,2,2,2,2,2,2,2
+4,s3://kcd-de-production/raw/db/snowdon/snapshot/card_merchants,s3://kcd-de-production/raw/db/snowdon/snapshot/latest/card_merchants,3,3,3,3,3,3,3,3
+5,s3://kcd-de-production/raw/db/snowdon/snapshot/credential_keys,s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-12-30/hour=11/credential_keys,2,2,2,2,2,2,2,2
+6,s3://kcd-de-production/raw/db/snowdon/snapshot/credential_keys,s3://kcd-de-production/raw/db/snowdon/snapshot/latest/credential_keys,3,3,3,3,3,3,3,3
+7,s3://kcd-de-production/raw/db/snowdon/snapshot/credentials,s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-12-30/hour=11/credentials,1,1,1,1,1,1,1,1
+8,s3://kcd-de-production/raw/db/snowdon/snapshot/credentials,s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2021-01-02/hour=11/credentials,1,1,1,1,1,1,1,1
+9,s3://kcd-de-production/raw/db/snowdon/snapshot/credentials,s3://kcd-de-production/raw/db/snowdon/snapshot/latest/credentials,2,2,2,2,2,2,2,2
+10,s3://kcd-de-production/service/message/user_history/,s3://kcd-de-production/service/message/user_history/date_id=2021-01-28,1,1,1,1,1,1,1,1
+11,s3://kcd-de-production/service/message/user_history/,s3://kcd-de-production/service/message/user_history/date_id=2021-01-29,2,2,2,2,2,2,2,2
+12,s3://kcd-de-staging/work/ryan/2021-01-01/,s3://kcd-de-staging/work/ryan/nice_monthly/2021-01-01/address_monthly_stats,5,5,5,5,5,5,5,5
+13,s3://kcd-de-staging/work/ryan/2021-01-01/,s3://kcd-de-staging/work/ryan/nice_monthly/2021-01-01/businesses_monthly_stats,5,5,5,5,5,5,5,5
+14,s3://kcd-de-staging/work/ryan/2021-01-01/,s3://kcd-de-staging/work/ryan/nice_monthly/2021-01-01/classification_monthly_stats,5,5,5,5,5,5,5,5
+15,s3://kcd-de-staging/work/ryan/2021-01-01/,s3://kcd-de-staging/work/ryan/nice_monthly/2021-01-01/hometax_sales_monthly_stat,5,5,5,5,5,5,5,5

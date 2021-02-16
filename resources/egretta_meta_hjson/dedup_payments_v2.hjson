@@ -1,0 +1,163 @@
+{
+  name: dedup_payments
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: pos_payments_raw_v2
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: json
+        paths: "${INPUT_PATH}"
+        partition_keys: 'created_at_date,created_at_hour'
+        mergeSchema: 'true'
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: card_sales_transactions
+      options:
+      {
+        format: parquet
+        paths: "${CARD_SALES_INPUT_PATH}"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    // build current pos_payments/prev pos_payments
+    {
+      inputs:
+      [
+        card_sales_transactions
+        pos_payments_raw_v2
+      ]
+      name: pos_payments_distinct_v2
+      options:
+      {
+        sql:
+          '''
+          SELECT
+            _event_id,
+            `type`,
+            amount,
+            authorization_number,
+            bill_key,
+            bill_no,
+            uid,
+            uid_type,
+            card_number,
+            client_id,
+            idx,
+            issuer_name,
+            label_name,
+            merchant_number,
+            order_status,
+            paid_at,
+            payment_key,
+            pos_no,
+            pos_type,
+            service_name,
+            shop_code,
+            timestamp,
+            CAST(null AS int) AS visit_order,
+            CAST(created_at_date as string) AS created_at_date,
+            paid_at_timestamp AS transacted_at,
+            CAST(to_date(paid_at_timestamp, 'yyyy-MM-dd') AS string) AS transacted_at_date
+          FROM    (
+            SELECT
+              *,
+              COALESCE(
+                to_timestamp(paid_at, "yyyy-MM-dd HH:mm:ss"),
+                to_timestamp(paid_at, "yyyy-MM-dd'T'HH:mm:ss"),
+                to_timestamp(paid_at, "yyyy-MM-dd HH:mm:ss.SSS")
+              ) AS paid_at_timestamp,
+              row_number() OVER (PARTITION BY payment_key ORDER BY timestamp DESC) AS rank
+            FROM
+              pos_payments_raw_v2
+            WHERE
+              created_at_date >= '${MIN_DATE}' AND created_at_date < '${MAX_DATE}'
+          )
+          WHERE rank = 1
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_payments_distinct_v2
+      ]
+      name: pos_payments_with_sales_card_number
+      options:
+      {
+        sql:
+          '''
+          SELECT
+             p._event_id,
+             p.`type`,
+             p.amount,
+             p.authorization_number,
+             p.bill_key,
+             p.bill_no,
+             p.uid,
+             p.uid_type,
+             COALESCE(c.masked_card_number, p.card_number) as card_number,
+             p.client_id,
+             p.idx,
+             p.issuer_name,
+             p.label_name,
+             p.merchant_number,
+             p.order_status,
+             p.paid_at,
+             p.payment_key,
+             p.pos_no,
+             p.pos_type,
+             p.service_name,
+             p.shop_code,
+             p.timestamp,
+             p.visit_order,
+             p.created_at_date,
+             p.transacted_at,
+             p.transacted_at_date
+           FROM
+             pos_payments_distinct_v2 p
+           LEFT OUTER JOIN card_sales_transactions c
+             ON c.authorization_number = p.authorization_number
+             AND date_trunc('hour', c.transacted_at) = date_trunc('hour', p.transacted_at)
+             AND c.business_id = p.uid
+             AND p.uid_type = 'business_id'
+             AND c.amount = p.amount
+             AND c.created_at_date >= '${MIN_DATE}' AND c.created_at_date < '${MAX_DATE}'
+          '''
+       }
+       type: sql
+     }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        pos_payments_with_sales_card_number
+      ]
+      name: file_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: created_at_date
+          evenPartitions: "true"
+          numOfRecordPerFile: "4000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

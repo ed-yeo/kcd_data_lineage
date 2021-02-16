@@ -1,0 +1,257 @@
+{
+  "name": "build_corona_weekly_stats_ratio",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "weekly_txns_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-staging/work/ryan/corona_weekly/2021/5/weekly_txns"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "weekly_txns_src"
+      ],
+      "name": "weekly_txns",
+      "options": {
+        "sql": "SELECT    *\nFROM      weekly_txns_src\nWHERE     weekofyear(transacted_at_week) >= weekofyear(current_date()) - 2\nAND       year(transacted_at_week) in (2019, 2021)\nAND       lot_address_1_depth NOT IN ('none', 'NULL', '')"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "weekly_txns"
+      ],
+      "name": "address_weekly_transaction_type_ratio",
+      "options": {
+        "sql": "SELECT    *,\n          CAST(a.current_year_amount AS double) / CAST(a.prev_year_amount AS double) AS ratio,\n          CAST(a.current_year_day_time AS double) / CAST(a.prev_year_day_time AS double) AS day_time_ratio,\n          CAST(a.current_year_night_time AS double) / CAST(a.prev_year_night_time AS double) AS night_time_ratio,\n          CAST(a.current_year_weekday AS double) / CAST(a.prev_year_weekday AS double) AS weekday_ratio,\n          CAST(a.current_year_weekend AS double) / CAST(a.prev_year_weekend AS double) AS weekend_ratio,\n          CAST(a.current_year_new AS double) / CAST(a.prev_year_new AS double) AS new_ratio,\n          CAST(a.current_year_revisit AS double) / CAST(a.prev_year_revisit AS double) AS revisit_ratio\nFROM    (\n    SELECT  weekofyear(transacted_at_week) % 52 AS time,\n            lot_address_1_depth,\n            sum(IF (year(transacted_at_week) = 2021, amount_sum, 0)) as current_year_amount,\n            sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as prev_year_amount,\n\n            sum(IF (year(transacted_at_week) = 2021, day_time_amount_sum, 0)) as current_year_day_time,\n            sum(IF (year(transacted_at_week) = 2019, day_time_amount_sum, 0)) as prev_year_day_time,\n\n            sum(IF (year(transacted_at_week) = 2021, night_time_amount_sum, 0)) as current_year_night_time,\n            sum(IF (year(transacted_at_week) = 2019, night_time_amount_sum, 0)) as prev_year_night_time,\n\n            sum(IF (year(transacted_at_week) = 2021, weekend_amount_sum, 0)) as current_year_weekend,\n            sum(IF (year(transacted_at_week) = 2019, weekend_amount_sum, 0)) as prev_year_weekend,\n\n            sum(IF (year(transacted_at_week) = 2021, weekday_amount_sum, 0)) as current_year_weekday,\n            sum(IF (year(transacted_at_week) = 2019, weekday_amount_sum, 0)) as prev_year_weekday,\n\n            sum(IF (year(transacted_at_week) = 2021, new_amount_sum, 0)) as current_year_new,\n            sum(IF (year(transacted_at_week) = 2019, new_amount_sum, 0)) as prev_year_new,\n\n            sum(IF (year(transacted_at_week) = 2021, revisit_amount_sum, 0)) as current_year_revisit,\n            sum(IF (year(transacted_at_week) = 2019, revisit_amount_sum, 0)) as prev_year_revisit,\n\n            sum(IF (year(transacted_at_week) = 2021, tx_count, 0)) as current_year_tx_count,\n            sum(IF (year(transacted_at_week) = 2019, tx_count, 0)) as prev_year_tx_count,\n\n            count(distinct business_id) as business_id_count\n    FROM    weekly_txns\n    GROUP BY 1, 2\n\n    UNION ALL\n\n    SELECT  weekofyear(transacted_at_week) % 52 AS time,\n            '전국' as lot_address_1_depth,\n            sum(IF (year(transacted_at_week) = 2021, amount_sum, 0)) as current_year_amount,\n            sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as prev_year_amount,\n\n            sum(IF (year(transacted_at_week) = 2021, day_time_amount_sum, 0)) as current_year_day_time,\n            sum(IF (year(transacted_at_week) = 2019, day_time_amount_sum, 0)) as prev_year_day_time,\n\n            sum(IF (year(transacted_at_week) = 2021, night_time_amount_sum, 0)) as current_year_night_time,\n            sum(IF (year(transacted_at_week) = 2019, night_time_amount_sum, 0)) as prev_year_night_time,\n\n            sum(IF (year(transacted_at_week) = 2021, weekend_amount_sum, 0)) as current_year_weekend,\n            sum(IF (year(transacted_at_week) = 2019, weekend_amount_sum, 0)) as prev_year_weekend,\n\n            sum(IF (year(transacted_at_week) = 2021, weekday_amount_sum, 0)) as current_year_weekday,\n            sum(IF (year(transacted_at_week) = 2019, weekday_amount_sum, 0)) as prev_year_weekday,\n\n            sum(IF (year(transacted_at_week) = 2021, new_amount_sum, 0)) as current_year_new,\n            sum(IF (year(transacted_at_week) = 2019, new_amount_sum, 0)) as prev_year_new,\n\n            sum(IF (year(transacted_at_week) = 2021, revisit_amount_sum, 0)) as current_year_revisit,\n            sum(IF (year(transacted_at_week) = 2019, revisit_amount_sum, 0)) as prev_year_revisit,\n\n            sum(IF (year(transacted_at_week) = 2021, tx_count, 0)) as current_year_tx_count,\n            sum(IF (year(transacted_at_week) = 2019, tx_count, 0)) as prev_year_tx_count,\n            count(distinct business_id) as business_id_count\n    FROM    weekly_txns\n    GROUP BY 1, 2\n) a"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "address_weekly_transaction_type_ratio"
+      ],
+      "name": "address_weekly_transaction_type_ratio_pivot",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.processes.Pivot",
+        "group_by": "lot_address_1_depth",
+        "pivot": "time",
+        "agg": "first(ratio) as ratio,first(day_time_ratio) as day_time_ratio,first(night_time_ratio) as night_time_ratio,first(weekday_ratio) as weekday_ratio,first(weekend_ratio) as weekend_ratio,first(new_ratio) as new_ratio,first(revisit_ratio) as revisit_ratio,first(business_id_count) as business_id_count"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "weekly_txns"
+      ],
+      "name": "classification_weekly_transaction_type_ratio",
+      "options": {
+        "sql": "SELECT  *,\n        CAST(a.current_year_amount AS double) / CAST(a.prev_year_amount AS double) AS ratio,\n        CAST(a.current_year_day_time AS double) / CAST(a.prev_year_day_time AS double) AS day_time_ratio,\n        CAST(a.current_year_night_time AS double) / CAST(a.prev_year_night_time AS double) AS night_time_ratio,\n        CAST(a.current_year_weekday AS double) / CAST(a.prev_year_weekday AS double) AS weekday_ratio,\n        CAST(a.current_year_weekend AS double) / CAST(a.prev_year_weekend AS double) AS weekend_ratio,\n        CAST(a.current_year_new AS double) / CAST(a.prev_year_new AS double) AS new_ratio,\n        CAST(a.current_year_revisit AS double) / CAST(a.prev_year_revisit AS double) AS revisit_ratio\nFROM (\n      SELECT  weekofyear(transacted_at_week) % 52 AS time,\n              coalesce(kcd_classification_1_depth, 'none') as kcd_classification_1_depth,\n              sum(IF (year(transacted_at_week) = 2021, amount_sum, 0)) as current_year_amount,\n              sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as prev_year_amount,\n              sum(IF (year(transacted_at_week) = 2021, tx_count, 0)) as current_year_tx_count,\n              sum(IF (year(transacted_at_week) = 2019, tx_count, 0)) as prev_year_tx_count,\n              sum(IF (year(transacted_at_week) = 2021, day_time_amount_sum, 0)) as current_year_day_time,\n              sum(IF (year(transacted_at_week) = 2019, day_time_amount_sum, 0)) as prev_year_day_time,\n\n              sum(IF (year(transacted_at_week) = 2021, night_time_amount_sum, 0)) as current_year_night_time,\n              sum(IF (year(transacted_at_week) = 2019, night_time_amount_sum, 0)) as prev_year_night_time,\n\n              sum(IF (year(transacted_at_week) = 2021, weekend_amount_sum, 0)) as current_year_weekend,\n              sum(IF (year(transacted_at_week) = 2019, weekend_amount_sum, 0)) as prev_year_weekend,\n\n              sum(IF (year(transacted_at_week) = 2021, weekday_amount_sum, 0)) as current_year_weekday,\n              sum(IF (year(transacted_at_week) = 2019, weekday_amount_sum, 0)) as prev_year_weekday,\n\n              sum(IF (year(transacted_at_week) = 2021, new_amount_sum, 0)) as current_year_new,\n              sum(IF (year(transacted_at_week) = 2019, new_amount_sum, 0)) as prev_year_new,\n\n              sum(IF (year(transacted_at_week) = 2021, revisit_amount_sum, 0)) as current_year_revisit,\n              sum(IF (year(transacted_at_week) = 2019, revisit_amount_sum, 0)) as prev_year_revisit,\n              count(distinct business_id) as business_id_count\n      FROM    weekly_txns\n      GROUP BY 1, 2\n) a\nWHERE kcd_classification_1_depth != 'none'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "classification_weekly_transaction_type_ratio"
+      ],
+      "name": "classification_weekly_transaction_type_ratio_pivot",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.processes.Pivot",
+        "group_by": "kcd_classification_1_depth",
+        "pivot": "time",
+        "agg": "first(ratio) as ratio,first(day_time_ratio) as day_time_ratio,first(night_time_ratio) as night_time_ratio,first(weekday_ratio) as weekday_ratio,first(weekend_ratio) as weekend_ratio,first(new_ratio) as new_ratio,first(revisit_ratio) as revisit_ratio,first(business_id_count) as business_id_count"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "weekly_txns"
+      ],
+      "name": "address_depth_1_weekly_ratio",
+      "options": {
+        "sql": "SELECT  *,\n        CAST(a.current_year_amount AS double) / CAST(a.prev_year_amount AS double) AS ratio\nFROM (\n      SELECT  weekofyear(transacted_at_week) % 52 AS time,\n              lot_address_1_depth,\n              sum(IF (year(transacted_at_week) = 2021, amount_sum, 0)) as current_year_amount,\n              sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as prev_year_amount,\n              count(distinct business_id) as business_id_count\n      FROM    weekly_txns\n      GROUP BY 1, 2\n\n      UNION ALL\n\n      SELECT  weekofyear(transacted_at_week) % 52 AS time,\n              '전국' as lot_address_1_depth,\n              sum(IF (year(transacted_at_week) = 2021, amount_sum, 0)) as current_year_amount,\n              sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as prev_year_amount,\n              count(distinct business_id) as business_id_count\n      FROM    weekly_txns\n      GROUP BY 1, 2\n) a"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "address_depth_1_weekly_ratio"
+      ],
+      "name": "address_depth_1_weekly_ratio_pivot",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.processes.Pivot",
+        "group_by": "lot_address_1_depth",
+        "pivot": "time",
+        "agg": "first(ratio) as ratio,first(business_id_count) as business_id_count"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "weekly_txns"
+      ],
+      "name": "address_depth_2_weekly_ratio",
+      "options": {
+        "sql": "SELECT  *,\n        CAST(a.current_year_amount AS double) / CAST(a.prev_year_amount AS double) AS ratio\nFROM (\n      SELECT  weekofyear(transacted_at_week) % 52 AS time,\n              lot_address_1_depth,\n              lot_address_2_depth,\n              sum(IF (year(transacted_at_week) = 2021, amount_sum, 0)) as current_year_amount,\n              sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as prev_year_amount,\n              count(distinct business_id) as business_id_count\n      FROM    weekly_txns\n      GROUP BY 1, 2, 3\n) a\nWHERE lot_address_1_depth != '세종특별자치시' AND business_id_count >= 30"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "address_depth_2_weekly_ratio"
+      ],
+      "name": "address_depth_2_weekly_ratio_pivot",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.processes.Pivot",
+        "group_by": "lot_address_1_depth,lot_address_2_depth",
+        "pivot": "time",
+        "agg": "first(ratio) as ratio,first(business_id_count) as business_id_count"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "weekly_txns"
+      ],
+      "name": "classification_depth_1_weekly_ratio",
+      "options": {
+        "sql": "SELECT  *,\n        CAST(a.current_year_amount AS double) / CAST(a.prev_year_amount AS double) AS ratio\nFROM (\n      SELECT  weekofyear(transacted_at_week) % 52 AS time,\n              coalesce(kcd_classification_1_depth, 'none') as kcd_classification_1_depth,\n              sum(IF (year(transacted_at_week) = 2021, amount_sum, 0)) as current_year_amount,\n              sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as prev_year_amount,\n              count(distinct business_id) as business_id_count\n      FROM    weekly_txns\n      GROUP BY 1, 2\n) a\nWHERE kcd_classification_1_depth != 'none'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "classification_depth_1_weekly_ratio"
+      ],
+      "name": "classification_depth_1_weekly_ratio_pivot",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.processes.Pivot",
+        "group_by": "kcd_classification_1_depth",
+        "pivot": "time",
+        "agg": "first(ratio) as ratio,first(business_id_count) as business_id_count"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "weekly_txns"
+      ],
+      "name": "classification_depth_2_weekly_ratio",
+      "options": {
+        "sql": "SELECT  *,\n        CAST(a.current_year_amount AS double) / CAST(a.prev_year_amount AS double) AS ratio\nFROM (\n      SELECT  weekofyear(transacted_at_week) % 52 AS time,\n              coalesce(kcd_classification_1_depth, 'none') as kcd_classification_1_depth,\n              coalesce(kcd_classification_2_depth, 'none') as kcd_classification_2_depth,\n              sum(IF (year(transacted_at_week) = 2021, amount_sum, 0)) as current_year_amount,\n              sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as prev_year_amount,\n              count(distinct business_id) as business_id_count\n      FROM    weekly_txns\n      GROUP BY 1, 2, 3\n) a\nWHERE kcd_classification_1_depth != 'none'\nAND   business_id_count >= 30"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "classification_depth_2_weekly_ratio"
+      ],
+      "name": "classification_depth_2_weekly_ratio_pivot",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.processes.Pivot",
+        "group_by": "kcd_classification_1_depth,kcd_classification_2_depth",
+        "pivot": "time",
+        "agg": "first(ratio) as ratio,first(business_id_count) as business_id_count"
+      },
+      "type": "custom"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "address_weekly_transaction_type_ratio_pivot"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "format": "csv",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/corona_weekly/2021/5/address_weekly_transaction_type_ratio",
+        "header": "true",
+        "numPartitions": "1"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "classification_weekly_transaction_type_ratio_pivot"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "format": "csv",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/corona_weekly/2021/5/classification_weekly_transaction_type_ratio",
+        "header": "true",
+        "numPartitions": "1"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "address_depth_1_weekly_ratio_pivot"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "format": "csv",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/corona_weekly/2021/5/address_depth_1_weekly_ratio",
+        "header": "true",
+        "numPartitions": "1"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "address_depth_2_weekly_ratio_pivot"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "format": "csv",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/corona_weekly/2021/5/address_depth_2_weekly_ratio",
+        "header": "true",
+        "numPartitions": "1"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "classification_depth_1_weekly_ratio_pivot"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "format": "csv",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/corona_weekly/2021/5/classification_depth_1_weekly_ratio",
+        "header": "true",
+        "numPartitions": "1"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "classification_depth_2_weekly_ratio_pivot"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "format": "csv",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/corona_weekly/2021/5/classification_depth_2_weekly_ratio",
+        "header": "true",
+        "numPartitions": "1"
+      },
+      "type": "custom"
+    }
+  ]
+}

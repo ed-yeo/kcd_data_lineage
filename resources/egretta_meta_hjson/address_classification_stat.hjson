@@ -1,0 +1,75 @@
+{
+  name: address_classification_stat
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: user_tags
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_PATH}/user_tags
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        user_tags
+      ]
+      name: aggr
+      options:
+      {
+        sql: '''
+        SELECT
+                type,
+                min(month) AS month,
+                address,
+                classification,
+                approx_count_distinct(encrypted_card_number) AS user_cnt,
+                approx_count_distinct(business_id) AS business_cnt
+        FROM user_tags
+        WHERE type != 'month'
+        GROUP BY type, address, classification
+
+        UNION ALL
+
+        SELECT
+                type,
+                month,
+                address,
+                classification,
+                approx_count_distinct(encrypted_card_number) AS user_cnt,
+                approx_count_distinct(business_id) AS business_cnt
+        FROM user_tags
+        WHERE type = 'month'
+        GROUP BY type, month, address, classification
+        '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        aggr
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/address_classification_stat
+        partitions: type
+      }
+      type: file
+    }
+  ]
+}

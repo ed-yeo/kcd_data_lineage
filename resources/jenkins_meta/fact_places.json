@@ -1,0 +1,88 @@
+{
+  "name": "places",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "places",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/places"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "place_reviews",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/place_reviews"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "place_comments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/place_comments"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "places",
+        "place_reviews"
+      ],
+      "name": "reviews",
+      "options": {
+        "sql": "SELECT\n          r.timestamp,\n          date_format(r.timestamp, 'yyyy-MM-dd') AS date_id,\n          places.business_id,\n          r.count,\n          lower(replace(places.type, 'Places::', '')) AS name\nFROM (\n  SELECT\n          timestamp,\n          place_id,\n          COUNT(1) AS count\n  FROM (\n          SELECT\n                  place_id,\n                  date_trunc('MONTH', authored_at) AS timestamp\n          FROM    place_reviews\n          WHERE   created_at_date between '2017-01-01' AND '2020-07-20'\n  )\n  GROUP BY timestamp, place_id\n) AS r\nJOIN places\nON r.place_id = places.id"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "places",
+        "place_comments"
+      ],
+      "name": "comments",
+      "options": {
+        "sql": "SELECT\n          c.timestamp,\n          date_format(c.timestamp, 'yyyy-MM-dd') AS date_id,\n          places.business_id,\n          c.count,\n          c.avg_rating,\n          lower(replace(places.type, 'Places::', '')) AS name\nFROM (\n  SELECT\n          timestamp,\n          place_id,\n          COUNT(1) AS count,\n          AVG(rating) AS avg_rating\n  FROM (\n          SELECT\n                  source_id AS place_id,\n                  date_trunc('MONTH', authored_at) AS timestamp,\n                  rating\n          FROM    place_comments\n          WHERE   created_at_date between '2017-01-01' AND '2020-07-20'\n          AND     source_type = 'Place'\n  )\n  GROUP BY timestamp, place_id\n) AS c\nJOIN places\nON c.place_id = places.id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "reviews"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=place_reviews",
+        "evenPartitions": "true",
+        "partitions": "name,date_id"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "comments"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=place_comments",
+        "evenPartitions": "true",
+        "partitions": "name,date_id"
+      },
+      "type": "file"
+    }
+  ]
+}

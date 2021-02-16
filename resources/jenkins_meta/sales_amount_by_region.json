@@ -1,0 +1,62 @@
+{
+  "name": "sales_amount_by_region",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "business_meta",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_cubes/dimension/name=business_meta"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_sales_transactions",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=cardsales/name=sales_transactions/date_id=2020-12-01"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "total_region",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=location/name=total_region"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "business_meta",
+        "card_sales_transactions",
+        "total_region"
+      ],
+      "name": "result",
+      "options": {
+        "sql": "  SELECT\n          place_metric.*,\n          to_json(region.geometry) AS geometry\n  FROM (\n  SELECT\n          address.sido, address.sigungu, address.sigungu_code,\n          place_classification.depth_1_name AS kcd_classification_1_depth,\n          COUNT(distinct(business_id)) AS business_cnt,\n          SUM(amount_sum) AS amount_sum,\n          cast(AVG(amount_sum) as bigint) AS amount_avg,\n          SUM(tx_count) AS payment_cnt_sum,\n          cast(AVG(tx_count) as bigint) AS payment_cnt_avg,\n          cast(AVG(unit_price) as bigint) AS unit_price\n  FROM (\n      SELECT  meta.business_id,\n              address,\n              place_classification,\n              amount_sum,\n              tx_count,\n              (amount_sum / tx_count) AS unit_price\n      FROM (\n              SELECT  business_id,\n                      location.common AS address,\n                      classification.place AS place_classification\n              FROM business_meta\n              WHERE classification.place is not null\n              AND  location.common is not null\n      ) AS meta\n      JOIN card_sales_transactions\n      ON meta.business_id = card_sales_transactions.business_id\n  )\n  GROUP BY address.sido, address.sigungu, address.sigungu_code, place_classification.depth_1_name\n  HAVING business_cnt > 10\n  ) AS place_metric\n  LEFT OUTER JOIN (SELECT * FROM total_region WHERE region_type = 'sigungu') AS region\n  ON place_metric.sigungu_code = region.code\n  ORDER BY sigungu, business_cnt DESC"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "result"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "json",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_request/bccard/sales_amount_by_region/date_id=2020-12-01",
+        "numPartitions": "1"
+      },
+      "type": "file"
+    }
+  ]
+}

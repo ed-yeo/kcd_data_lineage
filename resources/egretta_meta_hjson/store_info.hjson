@@ -1,0 +1,305 @@
+{
+  name: store_info_sink
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: user_tags_aggr
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_DIR}/analysis/user_tags_aggr
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: snapshot_business_stat
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_DIR}/analysis/snapshot_business_stat
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: cohort
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_DIR}/analysis/cohort
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: business_meta
+      options:
+      {
+        format: parquet
+        paths: ${BUSINESS_META_PATH}
+      }
+      type: file
+    }
+    /*
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=business_id/subject=businesses/name=businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: classification
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=business_id/subject=classification/name=kcd
+      }
+      type: file
+    }
+    */
+  ]
+  process:
+  [
+    {
+        inputs:
+        [
+            user_tags_aggr
+        ]
+        name: store_tag_status
+        options:
+        {
+            sql:
+            '''
+            SELECT  business_id, collect_list(struct(tag, visitors_count)) AS tag_status
+            FROM (
+                SELECT  business_id,
+                        IF(tag = 'C_AVG', 'C', tag) AS tag,
+                        IF(visitors_count is null, 0, visitors_count) AS visitors_count
+                FROM    user_tags_aggr
+                WHERE   type = '12_month'
+                AND     tag != 'C'
+            )
+            GROUP BY business_id
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+            user_tags_aggr
+        ]
+        name: store_tag_trend
+        options:
+        {
+            sql:
+            '''
+            SELECT
+                  business_id, collect_list(struct(tag, monthly_visitor_count)) AS tag_trend
+            FROM (
+              SELECT business_id, tag, collect_list(
+                                              struct(
+                                                   date_format(month, 'yyyy-MM') AS date_month,
+                                                   visitors_count
+                                      )) AS monthly_visitor_count
+              FROM (
+                      SELECT    business_id,
+                                month,
+                                IF(tag = 'C_AVG', 'C', tag) AS tag,
+                                IF(visitors_count is null, 0, visitors_count) AS visitors_count
+                      FROM      user_tags_aggr
+                      WHERE     type = 'month'
+                      AND       tag != 'C'
+              )
+              GROUP BY business_id, tag
+            )
+            GROUP BY business_id
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+            cohort
+        ]
+        name: store_cohort_trend
+        options:
+        {
+            sql:
+            '''
+            SELECT business_id, collect_list(cohort) AS cohorts
+            FROM (
+                    SELECT
+                            business_id,
+                            struct(
+                                date_format(start_date, 'yyyy-MM-dd') AS start_date,
+                                date_format(end_date, 'yyyy-MM-dd') AS end_date,
+                                user_count,
+                                user_type
+                            ) AS cohort
+                    FROM cohort
+            )
+            GROUP BY business_id
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+            snapshot_business_stat
+        ]
+        name: visit_user_status
+        options:
+        {
+            sql:
+            '''
+            SELECT
+                    business_id,
+                    collect_list(named_struct('user_type', user_type, 'value', sales_amount)) AS visit_user_sales_amount_status,
+                    collect_list(named_struct('user_type', user_type, 'value', user_count)) AS visit_user_user_count_status,
+                    collect_list(named_struct('user_type', user_type, 'value', unit_price)) AS visit_user_unit_price_status
+            FROM (
+                    SELECT  business_id,
+                            CASE
+                                WHEN visit_count = '1회' THEN 'new'
+                                WHEN visit_count = '2회' THEN 'visit_2'
+                                WHEN visit_count = '3~9회' THEN 'visit_3_9'
+                                WHEN visit_count = '10회이상' THEN 'visit_10_more'
+                                ELSE 'etc'
+                            END AS user_type,
+                            total_amount AS sales_amount,
+                            total_card_numbers AS user_count,
+                            (total_amount / total_transaction_count) AS unit_price
+                    FROM  snapshot_business_stat
+                    WHERE type = '12_month'
+            )
+            GROUP BY business_id
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+            snapshot_business_stat
+        ]
+        name: visit_user_trend
+        options:
+        {
+            sql:
+            '''
+            SELECT
+                    business_id,
+                    collect_list(named_struct('user_type', user_type, 'monthly_trend', sales_amount_trend)) AS visit_user_sales_amount_trend,
+                    collect_list(named_struct('user_type', user_type, 'monthly_trend', user_count_trend)) AS visit_user_user_count_trend,
+                    collect_list(named_struct('user_type', user_type, 'monthly_trend', unit_price_tend)) AS visit_user_unit_price_trend
+            FROM (
+                    SELECT
+                            business_id,
+                            user_type,
+                            collect_list(named_struct('date_month', date_month, 'value', sales_amount)) AS sales_amount_trend,
+                            collect_list(named_struct('date_month', date_month, 'value', user_count)) AS user_count_trend,
+                            collect_list(named_struct('date_month', date_month, 'value', unit_price)) AS unit_price_tend
+                    FROM (
+                            SELECT  business_id,
+                                    CASE
+                                        WHEN visit_count = '1회' THEN 'new'
+                                        WHEN visit_count = '2회' THEN 'visit_2'
+                                        WHEN visit_count = '3~9회' THEN 'visit_3_9'
+                                        WHEN visit_count = '10회이상' THEN 'visit_10_more'
+                                        ELSE 'etc'
+                                    END AS user_type,
+                                    date_format(month, 'yyyy-MM') AS date_month,
+                                    total_amount AS sales_amount,
+                                    total_card_numbers AS user_count,
+                                    (total_amount / total_transaction_count) AS unit_price
+                            FROM  snapshot_business_stat
+                            WHERE type = 'month'
+
+                    )
+                    GROUP BY business_id, user_type
+            )
+            GROUP BY business_id
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+            business_meta
+            store_tag_status
+            store_tag_trend
+            store_cohort_trend
+            visit_user_trend
+            visit_user_status
+        ]
+        name: merge
+        options:
+        {
+            class: com.kcd.thrush.dmp.spark.MergeSchemaProcess
+            joinColumns: business_id
+            joinType: full_outer
+        }
+        type: custom
+    }
+    {
+        inputs:
+        [
+            merge
+        ]
+        name: store_info
+        options:
+        {
+            sql:
+            '''
+            SELECT
+                    business_id,
+                    business_meta.businesses.businesses.public_id,
+                    business_meta.businesses.businesses.business_name AS name,
+                    business_meta.classification.market_area AS classification,
+                    business_meta.location.common AS address,
+                    store_tag_status.tag_status,
+                    store_tag_trend.tag_trend,
+                    store_cohort_trend.cohorts,
+                    visit_user_status.visit_user_sales_amount_status,
+                    visit_user_status.visit_user_user_count_status,
+                    visit_user_status.visit_user_unit_price_status,
+                    visit_user_trend.visit_user_sales_amount_trend,
+                    visit_user_trend.visit_user_user_count_trend,
+                    visit_user_trend.visit_user_unit_price_trend
+            FROM    merge
+            '''
+        }
+        type: sql
+    }
+  ]
+  sink:
+  [
+      {
+        inputs:
+        [
+          store_info
+        ]
+        name: file_sink
+        options:
+        {
+          format: parquet
+          mode: overwrite
+          path: "${TARGET_DIR}/store_info"
+        }
+        type: file
+      }
+  ]
+}

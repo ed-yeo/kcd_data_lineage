@@ -1,0 +1,153 @@
+{
+  name: cleanup
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: card_merchants
+      options:
+      {
+        paths: "s3://kcd-data/raw/db/snowdon/snapshot/latest/card_merchants"
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: approvals_raw
+      options:
+      {
+        paths: "s3://staging-card-sales/staging-card-sales-approvals/${YEAR_MONTH}"
+        format: json
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: purchases_raw
+      options:
+      {
+        paths: "s3://staging-card-sales/staging-card-sales-purchases/${YEAR_MONTH}"
+        format: json
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: payments_raw
+      options:
+      {
+        paths: "s3://staging-card-sales/staging-card-sales-payments/${YEAR_MONTH}"
+        format: json
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: approvals
+      inputs:
+      [
+        card_merchants
+        approvals_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT  a.*
+           FROM    approvals_raw a, card_merchants c
+           WHERE   a.business_id = c.business_id
+           AND     trim(IF (a.cardNm = '', null, replace(a.cardNm, '카드', ''))) = c.issuer_name
+           AND     (trim(IF (merNo = '', null, merNo)) = c.merchant_number OR trim(IF (merNo = '', null, merNo)) = '999999999999')
+          '''
+      }
+    }
+    {
+      name: purchases
+      inputs:
+      [
+        card_merchants
+        purchases_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT  a.*
+           FROM    purchases_raw a, card_merchants c
+           WHERE   a.business_id = c.business_id
+           AND     trim(IF (a.cardNm = '', null, replace(a.cardNm, '카드', ''))) = c.issuer_name
+           AND     (trim(IF (merNo = '', null, merNo)) = c.merchant_number OR trim(IF (merNo = '', null, merNo)) = '999999999999')
+           AND     trim(pymScdDate) != '99999999'
+          '''
+      }
+    }
+    {
+      name: payments
+      inputs:
+      [
+        card_merchants
+        payments_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT  a.*
+           FROM    payments_raw a, card_merchants c
+           WHERE   a.business_id = c.business_id
+           AND     trim(IF (a.cardNm = '', null, replace(a.cardNm, '카드', ''))) = c.issuer_name
+           AND     (trim(IF (merNo = '', null, merNo)) = c.merchant_number OR trim(IF (merNo = '', null, merNo)) = '999999999999')
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        approvals
+      ]
+      name: approvals_sink
+      options: {
+          mode: overwrite
+          path: "${OUTPUT_BASE_PATH}/approvals/${YEAR_MONTH}"
+          format: parquet
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        purchases
+      ]
+      name: purchases_sink
+      options: {
+          mode: overwrite
+          path: "${OUTPUT_BASE_PATH}/purchases/${YEAR_MONTH}"
+          format: parquet
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        payments
+      ]
+      name: payments_sink
+      options: {
+          mode: overwrite
+          path: "${OUTPUT_BASE_PATH}/payments/${YEAR_MONTH}"
+          format: parquet
+      }
+      type: file
+    }
+  ]
+}

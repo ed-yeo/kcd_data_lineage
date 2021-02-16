@@ -1,0 +1,97 @@
+{
+  name: acceptance_templates
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: answers
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/bluebird/snapshot/latest/acceptanced_business_template_answers
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: templates
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/bluebird/snapshot/latest/acceptanced_business_templates
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        answers
+        templates
+      ]
+      name: template_with_answers
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    business_id,
+                    IF (template_type = 'poll' AND answer IS NOT NULL AND answer != '[]', t.id, null) AS complete_poll,
+                    IF (template_type = 'poll', t.id, null) AS enter_poll,
+                    IF (template_type = 'application', t.id, null) AS complete_application
+            FROM (
+                SELECT IF(step_layout = true, 'poll', 'application') AS template_type,
+                        user_type, id, title
+                FROM templates
+                WHERE user_type = 'cashnote'
+            ) AS t
+            JOIN answers
+            ON t.id = answers.acceptanced_business_template_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        template_with_answers
+      ]
+      name: result
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    business_id,
+                    collect_set(complete_poll) AS complete_polls,
+                    collect_set(enter_poll) AS enter_polls,
+                    collect_set(complete_application) AS complete_applications
+          FROM      template_with_answers
+          GROUP BY  business_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        result
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=acceptance_templates
+      }
+      type: file
+    }
+  ]
+}

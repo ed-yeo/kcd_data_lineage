@@ -1,0 +1,163 @@
+{
+  name: add_visit_orders_approved
+  udfs: [
+    {
+       name: append_visit_count
+       class: com.kcd.thrush.cardsales.spark.udfs.AppendVisitCount
+       params: {
+         windowDays: "365"
+         minTransactedAt: "${MIN_TRANSACTED_AT}"
+         maxTransactedAt: "${MAX_TRANSACTED_AT}"
+       }
+     }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: transactions_raw
+      options:
+      {
+        paths: "${TRANSACTIONS_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: transactions_approved
+      inputs:
+      [
+        transactions_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    transactions_raw
+          WHERE   created_at_date >= '${PREV_MIN_TRANSACTED_AT}'
+          AND     transacted_at >= '${PREV_MIN_TRANSACTED_AT}'
+          AND     (
+            (purchased_at is not null AND purchase_canceled_at is null) OR
+            (purchased_at is null AND approval_canceled_at is null)
+          )
+          '''
+      }
+    }
+    {
+      name: visits_approved
+      inputs:
+      [
+        transactions_approved
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  tx.acquirer_name,
+                  tx.amount,
+                  tx.approval_canceled_at,
+                  tx.approval_seq,
+                  tx.authorization_number,
+                  tx.base_fee,
+                  tx.business_id,
+                  tx.card_number,
+                  tx.card_type,
+                  tx.credential_key,
+                  tx.encrypted_card_number,
+                  tx.estimated_paid_at,
+                  tx.etc_fee,
+                  tx.fee,
+                  tx.installment,
+                  tx.issuer_name,
+                  tx.masked_card_number,
+                  tx.merchant_number,
+                  tx.paid_at,
+                  tx.payment,
+                  tx.point_fee,
+                  tx.purchase_cancel_seq,
+                  tx.purchase_canceled_at,
+                  tx.purchase_delayed,
+                  tx.purchase_seq,
+                  tx.purchased_at,
+                  tx.scraping_type,
+                  tx.status,
+                  tx.transacted_at,
+                  tx.vat_fee,
+                  tx.visit_order,
+                  tx.created_at,
+                  tx.updated_at,
+                  tx.created_at_date
+          FROM    (
+            SELECT  explode(append_visit_count(histories)) AS tx
+            FROM    (
+              SELECT  key,
+                      business_id,
+                      credential_key,
+                      collect_list(struct(*)) AS histories
+              FROM    (
+                 SELECT acquirer_name,
+                        amount,
+                        approval_canceled_at,
+                        approval_seq,
+                        authorization_number,
+                        base_fee,
+                        business_id,
+                        card_number,
+                        card_type,
+                        credential_key,
+                        encrypted_card_number,
+                        estimated_paid_at,
+                        etc_fee,
+                        fee,
+                        installment,
+                        issuer_name,
+                        masked_card_number,
+                        merchant_number,
+                        paid_at,
+                        payment,
+                        point_fee,
+                        purchase_cancel_seq,
+                        purchase_canceled_at,
+                        purchase_delayed,
+                        purchase_seq,
+                        purchased_at,
+                        scraping_type,
+                        status,
+                        transacted_at,
+                        vat_fee,
+                        created_at,
+                        updated_at,
+                        date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                        COALESCE(encrypted_card_number, CONCAT_WS('_', issuer_name, card_number)) AS key
+                 FROM   transactions_approved
+              )
+              GROUP BY key, business_id, credential_key
+            )
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        visits_approved
+      ]
+      name: file_sink
+      options: {
+          mode: overwrite
+          path: "${OUTPUT_PATH}"
+          format: parquet
+      }
+      type: file
+    }
+  ]
+}

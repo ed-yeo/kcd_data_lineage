@@ -1,0 +1,111 @@
+{
+  "name": "delivery_receipt_stats",
+  "udfs": [
+    {
+      "name": "toH3Index",
+      "class": "com.kcd.thrush.utils.spark.udfs.H3",
+      "params": {
+        "method": "geoToH3Address"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "receipts",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-staging/raw/etl/pos/receipt"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "receipts"
+      ],
+      "name": "add_h3",
+      "options": {
+        "sql": "SELECT    business_id, h3.index AS h3_index, h3.resolution AS h3_resolution,\n          order_amount,\n          day, week, month\nFROM (\n        SELECT    *, explode(h3_arr) AS h3\n        FROM (\n                SELECT\n                          business_id, app_name, total_amount, order_amount,\n                          array(\n                              named_struct('index', toH3Index(pos_x, pos_y, 9), 'resolution', 9),\n                              named_struct('index', toH3Index(pos_x, pos_y, 10), 'resolution', 10)\n                          ) AS h3_arr,\n                          date_trunc('DAY',order_time) AS day,\n                          date_trunc('WEEK', order_time) AS week,\n                          date_trunc('MONTH', order_time) AS month\n                FROM      receipts\n                WHERE     app_name in ('baemin', 'yogiyo')\n                AND       created_at_date between '2020-12-21' AND '2020-12-21'\n                AND       order_time is not null\n        )\n)"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "add_h3"
+      ],
+      "name": "order_by_day",
+      "options": {
+        "sql": "SELECT\n          business_id, day AS target_date,\n          'day' AS date_type,\n          h3_index, h3_resolution,\n          SUM(order_amount) AS order_amount_sum,\n          COUNT(1) AS order_cnt\nFROM  add_h3\nGROUP BY business_id, day, h3_index, h3_resolution"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "add_h3"
+      ],
+      "name": "order_by_week",
+      "options": {
+        "sql": "SELECT\n          business_id, week AS target_date,\n          'week' AS date_type,\n          h3_index, h3_resolution,\n          SUM(order_amount) AS order_amount_sum,\n          COUNT(1) AS order_cnt\nFROM  add_h3\nGROUP BY business_id, week, h3_index, h3_resolution"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "add_h3"
+      ],
+      "name": "order_by_month",
+      "options": {
+        "sql": "SELECT\n          business_id, month AS target_date,\n          'month' AS date_type,\n          h3_index, h3_resolution,\n          SUM(order_amount) AS order_amount_sum,\n          COUNT(1) AS order_cnt\nFROM  add_h3\nGROUP BY business_id, month, h3_index, h3_resolution"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "order_by_day",
+        "order_by_week",
+        "order_by_month"
+      ],
+      "name": "merged",
+      "options": {
+        "sql": "SELECT\n          business_id AS public_id, target_date, date_type, h3_index, h3_resolution,\n          to_json(named_struct(\n              'order_amount_sum', order_amount_sum,\n              'order_cnt', order_cnt\n          )) AS metric\nFROM (\n      SELECT  business_id, target_date, date_type, h3_index, h3_resolution, order_amount_sum, order_cnt\n      FROM    order_by_day\n\n      UNION ALL\n\n      SELECT  business_id, target_date, date_type, h3_index, h3_resolution, order_amount_sum, order_cnt\n      FROM    order_by_week\n\n      UNION ALL\n\n      SELECT  business_id, target_date, date_type, h3_index, h3_resolution, order_amount_sum, order_cnt\n      FROM    order_by_month\n)"
+      },
+      "type": "sql",
+      "cache": true
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "merged"
+      ],
+      "name": "merged_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/pos/receipt_stats"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "merged"
+      ],
+      "name": "jdbc_sink",
+      "options": {
+        "driver": "org.postgresql.Driver",
+        "url": "jdbc:postgresql://plover-data-staging.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_staging",
+        "user": "plover",
+        "password": "welcome!",
+        "operation": "upsert",
+        "dbtable": "pos_receipt_stat",
+        "conflictColumns": "public_id,target_date,date_type,h3_index,h3_resolution",
+        "updateColumns": "metric",
+        "typeCastColumns": "metric:jsonb"
+      },
+      "type": "jdbc"
+    }
+  ]
+}

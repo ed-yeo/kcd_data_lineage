@@ -1,0 +1,86 @@
+{
+  "name": "build_card_purchases",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "card_purchases_approvals_src",
+      "options": {
+        "paths": "s3://kcd-data/raw/catalog_v2/raw/tb=owl_db_card_purchases_approvals",
+        "format": "json"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "prev_card_purchases_approvals_src",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card/card_purchases",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "prev_card_purchases_approvals",
+      "inputs": [
+        "prev_card_purchases_approvals_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    prev_card_purchases_approvals_src\nWHERE   created_at_date >= '${PREV_MIN_DATE}'\nAND     created_at_date < '2021-01-21'"
+      }
+    },
+    {
+      "name": "card_purchases_approvals",
+      "inputs": [
+        "card_purchases_approvals_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id,\n        card_id,\n        status,\n        approved_at,\n        authorization_number,\n        amount,\n        MAX(card_name) AS card_name,\n        MAX(card_number) AS card_number,\n        MAX(created_at) AS created_at,\n        MAX(currency) AS currency,\n        MAX(installment) AS installment,\n        MAX(issuer_name) AS issuer_name,\n        MAX(updated_at) AS updated_at,\n        MAX(vat) AS vat,\n        MAX(vendor_business_name) AS vendor_business_name,\n        MAX(vendor_registration_number) AS vendor_registration_number,\n        MAX(created_at_date) AS created_at_date\nFROM    (\n  SELECT    CAST(amount AS int) AS amount,\n            to_timestamp(approved_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS approved_at,\n            authorization_number,\n            CAST(business_id AS int) AS business_id,\n            CAST(card_id AS int) AS card_id,\n            card_name,\n            card_number,\n            to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS created_at,\n            CAST(currency AS int) AS currency,\n            CAST(installment AS int) AS installment,\n            issuer_name,\n            status,\n            to_timestamp(updated_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS updated_at,\n            vat,\n            vendor_business_name,\n            vendor_registration_number,\n            date_format(to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS'), 'yyyy-MM-dd') AS created_at_date\n  FROM      card_purchases_approvals_src\n)\nWHERE    created_at_date >= '2021-01-21'\nAND      created_at_date < '2021-01-28'\nGROUP BY business_id, card_id, status, approved_at, authorization_number, amount"
+      }
+    },
+    {
+      "name": "card_purchases",
+      "inputs": [
+        "card_purchases_approvals"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      (\n   SELECT *,\n          CAST(approved_at AS long) - CAST(lag(approved_at, 1) over (\n              PARTITION BY business_id, authorization_number, status, amount\n              ORDER BY approved_at\n          ) AS long) as buffer\n   FROM   card_purchases_approvals\n   WHERE  currency = 0\n   AND    amount IS NOT NULL\n)\nWHERE buffer is null OR buffer > 1000 * 60"
+      }
+    },
+    {
+      "name": "card_purchases_unique",
+      "inputs": [
+        "prev_card_purchases_approvals",
+        "card_purchases"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  current.*\nFROM    prev_card_purchases_approvals prev RIGHT OUTER JOIN card_purchases current\nON      (\n  prev.business_id = current.business_id AND\n  prev.card_id = current.card_id AND\n  prev.status = current.status AND\n  prev.approved_at = current.approved_at AND\n  prev.authorization_number = current.authorization_number AND\n  prev.amount = current.amount\n)\nWHERE   prev.business_id is null"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "card_purchases_unique"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/raw/etl/snowdon/card/card_purchases",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

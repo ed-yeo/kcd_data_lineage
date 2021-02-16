@@ -1,0 +1,79 @@
+{
+  name: store_info_s2graph_sink
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: store_info
+      options:
+      {
+        format: parquet
+        paths: ${STORE_INFO_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+      {
+          inputs:
+          [
+            store_info
+          ]
+          name: to_s2graph
+          options:
+          {
+            sql:
+              '''
+                SELECT
+                        (unix_timestamp() * 1000) AS timestamp,
+                        CAST(business_id AS STRING) AS `from`,
+                        CAST(business_id AS STRING) AS to,
+                        'store_info' AS label,
+                        'insert' AS operation,
+                        'edge' AS elem,
+                        'out' AS direction,
+                        to_json(named_struct(
+                            'name', name
+                        )) AS props
+                FROM store_info
+              '''
+          }
+          type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        to_s2graph
+      ]
+      name: s2graph_sink
+      options:
+      {
+        s2.spark.sql.streaming.sink.writeMethod:bulk
+        s2.spark.sql.bulkload.sink.label.mapping:"${LABEL_MAPPING}"
+        s2.spark.sql.bulkload.sink.build.degree: "${BUILD_DEGREE}"
+        s2.spark.sql.bulkload.sink.auto.edge.create: "${AUTO_EDGE_CREATE}"
+        s2.spark.sql.streaming.sink.skip.error: "${SKIP_ERROR}"
+        s2.spark.sql.bulkload.sink.hbase.table.name:"${HBASE_TABLE_NAME}"
+        s2.spark.sql.bulkload.sink.hbase.table.num.regions:"${HBASE_TABLE_REGIONS}"
+        s2.spark.sql.bulkload.sink.hbase.temp.dir:"${TEMP_DIR}"
+        s2.spark.sql.bulkload.sink.hbase.incrementalLoad: "false"
+        s2.spark.sql.bulkload.sink.hbase.compression: "LZ4"
+        runLoadIncrementalHFiles:"${LOAD_HFILE}"
+        hbase.zookeeper.quorum:"${HBASE_ZK}"
+        cache.max.size: "10000"
+        cache.ttl.seconds: "6000"
+        db.default.driver: com.mysql.jdbc.Driver
+        db.default.url: "${DB_HOST}"
+        db.default.user: "${DB_USER}"
+        db.default.password: "${DB_PASSWORD}"
+      }
+      type: s2graph
+    }
+  ]
+}

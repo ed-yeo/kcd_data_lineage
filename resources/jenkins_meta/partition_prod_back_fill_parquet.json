@@ -1,0 +1,93 @@
+{
+  "name": "partition_prod_back_fill_parquet",
+  "udfs": [
+    {
+      "name": "row_to_json",
+      "class": "com.kcd.thrush.catalog.spark.udfs.RowToJsonUDF",
+      "params": {
+        "flattenNestedJson": "true",
+        "keysDelimiter": "_",
+        "explodeArray": "false",
+        "replaceDotInKey": "true",
+        "parseFields": "content",
+        "explodeArrayLimit": "10",
+        "withSchema": "true",
+        "removeParseFieldPrefix": "true",
+        "caseInsensitive": "true"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "plover_src",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/firehose/plover_compact/created_at_date=2021-01-27",
+        "format": "parquet",
+        "read": "{\"basePath\":\"s3://kcd-de-production/raw/firehose/plover_compact\"}"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "pos_src",
+      "options": {
+        "paths": "s3://kcd-pos-data/dev/year=2021/month=01/day=27",
+        "format": "json",
+        "read": "{\"basePath\":\"s3://kcd-pos-data/dev\"}"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "plover",
+      "inputs": [
+        "plover_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT\n  table_name,\n  text_dvs,\n  from_unixtime(timestamp / 1000) AS ts,\n  created_at_date\nFROM    (\n  SELECT  timestamp,\n          CONCAT(service_name, '_', label_name) AS table_name,\n          row_to_json(\n            named_struct(\n              '_event_id',  get_json_object(value, '$._event_id'),\n              '_service_name', service_name,\n              '_label_name', label_name,\n              '_timestamp', timestamp,\n              'content', get_json_object(value, '$.content')\n            )\n          ) AS text_dvs,\n          created_at_date\n  FROM\n          plover_src\n  WHERE\n          value IS NOT NULL\n  AND\n          service_name IS NOT null\n  AND\n          label_name IS NOT null\n)"
+      }
+    },
+    {
+      "name": "pos",
+      "inputs": [
+        "pos_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT\n  table_name,\n  text_dvs,\n  from_unixtime(unix_timestamp()) AS ts,\n  cast(current_date() as string) AS created_at_date\nFROM (\n  SELECT  CONCAT(service_name, '_', label_name) AS table_name,\n          row_to_json(named_struct(\n            'content', content,\n            '_timestamp', timestamp,\n            '_service_name', service_name,\n            '_label_name', label_name,\n            '_event_id', _event_id\n          )) AS text_dvs\n  FROM    (\n    SELECT  source AS label_name,\n            'pos' AS service_name,\n            from_unixtime(unix_timestamp()) AS timestamp,\n            uuid() AS _event_id,\n            to_json(struct(*)) AS content\n    FROM\n            pos_src\n  )\n)"
+      }
+    },
+    {
+      "name": "union_v3",
+      "inputs": [
+        "plover",
+        "pos"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT\n  lower(table_name) AS tb,\n  created_at_date,\n  text_dvs.text as value\nFROM (\n  SELECT * FROM plover\n\n  UNION ALL\n\n  SELECT * FROM pos\n)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "union_v3"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "format": "text",
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/raw/catalog_v3_complete",
+        "partitions": "tb,created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "100000"
+      },
+      "type": "custom"
+    }
+  ]
+}

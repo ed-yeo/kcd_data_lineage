@@ -1,0 +1,61 @@
+{
+  name: store_info_s2_sink
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: store_info
+      options:
+      {
+        format: parquet
+        paths: ${INPUT_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        store_info
+      ]
+      name: select
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      store_info
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        select
+      ]
+      name: s2graph_sink
+      options:
+      {
+        s2.spark.sql.streaming.sink.writeMethod: mutate
+        s2.spark.sql.streaming.sink.grouped.size: ${GROUPED_SIZE}
+        s2.spark.sql.streaming.sink.wait.time: ${WAIT_TIME}
+        s2.spark.sql.streaming.sink.skip.error: '${SKIP_ERROR}'
+
+        hbase.zookeeper.quorum: ${HBASE_ZK}
+        db.default.driver: com.mysql.jdbc.Driver
+        db.default.url: ${DB_HOST}
+        db.default.user: graph
+        db.default.password: ${DB_PASSWORD}
+      }
+      type: s2graph
+    }
+  ]
+}

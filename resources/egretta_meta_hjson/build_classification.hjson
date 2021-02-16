@@ -1,0 +1,243 @@
+{
+  // PARAMS: TEMP_PATH, TARGET_PATH
+  name: build_classification
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: places_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/places
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        places_src
+      ]
+      name: naver
+      options:
+      {
+        sql:
+          '''
+          SELECT  *, classification AS naver_classification
+          FROM    places_src
+          WHERE   type = 'Places::Naver'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        places_src
+      ]
+      name: kakao
+      options:
+      {
+        sql:
+          '''
+          SELECT  *, classification AS kakao_classification
+          FROM    places_src
+          WHERE   type = 'Places::Daum'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        naver
+        kakao
+      ]
+      name: mapping
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    (
+            SELECT  *,
+                    row_number() OVER (PARTITION BY naver_classification ORDER BY count DESC) AS rank
+            FROM    (
+              SELECT  naver_classification, kakao_classification,
+                      count(1) AS count
+              FROM  (
+                SELECT  business_id, classification AS kakao_classification
+                FROM    kakao
+                WHERE   classification is not null
+              ) kakao, (
+                SELECT  business_id, classification AS naver_classification
+                FROM    naver
+                WHERE   classification is not null
+              ) naver
+              WHERE   kakao.business_id = naver.business_id
+              GROUP BY 1, 2
+            )
+          )
+          WHERE rank = 1
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        naver
+        kakao
+      ]
+      name: kakao_only
+      options:
+      {
+        sql:
+          '''
+          SELECT  *, classification AS kcd_classification
+          FROM    kakao
+          WHERE   kakao_classification is not null
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        naver
+        kakao
+        mapping
+      ]
+      name: naver_only
+      options:
+      {
+        sql:
+          '''
+          SELECT  /*+BROADCAST(m) */
+                  n.*, m.kakao_classification AS kcd_classification
+          FROM    (
+            SELECT  /*+BROADCAST(k) */
+                    n.*
+            FROM    naver n LEFT OUTER JOIN kakao k ON (n.business_id = k.business_id)
+            WHERE   k.business_id is null
+            AND     n.naver_classification is not null
+          ) n LEFT OUTER JOIN mapping m ON (n.classification = m.naver_classification)
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        kakao_only
+        naver_only
+      ]
+      name: merged
+      options:
+      {
+        sql:
+          '''
+          SELECT *,
+                 split(kcd_classification, ' > ')[0] AS kcd_classification_1_depth,
+                 split(kcd_classification, ' > ')[1] AS kcd_classification_2_depth,
+                 split(kcd_classification, ' > ')[2] AS kcd_classification_3_depth,
+                 split(kcd_classification, ' > ')[3] AS kcd_classification_4_depth,
+                 split(kcd_classification, ' > ')[4] AS kcd_classification_5_depth,
+                 case
+                     when split(lot_address, ' ')[0] = '서울' then '서울특별시'
+                     when split(lot_address, ' ')[0] = '세종특별자치' then '세종특별자치시'
+                     when split(lot_address, ' ')[0] = '강원' then '강원도'
+                     when split(lot_address, ' ')[0] = '경기' then '경기도'
+                     when split(lot_address, ' ')[0] = '경남' then '경상남도'
+                     when split(lot_address, ' ')[0] = '경북' then '경상북도'
+                     when split(lot_address, ' ')[0] = '광주' then '광주광역시'
+                     when split(lot_address, ' ')[0] = '대구' then '대구광역시'
+                     when split(lot_address, ' ')[0] = '대전' then '대전광역시'
+                     when split(lot_address, ' ')[0] = '부산' then '부산광역시'
+                     when split(lot_address, ' ')[0] = '세종' then '세종특별자치시'
+                     when split(lot_address, ' ')[0] = '울산' then '울산광역시'
+                     when split(lot_address, ' ')[0] = '인천' then '인천광역시'
+                     when split(lot_address, ' ')[0] = '전남' then '전라남도'
+                     when split(lot_address, ' ')[0] = '전북' then '전라북도'
+                     when split(lot_address, ' ')[0] = '제주' then '제주특별자치도'
+                     when split(lot_address, ' ')[0] = '충남' then '충청남도'
+                     when split(lot_address, ' ')[0] = '충북' then '충청북도'
+                     else split(lot_address, ' ')[0]
+                 end as lot_address_1_depth,
+                 split(lot_address, ' ')[1] AS lot_address_2_depth,
+                 split(lot_address, ' ')[2] AS lot_address_3_depth
+          FROM  (
+              SELECT * FROM kakao_only
+              UNION ALL
+              SELECT * FROM naver_only
+          )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        mapping
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/mapping
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        kakao_only
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/kakao_only
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        naver_only
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/naver_only
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        merged
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/kcd_places
+      }
+      type: file
+    }
+  ]
+}

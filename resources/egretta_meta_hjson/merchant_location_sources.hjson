@@ -1,0 +1,257 @@
+{
+  // PARAMS: TEMP_PATH, TARGET_PATH
+  name: merchant_location_sources
+  udfs: [
+    {
+        name: get_addr_key
+        class: com.kcd.thrush.dmp.spark.udfs.AddressUtil
+        params: {
+            method: get_addr_key
+        }
+    }
+    {
+        name: get_addr_key_sigungu
+        class: com.kcd.thrush.dmp.spark.udfs.AddressUtil
+        params: {
+            method: get_addr_key_sigungu
+        }
+    }
+    {
+        name: to_region_address
+        class: com.kcd.thrush.dmp.spark.udfs.AddressUtil
+        params: {
+            method: to_region_address
+        }
+    }
+    {
+        name: is_street_address
+        class: com.kcd.thrush.dmp.spark.udfs.AddressUtil
+        params: {
+            method: is_street_address
+        }
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: total_region
+      options:
+      {
+        format: parquet
+        paths: ${LOOKUP_DIR}/subject=location/name=total_region
+      }
+      type: file
+      cache: true
+    }
+    {
+      inputs: []
+      name: kakao
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=merchant_number/subject=places/name=kakao
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: naver
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=merchant_number/subject=places/name=naver
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: merchant_info
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=merchant_number/subject=merchant/name=info
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        naver
+        total_region
+      ]
+      name: naver_address
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  registration_number, card_issuer, merchant_number,
+                  source_address.address AS full_address,
+                  source_address.location AS geo_point,
+                  region.code AS b_code,
+                  region.sido,
+                  region.sido_code,
+                  region.sigungu,
+                  region.sigungu_code,
+                  region.dong,
+                  region.mapping_codes AS h_codes
+
+          FROM (
+              SELECT
+                  registration_number, card_issuer, merchant_number,
+                  get_addr_key(lot_address) AS addr_key,
+                  lot_address AS address,
+                  IF(
+                      latitude > 100,
+                      CONCAT(longitude, ',', latitude),
+                      CONCAT(latitude, ',', longitude)
+                  ) AS location
+              FROM  naver
+              WHERE lot_address is not null
+          ) AS source_address
+          JOIN (
+              SELECT  *
+              FROM total_region
+              WHERE region_type = 'b_dong'
+          ) AS region
+          ON source_address.addr_key = region.full_address
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        kakao
+        total_region
+      ]
+      name: kakao_address
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  registration_number, card_issuer, merchant_number,
+                  source_address.address AS full_address,
+                  source_address.location AS geo_point,
+                  region.code AS b_code,
+                  region.sido,
+                  region.sido_code,
+                  region.sigungu,
+                  region.sigungu_code,
+                  region.dong,
+                  region.mapping_codes AS h_codes
+
+          FROM (
+              SELECT
+                  registration_number, card_issuer, merchant_number,
+                  get_addr_key(lot_address) AS addr_key,
+                  lot_address AS address,
+                  IF(
+                        latitude > 100,
+                        CONCAT(longitude, ',', latitude),
+                        CONCAT(latitude, ',', longitude)
+                    ) AS location
+              FROM  kakao
+              WHERE lot_address is not null
+          ) AS source_address
+          JOIN (
+              SELECT  *
+              FROM total_region
+              WHERE region_type = 'b_dong'
+          ) AS region
+          ON source_address.addr_key = region.full_address
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        merchant_info
+        total_region
+      ]
+      name: merchant_address
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  registration_number, card_issuer, merchant_number,
+                  CAST(null as STRING) AS geo_point,
+                  source_address.address AS full_address,
+                  CAST(null as STRING) AS b_code,
+                  region.sido,
+                  region.sido_code,
+                  region.sigungu,
+                  region.sigungu_code,
+                  region.dong,
+                  region.mapping_codes AS h_codes
+          FROM (
+                  SELECT  registration_number, card_issuer, merchant_number,
+                          get_addr_key_sigungu(merchant_address) AS addr_key,
+                          merchant_address AS address
+                  FROM  merchant_info
+                  WHERE merchant_address is not null
+          ) AS source_address
+          JOIN (
+              SELECT  *
+              FROM total_region
+              WHERE region_type = 'sigungu'
+          ) AS region
+          ON source_address.addr_key = region.full_address
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        merchant_address
+      ]
+      name: merchant_address_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=card
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        naver_address
+      ]
+      name: naver_address_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=naver
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        kakao_address
+      ]
+      name: kakao_address_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=kakao
+      }
+      type: file
+    }
+  ]
+}

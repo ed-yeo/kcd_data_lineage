@@ -1,0 +1,196 @@
+{
+  name: daily_reports
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: report_logs
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: report_logs
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${report_logs_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+      cache: true
+    }
+    {
+      inputs: []
+      name: daily_report_raw
+      options:
+      {
+        format: parquet
+        paths: ${DAILY_REPORT_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        report_logs
+      ]
+      name: latest_id
+      options:
+      {
+        sql:
+          '''
+          SELECT    max(id) AS id
+          FROM      report_logs
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        report_logs
+      ]
+      name: report_logs_parsed
+      options:
+      {
+        sql:
+          '''
+          SELECT    target_id, business_id, user_id,
+                    nvl(payload.title, '') AS title,
+                    payload.attachment, payload.template_code,
+                    payload.attachment.button[0].url_mobile AS url_mobile,
+                    payload.raw_data
+          FROM (
+            SELECT  CONCAT(user_id, '_', business_id) AS target_id,
+                    business_id, user_id,
+                    from_json(bzm_payload, 'STRUCT<`attachment`: STRUCT<`button`: ARRAY<STRUCT<`name`: STRING, `type`: STRING, `url_mobile`: STRING>>>, `raw_data`: STRUCT<`bank_accounts`: ARRAY<STRING>, `card_purchases`: STRUCT<`monthly_card_purchases`: BIGINT, `today_purchases`: ARRAY<STRING>>, `card_sales`: STRUCT<`card_sales_amount`: BIGINT, `card_sales_count`: BIGINT, `card_sales_fee`: BIGINT, `card_sales_payment`: BIGINT, `card_sales_vat_fee`: BIGINT, `monthly_card_sales`: BIGINT, `new_amount`: BIGINT, `returning_amount`: BIGINT>, `delivery_app_sales`: STRUCT<`baedaltong_sales_amount`: BIGINT, `baemin_sales_amount`: BIGINT, `monthly_delivery_app_sales`: BIGINT, `yogiyo_sales_amount`: BIGINT>, `future_payments`: STRUCT<`2020-10-27`: BIGINT>, `hometax_purchases`: STRUCT<`monthly_cash_purchases`: STRING, `monthly_invoice_purchases`: STRING>, `hometax_sales`: STRUCT<`monthly_cash_sales_amount`: STRING, `monthly_invoice_sales_amount`: STRING>, `hourly_sales`: STRUCT<`미분류`: BIGINT, `새벽`: BIGINT, `아침`: BIGINT, `오후`: BIGINT, `저녁`: BIGINT, `점심`: BIGINT>>, `template_code`: STRING, `title`: STRING>', map())
+                    AS payload
+            FROM    report_logs
+            WHERE   id > ${report_logs_lowerBound}
+            AND     group_id = '${GROUP_ID}'
+            AND     report_type = 'daily'
+            AND     business_id IS NOT NULL
+            AND     user_id IS NOT NULL
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        report_logs_parsed
+      ]
+      name: formatted_report_logs
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    target_id, business_id, user_id, title, template_code, url_mobile,
+                    raw_data.card_sales.card_sales_amount,
+                    raw_data.card_sales.card_sales_count,
+                    raw_data.card_sales.card_sales_fee,
+                    raw_data.card_sales.card_sales_vat_fee,
+                    raw_data.card_sales.card_sales_payment,
+                    raw_data.card_sales.returning_amount,
+                    raw_data.card_sales.new_amount,
+                    raw_data.card_sales.monthly_card_sales AS monthly_card_sales_amount,
+                    raw_data.hourly_sales.`새벽` AS 0_6_sales_amount,
+                    raw_data.hourly_sales.`아침` AS 6_11_sales_amount,
+                    raw_data.hourly_sales.`점심` AS 11_14_sales_amount,
+                    raw_data.hourly_sales.`오후` AS 14_17_sales_amount,
+                    raw_data.hourly_sales.`저녁` AS 17_24_sales_amount,
+                    raw_data.delivery_app_sales.baemin_sales_amount AS baemin_online_amount_sum,
+                    raw_data.delivery_app_sales.yogiyo_sales_amount AS yogiyo_online_amount_sum,
+                    raw_data.delivery_app_sales.baedaltong_sales_amount AS baedaltong_online_amount_sum,
+                    raw_data.delivery_app_sales.monthly_delivery_app_sales AS monthly_delivery_app_sales_amount,
+                    raw_data.hometax_sales.monthly_cash_sales_amount AS hometax_sales_cash_receipts_amount,
+                    raw_data.hometax_sales.monthly_invoice_sales_amount AS hometax_sales_invoices_amount,
+                    raw_data.hometax_purchases.monthly_cash_purchases AS hometax_purchases_cash_receipts_amount,
+                    raw_data.hometax_purchases.monthly_invoice_purchases AS hometax_purchases_invoices_amount
+          FROM      report_logs_parsed
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        daily_report_raw
+        formatted_report_logs
+      ]
+      name: merged
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    target_id,
+                    r.business_id, user_id, title, template_code, url_mobile,
+                    IF(array_contains(array(${SELECT_COLUMNS}), 'card_sales_amount'),   nvl(d.card_sales_amount, 0),    r.card_sales_amount) AS card_sales_amount,
+                    IF(array_contains(array(${SELECT_COLUMNS}), 'card_sales_count'),    nvl(d.card_sales_count, 0),     r.card_sales_count) AS card_sales_count,
+                    IF(array_contains(array(${SELECT_COLUMNS}), 'card_sales_fee'),      nvl(d.card_sales_fee, 0),       r.card_sales_fee) AS card_sales_fee,
+                    IF(array_contains(array(${SELECT_COLUMNS}), 'card_sales_vat_fee'),  nvl(d.card_sales_vat_fee, 0),   r.card_sales_vat_fee) AS card_sales_vat_fee,
+                    IF(array_contains(array(${SELECT_COLUMNS}), 'card_sales_payment'),  nvl(d.card_sales_payment, 0),   r.card_sales_payment) AS card_sales_payment,
+                    IF(array_contains(array(${SELECT_COLUMNS}), 'returning_amount'),    nvl(d.returning_amount, 0),     r.returning_amount) AS returning_amount,
+                    IF(array_contains(array(${SELECT_COLUMNS}), 'new_amount'),          nvl(d.new_amount, 0),           r.new_amount) AS new_amount,
+                    IF(array_contains(array(${SELECT_COLUMNS}), 'monthly_card_sales_amount'),   nvl(d.monthly_card_sales_amount, 0),    r.monthly_card_sales_amount) AS monthly_card_sales_amount,
+                    r.0_6_sales_amount,
+                    r.6_11_sales_amount,
+                    r.11_14_sales_amount,
+                    r.14_17_sales_amount,
+                    r.17_24_sales_amount,
+                    r.baemin_online_amount_sum,
+                    r.yogiyo_online_amount_sum,
+                    r.baedaltong_online_amount_sum,
+                    r.monthly_delivery_app_sales_amount,
+                    r.hometax_sales_cash_receipts_amount,
+                    r.hometax_sales_invoices_amount,
+                    r.hometax_purchases_cash_receipts_amount,
+                    r.hometax_purchases_invoices_amount
+          FROM      formatted_report_logs AS r
+          LEFT OUTER JOIN   daily_report_raw AS d
+          ON        r.business_id = d.business_id
+
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        merged
+      ]
+      name: file_sink
+      options:
+      {
+        format: json
+        mode: overwrite
+        path: ${TARGET_PATH}
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        latest_id
+      ]
+      name: file_sink
+      options:
+      {
+        format: text
+        mode: overwrite
+        path: ${LATEST_ID_PATH}
+      }
+      type: file
+    }
+  ]
+}

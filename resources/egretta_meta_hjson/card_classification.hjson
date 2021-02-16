@@ -1,0 +1,220 @@
+{
+  // PARAMS: TEMP_PATH, TARGET_PATH
+  name: card_classification_business_id
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: shinhancard_business_classification
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=registration_number/subject=classification/name=shinhancard
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: bccard_business_classification
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=registration_number/subject=classification/name=bccard
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: bccard_business_classification_new
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=registration_number/subject=classification/name=bccard_new
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hyundai_business_classification
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=registration_number/subject=classification/name=hyundaicard
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        businesses
+      ]
+      name: mappings
+      options:
+      {
+        sql:
+          '''
+          SELECT    registration_number, id AS business_id
+          FROM      businesses
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        shinhancard_business_classification
+        mappings
+      ]
+      name: shinhancard
+      options:
+      {
+        sql:
+          '''
+          SELECT    mappings.business_id, classification_code, classification_name
+          FROM      shinhancard_business_classification AS card_classification
+          JOIN      mappings
+          ON        card_classification.registration_number = mappings.registration_number
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        bccard_business_classification
+        mappings
+      ]
+      name: bccard
+      options:
+      {
+        sql:
+          '''
+          SELECT    mappings.business_id,
+                    depth_1_code, depth_1_name,
+                    depth_2_code, depth_2_name,
+                    depth_3_code, depth_3_name
+          FROM      bccard_business_classification AS card_classification
+          JOIN      mappings
+          ON        card_classification.registration_number = mappings.registration_number
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        bccard_business_classification_new
+        mappings
+      ]
+      name: bccard_new
+      options:
+      {
+        sql:
+          '''
+          SELECT    mappings.business_id,
+                    depth_1_code, depth_1_name,
+                    depth_2_code, depth_2_name,
+                    depth_3_code, depth_3_name
+          FROM      bccard_business_classification_new AS card_classification
+          JOIN      mappings
+          ON        card_classification.registration_number = mappings.registration_number
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hyundai_business_classification
+        mappings
+      ]
+      name: hyundaicard
+      options:
+      {
+        sql:
+          '''
+          SELECT    mappings.business_id, classification_code, classification_name
+          FROM      hyundai_business_classification AS card_classification
+          JOIN      mappings
+          ON        card_classification.registration_number = mappings.registration_number
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        shinhancard
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=shinhancard
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        bccard
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=bccard
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        bccard_new
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=bccard_new
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        hyundaicard
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=hyundaicard
+      }
+      type: file
+    }
+  ]
+}

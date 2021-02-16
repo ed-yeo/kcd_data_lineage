@@ -1,0 +1,71 @@
+{
+  "name": "user_message_history",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "target_messages",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/target_messages"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "dmp_message_result_stat",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=dmp_message_result_stat"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "user_message_history_prev",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/user_history/date_id=2021-01-28"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "dmp_message_result_stat",
+        "target_messages"
+      ],
+      "name": "user_message_history_cur",
+      "options": {
+        "sql": "  SELECT  DISTINCT\n          meta_user_id AS user_id,\n          meta_business_id AS business_id,\n          meta_ad_group_id AS ad_group_id,\n          meta_user_type AS user_type\n  FROM    dmp_message_result_stat\n  WHERE   meta_user_id IS NOT NULL\n  AND     status = true\n  AND     created_at_date BETWEEN '2021-01-28' AND '2021-01-29'\n  AND     meta_campaign_id != 2\n\n  UNION ALL\n\n  SELECT  DISTINCT\n          meta.user_id,\n          meta.business_id,\n          meta.ad_group_id,\n          meta.user_type\n  FROM    target_messages\n  WHERE   date_id BETWEEN '2021-01-28' AND '2021-01-29'\n  AND     meta.campaign_id = 2"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "user_message_history_cur",
+        "user_message_history_prev"
+      ],
+      "name": "user_message_history",
+      "options": {
+        "sql": "SELECT    m.*\nFROM (\n    SELECT\n              IF(prev.user_id IS NOT NULL, struct(prev.*), struct(cur.*)) AS m\n    FROM      user_message_history_prev AS prev\n    FULL OUTER JOIN   user_message_history_cur AS cur\n    ON    prev.business_id = cur.business_id\n    AND   prev.user_id = cur.user_id\n    AND   prev.ad_group_id = cur.ad_group_id\n    AND   prev.user_type = cur.user_type\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "user_message_history"
+      ],
+      "name": "user_message_history_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/message/user_history/date_id=2021-01-29"
+      },
+      "type": "file"
+    }
+  ]
+}

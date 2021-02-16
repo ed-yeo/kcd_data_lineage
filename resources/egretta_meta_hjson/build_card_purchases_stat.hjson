@@ -1,0 +1,163 @@
+{
+  name: build_card_purchases_stat
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: card_purchases_approvals
+      options:
+      {
+        paths: "${CARD_PURCHASES_APPROVALS_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: card_purchases
+      inputs:
+      [
+        card_purchases_approvals
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(approved_at, 'yyyy-MM-dd') AS approved_at_date
+          FROM      (
+             SELECT *,
+                    CAST(approved_at AS long) - CAST(lag(approved_at, 1) over (
+                        PARTITION BY business_id, authorization_number, status, amount
+                        ORDER BY approved_at
+                    ) AS long) as buffer
+             FROM   card_purchases_approvals
+             WHERE  approved_at >= '${MIN_DATE}'
+             AND    approved_at < '${MAX_DATE}'
+             AND    currency = 0
+             AND    amount IS NOT NULL
+          )
+          WHERE buffer is null OR buffer > 1000 * 60
+          '''
+      }
+    }
+    {
+      name: daily_card_purchases_stat
+      inputs:
+      [
+        card_purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd') AS time_key
+          FROM      (
+              SELECT    business_id,
+                        card_id,
+                        date_trunc('day', approved_at) AS time,
+                        'day' AS time_unit,
+                        SUM(amount) AS amount,
+                        COUNT(1) AS count
+              FROM      card_purchases
+              GROUP BY  1, 2, 3
+          )
+          '''
+      }
+    }
+    {
+      name: monthly_card_purchases_stat
+      inputs:
+      [
+        card_purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd') AS time_key
+          FROM      (
+              SELECT    business_id,
+                        card_id,
+                        date_trunc('month', approved_at) AS time,
+                        'month' AS time_unit,
+                        SUM(amount) AS amount,
+                        COUNT(1) AS count
+              FROM      card_purchases
+              GROUP BY  1, 2, 3
+          )
+          '''
+      }
+    }
+    {
+      name: card_purchases_stat
+      inputs:
+      [
+        daily_card_purchases_stat
+        monthly_card_purchases_stat
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      daily_card_purchases_stat
+
+          UNION ALL
+
+          SELECT    *
+          FROM      monthly_card_purchases_stat
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        card_purchases
+      ]
+      name: file_sink
+      options: {
+        mode: overwritePartitions
+        path: "${OUTPUT_BASE_PATH}/card_purchases"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: approved_at_date
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        card_purchases_stat
+      ]
+      name: file_sink
+      options: {
+        mode: overwritePartitions
+        path: "${OUTPUT_BASE_PATH}/card_purchases_stat"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: time_unit,time_key
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

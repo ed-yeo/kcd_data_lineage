@@ -1,0 +1,232 @@
+{
+  "name": "business_location_sources",
+  "udfs": [
+    {
+      "name": "get_addr_key",
+      "class": "com.kcd.thrush.dmp.spark.udfs.AddressUtil",
+      "params": {
+        "method": "get_addr_key"
+      }
+    },
+    {
+      "name": "get_addr_key_sigungu",
+      "class": "com.kcd.thrush.dmp.spark.udfs.AddressUtil",
+      "params": {
+        "method": "get_addr_key_sigungu"
+      }
+    },
+    {
+      "name": "to_region_address",
+      "class": "com.kcd.thrush.dmp.spark.udfs.AddressUtil",
+      "params": {
+        "method": "to_region_address"
+      }
+    },
+    {
+      "name": "is_street_address",
+      "class": "com.kcd.thrush.dmp.spark.udfs.AddressUtil",
+      "params": {
+        "method": "is_street_address"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "total_region",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=location/name=total_region"
+      },
+      "type": "file",
+      "cache": true
+    },
+    {
+      "inputs": [],
+      "name": "hometax_business",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/hometax_businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "places",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/places"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "naver_basic",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-data/table/place/naver_basic_uniq"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kakao_basic",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-data/table/place/kakao_basic_uniq"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "hometax_business",
+        "total_region"
+      ],
+      "name": "hometax_address",
+      "options": {
+        "sql": "SELECT\n        CAST(source_address.business_id AS LONG) AS business_id,\n        CAST(null as STRING) AS geo_point,\n        source_address.address AS full_address,\n        region.code AS b_code,\n        region.sido,\n        region.sido_code,\n        region.sigungu,\n        region.sigungu_code,\n        region.dong,\n        region.mapping_codes AS h_codes\nFROM (\n    SELECT\n            business_id, address,\n            get_addr_key(address) AS addr_key\n    FROM hometax_business\n) AS source_address\nJOIN (\n    SELECT  *\n    FROM total_region\n    WHERE region_type = 'b_dong'\n) AS region\nON source_address.addr_key = region.full_address"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "places",
+        "total_region"
+      ],
+      "name": "place_naver_address",
+      "options": {
+        "sql": "SELECT\n        source_address.business_id,\n        source_address.address AS full_address,\n        source_address.location AS geo_point,\n        region.code AS b_code,\n        region.sido,\n        region.sido_code,\n        region.sigungu,\n        region.sigungu_code,\n        region.dong,\n        region.mapping_codes AS h_codes\n\nFROM (\n    SELECT\n        business_id,\n        get_addr_key(lot_address) AS addr_key,\n        lot_address AS address,\n        IF(\n            latitude > 100,\n            CONCAT(longitude, ',', latitude),\n            CONCAT(latitude, ',', longitude)\n        ) AS location\n    FROM places\n    WHERE type = 'Places::Naver'\n    AND business_id is not null\n    AND lot_address is not null\n) AS source_address\nJOIN (\n    SELECT  *\n    FROM total_region\n    WHERE region_type = 'b_dong'\n) AS region\nON source_address.addr_key = region.full_address"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "places",
+        "total_region"
+      ],
+      "name": "place_kakao_address",
+      "options": {
+        "sql": "SELECT\n        source_address.business_id,\n        source_address.address AS full_address,\n        source_address.location AS geo_point,\n        region.code AS b_code,\n        region.sido,\n        region.sido_code,\n        region.sigungu,\n        region.sigungu_code,\n        region.dong,\n        region.mapping_codes AS h_codes\n\nFROM (\n    SELECT\n        business_id,\n        get_addr_key(lot_address) AS addr_key,\n        lot_address AS address,\n        IF(\n              latitude > 100,\n              CONCAT(longitude, ',', latitude),\n              CONCAT(latitude, ',', longitude)\n          ) AS location\n    FROM places\n    WHERE type = 'Places::Daum'\n    AND business_id is not null\n    AND lot_address is not null\n) AS source_address\nJOIN (\n    SELECT  *\n    FROM total_region\n    WHERE region_type = 'b_dong'\n) AS region\nON source_address.addr_key = region.full_address"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "businesses",
+        "total_region"
+      ],
+      "name": "business_address",
+      "options": {
+        "sql": "SELECT\n        CAST(source_address.business_id AS LONG) AS business_id,\n        CAST(null as STRING) AS geo_point,\n        source_address.address AS full_address,\n        region.code AS b_code,\n        region.sido,\n        region.sido_code,\n        region.sigungu,\n        region.sigungu_code,\n        region.dong,\n        region.mapping_codes AS h_codes\n\nFROM (\n    SELECT  id AS business_id,\n        get_addr_key(address) AS addr_key,\n        address\n    FROM businesses\n    WHERE address is not null\n) AS source_address\nJOIN (\n    SELECT  *\n    FROM total_region\n    WHERE region_type = 'b_dong'\n) AS region\nON source_address.addr_key = region.full_address\n\nUNION ALL\n\nSELECT\n        CAST(source_address.business_id AS LONG) AS business_id,\n        CAST(null as STRING) AS geo_point,\n        source_address.address AS full_address,\n        null AS b_code,\n        region.sido,\n        region.sido_code,\n        region.sigungu,\n        region.sigungu_code,\n        region.dong,\n        region.mapping_codes AS h_codes\nFROM (\n    SELECT\n            business_id,\n            get_addr_key_sigungu(addr_key) AS addr_key,\n            address\n    FROM (\n        SELECT  id AS business_id,\n                get_addr_key(address) AS addr_key,\n                address\n        FROM businesses\n        WHERE address is not null\n    )\n    WHERE is_street_address(addr_key) = true\n) AS source_address\nJOIN (\n    SELECT  *\n    FROM total_region\n    WHERE region_type = 'sigungu'\n) AS region\nON source_address.addr_key = region.full_address"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "naver_basic",
+        "total_region"
+      ],
+      "name": "naver_basic_address",
+      "options": {
+        "sql": "SELECT\n        CAST(source_address.business_id AS LONG) AS business_id,\n        source_address.location AS geo_point,\n        source_address.address AS full_address,\n        region.code AS b_code,\n        region.sido,\n        region.sido_code,\n        region.sigungu,\n        region.sigungu_code,\n        region.dong,\n        region.mapping_codes AS h_codes\n\nFROM (\n    SELECT\n            business_id, address, location,\n            get_addr_key(address) AS addr_key\n    FROM (\n            SELECT\n                    business_id,\n                    CONCAT(coordinate.y, ',', coordinate.x) AS location,\n                    to_region_address(full_road_addr, addr) AS address\n            FROM naver_basic\n            WHERE full_road_addr is not null AND addr is not null\n    )\n) AS source_address\nJOIN (\n    SELECT  *\n    FROM total_region\n    WHERE region_type = 'b_dong'\n) AS region\nON source_address.addr_key = region.full_address"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "kakao_basic",
+        "total_region"
+      ],
+      "name": "kakao_basic_address",
+      "options": {
+        "sql": "SELECT\n        CAST(source_address.business_id AS LONG) AS business_id,\n        CAST(null as STRING) AS geo_point,\n        source_address.address AS full_address,\n        region.code AS b_code,\n        region.sido,\n        region.sido_code,\n        region.sigungu,\n        region.sigungu_code,\n        region.dong,\n        region.mapping_codes AS h_codes\nFROM (\n    SELECT\n        business_id,\n        get_addr_key(address.region.fullname) AS addr_key,\n        CONCAT(address.region.fullname, ' ', nvl(address.addrdetail, ''), address.addrbunho) AS address\n    FROM kakao_basic\n) AS source_address\nJOIN (\n    SELECT  *\n    FROM total_region\n    WHERE region_type = 'b_dong'\n) AS region\nON source_address.addr_key = region.full_address"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "hometax_address"
+      ],
+      "name": "hometax_address_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=hometax"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "business_address"
+      ],
+      "name": "business_address_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "place_naver_address"
+      ],
+      "name": "place_naver_address_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=place_naver"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "place_kakao_address"
+      ],
+      "name": "place_kakao_address_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=place_kakao"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "naver_basic_address"
+      ],
+      "name": "naver_basic_address_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=naver_basic"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "kakao_basic_address"
+      ],
+      "name": "kakao_basic_address_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=kakao_basic"
+      },
+      "type": "file"
+    }
+  ]
+}

@@ -1,0 +1,763 @@
+{
+  "name": "dump_snapshot",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "businesses",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "business_days",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "business_days",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "iamport_customers",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "iamport_customers",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "false"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "credentials",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "credentials",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "credential_keys",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "credential_keys",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "memberships",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "memberships",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "phones",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "phones",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "subscriptions",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "subscriptions",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "places",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "places",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "bank_accounts",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "bank_accounts",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "delivery_apps",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "delivery_apps",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_businesses",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_businesses",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_tax_payments",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_tax_payments",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_tax_notices",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_tax_notices",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_tax_refunds",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_tax_refunds",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_overdue_taxes",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_overdue_taxes",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_sales_declarations",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_sales_declarations",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_wht_declarations",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_wht_declarations",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_vat_declarations",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "hometax_vat_declarations",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "scrapings",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "scrapings",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "traders",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "traders",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "cards",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "cards",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "card_merchants",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "card_merchants",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "business_days",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "business_days",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "shinhancard_businesses",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "shinhancard_businesses",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "devices",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "devices",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "users",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "users",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "acceptances",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "acceptances",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "pos_agents",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "pos_agents",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "autoPartition": "true"
+      },
+      "type": "jdbc"
+    }
+  ],
+  "process": [],
+  "sink": [
+    {
+      "inputs": [
+        "businesses"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "business_days"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/business_days"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "iamport_customers"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/iamport_customers"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "credentials"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/credentials"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "credential_keys"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/credential_keys"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "memberships"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/memberships"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "phones"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/phones"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "subscriptions"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/subscriptions"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "places"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/places"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "bank_accounts"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/bank_accounts"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "delivery_apps"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/delivery_apps"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_businesses"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/hometax_businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_tax_payments"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/hometax_tax_payments"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_tax_notices"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/hometax_tax_notices"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_tax_refunds"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/hometax_tax_refunds"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_overdue_taxes"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/hometax_overdue_taxes"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_sales_declarations"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/hometax_sales_declarations"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_wht_declarations"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/hometax_wht_declarations"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_vat_declarations"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/hometax_vat_declarations"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "scrapings"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/scrapings"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "traders"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/traders"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "cards"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/cards"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "card_merchants"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/card_merchants"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "business_days"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/business_days"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "shinhancard_businesses"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/shinhancard_businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "devices"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/devices"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "users"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/users"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "acceptances"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/acceptances"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "pos_agents"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-10-13/hour=11/pos_agents"
+      },
+      "type": "file"
+    }
+  ]
+}

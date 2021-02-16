@@ -1,0 +1,74 @@
+{
+  "name": "merchant_location_common",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "card",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=location/name=card"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "naver",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=location/name=naver"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kakao",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=location/name=kakao"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "card",
+        "naver",
+        "kakao"
+      ],
+      "name": "merged",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinColumns": "registration_number,card_issuer,merchant_number",
+        "joinType": "full_outer"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "merged"
+      ],
+      "name": "common_location",
+      "options": {
+        "sql": "SELECT\n          registration_number, card_issuer, merchant_number,\n          common.*\nFROM (\n        SELECT\n                  registration_number, card_issuer, merchant_number,\n                  CASE\n                      WHEN naver IS NOT NULL THEN struct(\n                                                                naver.geo_point,\n                                                                naver.full_address,\n                                                                naver.b_code,\n                                                                naver.sido,\n                                                                naver.sido_code,\n                                                                naver.sigungu,\n                                                                naver.sigungu_code,\n                                                                naver.dong,\n                                                                naver.h_codes\n                                                              )\n                      WHEN kakao IS NOT NULL THEN struct(\n                                                                kakao.geo_point,\n                                                                kakao.full_address,\n                                                                kakao.b_code,\n                                                                kakao.sido,\n                                                                kakao.sido_code,\n                                                                kakao.sigungu,\n                                                                kakao.sigungu_code,\n                                                                kakao.dong,\n                                                                kakao.h_codes\n                                                              )\n                      ELSE struct(\n                                   card.geo_point,\n                                   card.full_address,\n                                   card.b_code,\n                                   card.sido,\n                                   card.sido_code,\n                                   card.sigungu,\n                                   card.sigungu_code,\n                                   card.dong,\n                                   card.h_codes\n                                 )\n                  END AS common\n        FROM      merged\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "common_location"
+      ],
+      "name": "common_location_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=location/name=common",
+        "numPartitions": "10"
+      },
+      "type": "file"
+    }
+  ]
+}

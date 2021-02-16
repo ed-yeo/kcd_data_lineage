@@ -1,0 +1,134 @@
+{
+  "name": "dump_db_bluebird",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "kakao_messages",
+      "options": {
+        "url": "jdbc:postgresql://bluebird-production-2.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "kakao_messages",
+        "user": "readonly_user",
+        "password": "aNJMuXFJqCnZ2hyi",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "kakao_message_groups",
+      "options": {
+        "url": "jdbc:postgresql://bluebird-production-2.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "kakao_message_groups",
+        "user": "readonly_user",
+        "password": "aNJMuXFJqCnZ2hyi",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "acceptanced_business_templates",
+      "options": {
+        "url": "jdbc:postgresql://bluebird-production-2.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "acceptanced_business_templates",
+        "user": "readonly_user",
+        "password": "aNJMuXFJqCnZ2hyi",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "acceptanced_business_template_answers",
+      "options": {
+        "url": "jdbc:postgresql://bluebird-production-2.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "acceptanced_business_template_answers",
+        "user": "readonly_user",
+        "password": "aNJMuXFJqCnZ2hyi",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "survey_monkey_responses",
+      "options": {
+        "url": "jdbc:postgresql://bluebird-production-2.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "survey_monkey_responses",
+        "user": "readonly_user",
+        "password": "aNJMuXFJqCnZ2hyi",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    }
+  ],
+  "process": [],
+  "sink": [
+    {
+      "inputs": [
+        "kakao_messages"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/bluebird/snapshot/date_id=2021-01-29/kakao_messages"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "kakao_message_groups"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/bluebird/snapshot/date_id=2021-01-29/kakao_message_groups"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "acceptanced_business_templates"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/bluebird/snapshot/date_id=2021-01-29/acceptanced_business_templates"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "acceptanced_business_template_answers"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/bluebird/snapshot/date_id=2021-01-29/acceptanced_business_template_answers"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "survey_monkey_responses"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/bluebird/snapshot/date_id=2021-01-29/survey_monkey_responses"
+      },
+      "type": "file"
+    }
+  ]
+}

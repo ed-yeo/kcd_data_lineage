@@ -1,0 +1,222 @@
+{
+  "name": "conv_log",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "ad_group",
+      "options": {
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "ad_group",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "skip_tx": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "ad_group_event_map",
+      "options": {
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "ad_group_event_map",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "skip_tx": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "sdk_event",
+      "options": {
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "sdk_event",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "skip_tx": "true"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "conv_log",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/logs/conv_log",
+        "skip_tx": "true"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "click_log",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/logs/click_log",
+        "skip_tx": "true"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_cashnote_web",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_cashnote_web",
+        "partition_keys": "created_at_date,created_at_hour",
+        "log_leaf_file": "true"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_cashnote_ruby",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_cashnote_ruby",
+        "partition_keys": "created_at_date,created_at_hour",
+        "log_leaf_file": "true"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_redbird_web",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_redbird_web",
+        "schema": "_event_id STRING, timestamp LONG, event STRING, `prop_$event_type` STRING, prop_user_id LONG, `prop_$current_url`STRING",
+        "partition_keys": "created_at_date,created_at_hour",
+        "log_leaf_file": "true"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_redbird_ruby",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_redbird_ruby",
+        "schema": "_event_id STRING, timestamp LONG, event STRING, `prop_$event_type` STRING, prop_user_id LONG, `prop_$current_url`STRING",
+        "partition_keys": "created_at_date,created_at_hour",
+        "log_leaf_file": "true"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_bluebird_web",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_bluebird_web",
+        "schema": "_event_id STRING, timestamp LONG, event STRING, `prop_$event_type` STRING, prop_cashnote_user_id LONG, prop_paynote_user_id LONG, `prop_$current_url`STRING",
+        "partition_keys": "created_at_date,created_at_hour",
+        "log_leaf_file": "true"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "ad_group",
+        "ad_group_event_map",
+        "sdk_event"
+      ],
+      "name": "event_mapping",
+      "options": {
+        "sql": "    SELECT \tcampaign_id, ad_group_id, ad_group.user_type,\n            ad_group_event_map.event_type,\n            sdk_event.event_type AS sdk_event_type,\n            sdk_event.sdk_name\n    FROM  \tad_group, ad_group_event_map, sdk_event\n    WHERE \tad_group.id = ad_group_event_map.ad_group_id\n    AND\t \tad_group_event_map.sdk_event_id = sdk_event.id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "click_log"
+      ],
+      "name": "valid_click_log",
+      "options": {
+        "sql": "    SELECT\n            timestamp,\n            user_id,\n            campaign_id,\n            ad_group_id,\n            creative_id,\n            created_at_date\n    FROM    click_log\n    WHERE   created_at_date between '2021-01-19' AND '2021-01-29'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "kcd_cashnote_web",
+        "kcd_cashnote_ruby",
+        "kcd_redbird_web",
+        "kcd_redbird_ruby",
+        "kcd_bluebird_web"
+      ],
+      "name": "valid_event",
+      "options": {
+        "sql": "SELECT  _event_id, 'kcd_cashnote_web' AS sdk_name, timestamp,  prop_user_id AS cashnote_user_id,  null AS paynote_user_id,  event\nFROM    kcd_cashnote_web\nWHERE   event != '$web_event'\nAND     prop_user_id IS NOT NULL\n\nUNION ALL\n\nSELECT  _event_id, 'kcd_cashnote_ruby' AS sdk_name, timestamp,  prop_user_id AS cashnote_user_id,  null AS paynote_user_id,  event\nFROM    kcd_cashnote_ruby\nWHERE   event != '$web_event'\nAND     prop_user_id IS NOT NULL\n\nUNION ALL\n\nSELECT  _event_id, 'kcd_redbird_web' AS sdk_name, timestamp,  null AS cashnote_user_id,    prop_user_id AS paynote_user_id,    event\nFROM    kcd_redbird_web\nWHERE   event != '$web_event'\nAND     prop_user_id IS NOT NULL\n\nUNION ALL\n\nSELECT  _event_id, 'kcd_redbird_ruby' AS sdk_name, timestamp,  null AS cashnote_user_id,    prop_user_id AS paynote_user_id,    event\nFROM    kcd_redbird_ruby\nWHERE   event != '$web_event'\nAND     prop_user_id IS NOT NULL\n\nUNION ALL\n\nSELECT  _event_id, 'kcd_bluebird_web' AS sdk_name, timestamp,  prop_cashnote_user_id AS cashnote_user_id, prop_paynote_user_id AS paynote_user_id, event\nFROM    kcd_bluebird_web\nWHERE   event != '$web_event'\nAND     (prop_cashnote_user_id IS NOT NULL OR prop_paynote_user_id IS NOT NULL)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "valid_event",
+        "event_mapping"
+      ],
+      "name": "cur_conv_log",
+      "options": {
+        "sql": "SELECT  *\nFROM (\n        SELECT  *,\n                row_number() OVER (PARTITION BY user_id, ad_group_id ORDER BY timestamp) AS rank\n        FROM (\n                SELECT\n                        valid_event._event_id,\n                        valid_event.timestamp,\n                        IF(event_mapping.user_type = 'cashnote', valid_event.cashnote_user_id, valid_event.paynote_user_id) AS user_id,\n                        valid_event.event,\n                        event_mapping.campaign_id,\n                        event_mapping.ad_group_id,\n                        event_mapping.event_type,\n                        event_mapping.sdk_name\n                FROM    valid_event\n                JOIN    event_mapping\n                ON      valid_event.event = event_mapping.sdk_event_type\n                AND     valid_event.sdk_name = event_mapping.sdk_name\n        )\n)\nWHERE rank = 1"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "cur_conv_log",
+        "conv_log"
+      ],
+      "name": "valid_conv_log",
+      "options": {
+        "sql": "SELECT\n        cur_conv_log.*\nFROM    cur_conv_log\nLEFT OUTER JOIN (\n    SELECT  *\n    FROM  conv_log\n    WHERE   created_at_date between '2021-01-19' AND '2021-01-29'\n) AS prev_conv_log\nON  cur_conv_log.campaign_id = prev_conv_log.campaign_id\nAND cur_conv_log.ad_group_id = prev_conv_log.ad_group_id\nAND cur_conv_log.user_id = prev_conv_log.user_id\nWHERE  prev_conv_log.user_id IS NULL\n"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "valid_click_log",
+        "valid_conv_log"
+      ],
+      "name": "conv_with_click_log",
+      "options": {
+        "sql": "SELECT\n         from_unixtime(conv.timestamp/1000, 'yyyy-MM-dd') AS created_at_date,\n         conv.timestamp,\n         conv._event_id,\n         conv.event_type,\n         conv.user_id,\n         conv.sdk_name,\n         click.timestamp AS click_timestamp,\n         click.campaign_id,\n         click.ad_group_id,\n         click.creative_id,\n         (conv.timestamp - click.timestamp) AS conv_duration_millis,\n         datediff(\n             from_unixtime(conv.timestamp/1000, 'yyyy-MM-dd'),\n             from_unixtime(click.timestamp/1000, 'yyyy-MM-dd')\n         ) AS diff_days\nFROM    valid_click_log AS click\nJOIN    valid_conv_log AS conv\nON click.campaign_id = conv.campaign_id\nAND click.ad_group_id = conv.ad_group_id\nAND click.user_id = conv.user_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "conv_with_click_log"
+      ],
+      "name": "attribution_window",
+      "options": {
+        "sql": "SELECT  *\nFROM (\n    SELECT  *,\n            row_number() OVER (PARTITION BY user_id, ad_group_id ORDER BY conv_duration_millis) AS rank\n    FROM    conv_with_click_log\n    WHERE   diff_days between 0 AND 7\n    AND     conv_duration_millis > 0\n)\nWHERE   rank = 1"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "attribution_window"
+      ],
+      "name": "conv_log_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/service/message/logs/conv_log",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    }
+  ]
+}

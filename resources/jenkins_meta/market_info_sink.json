@@ -1,0 +1,45 @@
+{
+  "name": "market_info_sink",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "market_info",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/market_area/market_info"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "market_info"
+      ],
+      "name": "market_info_with_ts",
+      "options": {
+        "sql": "  SELECT\n            to_timestamp('2021-01-01', 'yyyy-MM-dd') AS timestamp,\n            CONCAT(business_id, '_', duration) AS doc_id,\n            *\n  FROM      market_info"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "market_info_with_ts"
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "market_info-2021-01-01",
+        "es.nodes": "https://vpc-dmp-es-prod-tw5nccwbgynfhq5ivdolhmaxsq.ap-northeast-2.es.amazonaws.com",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+        "es.mapping.id": "doc_id"
+      },
+      "type": "es"
+    }
+  ]
+}

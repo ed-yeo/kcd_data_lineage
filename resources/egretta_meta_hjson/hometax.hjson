@@ -1,0 +1,62 @@
+{
+  name: hometax
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: hometax_businesses_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/hometax_businesses
+      }
+      type: file
+    }
+
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        hometax_businesses_src
+      ]
+      name: hometax_business
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    business_id,
+                    name,
+                    phone_number,
+                    to_date(opened_at, 'yyyyMMdd') AS opend_at,
+                    operation_status,
+                    taxation_type,
+                    created_at
+          FROM      hometax_businesses_src
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        hometax_business
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=hometax
+      }
+      type: file
+    }
+  ]
+}

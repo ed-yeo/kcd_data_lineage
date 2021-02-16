@@ -1,0 +1,115 @@
+{
+  "name": "business_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "card_sales_transactions",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=cardsales/name=sales_transactions"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=hometax",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "business_id,date_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "bank",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=bank",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "business_id,date_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "place_reviews",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=place_reviews",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "business_id,date_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "place_comments",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=place_comments",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "business_id,date_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "delivery_app_comments",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=delivery_app_comments",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "business_id,date_id"
+      },
+      "type": "custom"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "card_sales_transactions",
+        "hometax",
+        "bank",
+        "place_comments",
+        "place_reviews",
+        "delivery_app_comments"
+      ],
+      "name": "merge",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinColumns": "business_id,date_id",
+        "joinType": "full_outer"
+      },
+      "type": "custom"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "merge"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_cubes/fact/time_unit=MONTH/name=business_stats",
+        "evenPartitions": "true",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    }
+  ]
+}

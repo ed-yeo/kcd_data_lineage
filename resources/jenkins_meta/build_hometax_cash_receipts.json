@@ -1,0 +1,129 @@
+{
+  "name": "build_hometax_cash_receipts",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_sales_cash_receipts_src",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-data/raw/catalog_v2/raw/tb=owl_db_hometax_sales_cash_receipts",
+        "read": "{\"mode\":\"DROPMALFORMED\"}"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_purchases_cash_receipts_src",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-data/raw/catalog_v2/raw/tb=owl_db_hometax_purchases_cash_receipts",
+        "read": "{\"mode\":\"DROPMALFORMED\"}"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "prev_hometax_cash_receipts_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/hometax/hometax_cash_receipts"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "hometax_sales_cash_receipts",
+      "inputs": [
+        "hometax_sales_cash_receipts_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id,\n        sold_at,\n        authorization_number,\n        MAX(price) AS price,\n        MAX(vat) AS vat,\n        MAX(service) AS service,\n        MAX(amount) AS amount,\n        MAX(identification_method) AS identification_method,\n        MAX(receipt_type) AS receipt_type,\n        MAX(created_at) AS created_at,\n        MAX(updated_at) AS updated_at,\n        MAX(created_at_date) AS created_at_date\nFROM    (\n  SELECT  CAST(business_id AS int) AS business_id,\n          price,\n          vat,\n          CAST(service AS int) AS service,\n          amount,\n          authorization_number,\n          identification_method,\n          CAST(receipt_type AS int) AS receipt_type,\n          to_timestamp(sold_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS sold_at,\n          to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS created_at,\n          to_timestamp(updated_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS updated_at,\n          date_format(to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS'), 'yyyy-MM-dd') AS created_at_date\n  FROM    hometax_sales_cash_receipts_src\n)\nWHERE   created_at_date >= '2021-01-21'\nAND     created_at_date < '2021-01-28'\nGROUP BY  business_id, sold_at, authorization_number"
+      }
+    },
+    {
+      "name": "prev_hometax_cash_receipts",
+      "inputs": [
+        "prev_hometax_cash_receipts_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    prev_hometax_cash_receipts_src\nWHERE   created_at_date >= '${PREV_MIN_DATE}'\nAND     created_at_date < '2021-01-21'"
+      }
+    },
+    {
+      "name": "hometax_sales_cash_receipts_unique",
+      "inputs": [
+        "prev_hometax_cash_receipts",
+        "hometax_sales_cash_receipts"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  current.*\nFROM    (\n  SELECT  *\n  FROM    prev_hometax_cash_receipts\n  WHERE   is_sales\n) prev RIGHT OUTER JOIN hometax_sales_cash_receipts current\nON      (\n  prev.business_id = current.business_id AND\n  prev.sold_at = current.sold_at AND\n  prev.authorization_number = current.authorization_number\n)\nWHERE   prev.business_id is null"
+      }
+    },
+    {
+      "name": "hometax_purchases_cash_receipts",
+      "inputs": [
+        "hometax_purchases_cash_receipts_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id,\n        purchased_at,\n        authorization_number,\n        MAX(price) AS price,\n        MAX(vat) AS vat,\n        MAX(service) AS service,\n        MAX(amount) AS amount,\n        MAX(tax_deductible) AS tax_deductible,\n        MAX(vendor_registration_number) AS vendor_registration_number,\n        MAX(vendor_business_name) AS vendor_business_name,\n        MAX(vendor_business_code) AS vendor_business_code,\n        MAX(identification_method) AS identification_method,\n        MAX(receipt_type) AS receipt_type,\n        MAX(created_at) AS created_at,\n        MAX(updated_at) AS updated_at,\n        MAX(vendor_address) AS vendor_address\nFROM    (\n  SELECT  CAST(business_id AS int) AS business_id,\n          to_timestamp(purchased_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS purchased_at,\n          authorization_number,\n          price,\n          vat,\n          service,\n          amount,\n          tax_deductible,\n          vendor_registration_number,\n          vendor_business_name,\n          vendor_business_code,\n          identification_method,\n          CAST(receipt_type AS int) receipt_type,\n          to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS created_at,\n          to_timestamp(updated_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS updated_at,\n          CAST(null AS string) AS vendor_address,\n          date_format(to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS'), 'yyyy-MM-dd') AS created_at_date\n  FROM    hometax_purchases_cash_receipts_src\n)\nWHERE   created_at_date >= '2021-01-21'\nAND     created_at_date < '2021-01-28'\nGROUP BY business_id, purchased_at, authorization_number"
+      }
+    },
+    {
+      "name": "hometax_purchases_cash_receipts_unique",
+      "inputs": [
+        "prev_hometax_cash_receipts",
+        "hometax_purchases_cash_receipts"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  current.*\nFROM    (\n  SELECT  *\n  FROM    prev_hometax_cash_receipts\n  WHERE   is_purchases\n) prev RIGHT OUTER JOIN hometax_purchases_cash_receipts current\nON      (\n  prev.business_id = current.business_id AND\n  prev.purchased_at = current.purchased_at AND\n  prev.authorization_number = current.authorization_number\n)\nWHERE   prev.business_id is null"
+      }
+    },
+    {
+      "name": "hometax_cash_receipts",
+      "inputs": [
+        "businesses",
+        "hometax_sales_cash_receipts_unique",
+        "hometax_purchases_cash_receipts_unique"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  /*+BROADCAST(b) */\n        r.*,\n        b.id AS trader_business_id\nFROM    (\n  SELECT  business_id,\n          price,\n          IF (receipt_type  = 1, -vat, vat) AS vat,\n          service,\n          IF (receipt_type = 1, -amount, amount) AS amount,\n          authorization_number,\n          identification_method,\n          receipt_type,\n          created_at,\n          date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n          updated_at,\n          receipt_type = 0 AS approved,\n          receipt_type = 1 AS canceled,\n          authorization_number like 'I7%' AS online,\n          true AS is_sales,\n          false AS is_purchases,\n          CAST(null AS timestamp) AS purchased_at,\n          sold_at,\n          CAST(null AS boolean) AS tax_deductible,\n          CAST(null AS string) AS vendor_registration_number,\n          CAST(null AS string) AS vendor_business_name,\n          CAST(null AS string) AS vendor_business_code,\n          CAST(null AS string) AS vendor_address\n  FROM    hometax_sales_cash_receipts_unique\n\n  UNION ALL\n\n  SELECT  business_id,\n          price,\n          IF (receipt_type  = 1, -vat, vat) AS vat,\n          service,\n          IF (receipt_type = 1, -amount, amount) AS amount,\n          authorization_number,\n          identification_method,\n          receipt_type,\n          created_at,\n          date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n          updated_at,\n          receipt_type = 0 AS approved,\n          receipt_type = 1 AS canceled,\n          CAST(null AS boolean) AS online,\n          true AS is_sales,\n          false AS is_purchases,\n          purchased_at,\n          CAST(null AS timestamp) AS sold_at,\n          tax_deductible,\n          vendor_registration_number,\n          vendor_business_name,\n          vendor_business_code,\n          CAST(null AS string) AS vendor_address\n  FROM    hometax_purchases_cash_receipts_unique\n) r LEFT OUTER JOIN businesses b\nON (COALESCE(r.vendor_registration_number, 'none') = b.registration_number)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "hometax_cash_receipts"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/raw/etl/snowdon/hometax/hometax_cash_receipts",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

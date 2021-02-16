@@ -1,0 +1,101 @@
+{
+  "name": "registration_number_common_location",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "business_common_location",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=common"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "merchant_common_location",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=location/name=common"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "businesses"
+      ],
+      "name": "mappings",
+      "options": {
+        "sql": "SELECT    registration_number, id AS business_id\nFROM      businesses"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "business_common_location",
+        "mappings"
+      ],
+      "name": "business_location",
+      "options": {
+        "sql": "SELECT    mappings.registration_number,\n          business_common_location.*\nFROM  business_common_location\nJOIN  mappings\nON    business_common_location.business_id = mappings.business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merchant_common_location"
+      ],
+      "name": "merchant_location",
+      "options": {
+        "sql": "SELECT\n      registration_number,\n      candidates\nFROM (\n      SELECT\n              registration_number,\n              collect_set(struct(\n                geo_point,\n                full_address,\n                b_code,\n                sido,\n                sido_code,\n                sigungu,\n                sigungu_code,\n                dong,\n                h_codes\n              )) AS candidates\n      FROM  merchant_common_location\n      GROUP BY registration_number\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "business_location",
+        "merchant_location"
+      ],
+      "name": "merged_location",
+      "options": {
+        "sql": "SELECT\n         registration_number,\n         location.*,\n         array_except(candidates, array(location)) AS candidates\nFROM (\n        SELECT\n                  nvl(business_location.registration_number, merchant_location.registration_number) AS registration_number,\n                  CASE\n                      WHEN   business_location.registration_number IS NOT NULL THEN struct(\n                                                                                        business_location.geo_point,\n                                                                                        business_location.full_address,\n                                                                                        business_location.b_code,\n                                                                                        business_location.sido,\n                                                                                        business_location.sido_code,\n                                                                                        business_location.sigungu,\n                                                                                        business_location.sigungu_code,\n                                                                                        business_location.dong,\n                                                                                        business_location.h_codes\n                                                                                    )\n                      ELSE   named_struct(\n                                'geo_point',    merchant_location.candidates[0].geo_point,\n                                'full_address', merchant_location.candidates[0].full_address,\n                                'b_code',       merchant_location.candidates[0].b_code,\n                                'sido',         merchant_location.candidates[0].sido,\n                                'sido_code',    merchant_location.candidates[0].sido_code,\n                                'sigungu',      merchant_location.candidates[0].sigungu,\n                                'sigungu_code', merchant_location.candidates[0].sigungu_code,\n                                'dong',         merchant_location.candidates[0].dong,\n                                'h_codes',      merchant_location.candidates[0].h_codes\n                            )\n                  END  AS location,\n                  candidates\n        FROM      business_location\n        FULL OUTER JOIN   merchant_location\n        ON        business_location.registration_number = merchant_location.registration_number\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merged_location"
+      ],
+      "name": "with_candidates",
+      "options": {
+        "sql": "  SELECT  *,\n          size(candidates) AS candidate_size\n  FROM    merged_location"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "with_candidates"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=location/name=common"
+      },
+      "type": "file"
+    }
+  ]
+}

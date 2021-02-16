@@ -1,0 +1,851 @@
+{
+  name: build_matched_tables
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: approvals_raw
+      options:
+      {
+        paths: "${APPROVALS_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: purchases_raw
+      options:
+      {
+        paths: "${PURCHASES_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: transactions_raw
+      options:
+      {
+        paths: "${TRANSACTIONS_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: current_approvals
+      inputs:
+      [
+        approvals_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    approvals_raw
+          WHERE   created_at_date >= '${PREV_MAX_CREATED_AT_DATE}'
+          '''
+      }
+      cache: true
+    }
+    {
+      name: prev_approvals
+      inputs:
+      [
+        approvals_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    approvals_raw
+          WHERE   created_at_date >= '${PREV_MIN_CREATED_AT_DATE}'
+          AND     created_at_date < '${PREV_MAX_CREATED_AT_DATE}'
+          '''
+      }
+    }
+    {
+      name: current_purchases
+      inputs:
+      [
+        purchases_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    purchases_raw
+          WHERE   created_at_date >= '${PREV_MAX_CREATED_AT_DATE}'
+          '''
+      }
+      cache: true
+    }
+    {
+      name: prev_purchases
+      inputs:
+      [
+        purchases_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    purchases_raw
+          WHERE   created_at_date >= '${PREV_MIN_CREATED_AT_DATE}'
+          AND     created_at_date < '${PREV_MAX_CREATED_AT_DATE}'
+          '''
+      }
+    }
+    {
+      name: prev_transactions
+      inputs:
+      [
+        transactions_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    transactions_raw
+          WHERE   created_at_date >= '${PREV_MIN_CREATED_AT_DATE}'
+          AND     created_at_date < '${PREV_MAX_CREATED_AT_DATE}'
+          '''
+      }
+    }
+    //approvals
+    {
+      name: current_approval_candidates
+      inputs:
+      [
+        current_approvals
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    struct(approved.*) AS approved,
+                    struct(canceled.*) AS canceled,
+                    COALESCE(
+                      date_format(approved.created_at, 'yyyy-MM-dd'),
+                      date_format(canceled.created_at, 'yyyy-MM-dd')
+                    ) AS created_at_date
+          FROM      (
+            SELECT  *
+            FROM    current_approvals
+            WHERE   status = 0
+          ) approved FULL OUTER JOIN (
+            SELECT  *
+            FROM    current_approvals
+            WHERE   status = 1
+          ) canceled
+          ON (
+            approved.business_id = canceled.business_id AND
+            approved.credential_key = canceled.credential_key AND
+            approved.amount = -canceled.amount AND
+            approved.masked_card_number = canceled.masked_card_number AND
+            approved.authorization_number = canceled.authorization_number AND
+            CAST(approved.transacted_at AS DATE) = CAST(canceled.transacted_at AS DATE) AND
+            approved.approval_seq = canceled.approval_seq
+          )
+          '''
+      }
+      cache: true
+    }
+    {
+      name: prev_approval_candidates
+      inputs:
+      [
+        prev_approvals
+        current_approval_candidates
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+            SELECT    /*+ BROADCAST(canceled) */
+                      struct(approved.*) AS approved,
+                      struct(canceled.*) AS canceled,
+                      COALESCE(approved.created_at_date, canceled.created_at_date) AS created_at_date
+            FROM      (
+              SELECT  *
+              FROM    prev_approvals
+              WHERE   status = 0
+
+              UNION ALL
+
+              SELECT  approved.*
+              FROM    current_approval_candidates
+              WHERE   canceled.business_id is null
+
+            ) approved INNER JOIN (
+              SELECT  canceled.*
+              FROM    current_approval_candidates
+              WHERE   approved.business_id is null
+            ) canceled
+            ON (
+              approved.business_id = canceled.business_id AND
+              approved.credential_key = canceled.credential_key AND
+              approved.amount = -canceled.amount AND
+              approved.masked_card_number = canceled.masked_card_number AND
+              approved.authorization_number = canceled.authorization_number
+            )
+          '''
+      }
+    }
+    {
+      name: approval_candidates
+      inputs:
+      [
+        current_approval_candidates
+        prev_approval_candidates
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    cur.*
+          FROM      current_approval_candidates AS cur
+          LEFT OUTER JOIN prev_approval_candidates AS prev
+          ON (
+            cur.approved.business_id = prev.approved.business_id AND
+            cur.approved.credential_key = prev.approved.credential_key AND
+            cur.approved.amount = prev.approved.amount AND
+            cur.approved.masked_card_number = prev.approved.masked_card_number AND
+            cur.approved.authorization_number = prev.approved.authorization_number AND
+            cur.approved.approval_seq = prev.approved.approval_seq
+          )
+          WHERE prev.approved.business_id is null
+
+          UNION ALL
+
+          SELECT * FROM prev_approval_candidates
+          '''
+      }
+      cache: true
+    }
+    {
+      name: merged_approvals
+      inputs:
+      [
+        approval_candidates
+      ]
+      type: sql
+      options:
+      {
+      sql:
+        '''
+        SELECT    approved.*,
+                  CAST(null AS TIMESTAMP) AS approval_canceled_at,
+                  'approved' AS type
+        FROM      approval_candidates
+        WHERE     canceled.business_id is null
+
+        UNION ALL
+
+        SELECT    approved.*,
+                  canceled.transacted_at AS approval_canceled_at,
+                  'cancel' AS type
+        FROM      approval_candidates
+        WHERE     approved.business_id is not null AND canceled.business_id is not null
+        '''
+      }
+    }
+    //purchases
+    {
+      name: current_purchase_candidates
+      inputs:
+      [
+        current_purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    struct(purchased.*) AS purchased,
+                    struct(canceled.*) AS canceled,
+                    COALESCE(purchased.created_at_date, canceled.created_at_date) AS created_at_date
+          FROM      (
+            SELECT  *
+            FROM    current_purchases
+            WHERE   amount > 0
+          ) purchased FULL OUTER JOIN (
+            SELECT  *
+            FROM    current_purchases
+            WHERE   amount < 0
+          ) canceled
+          ON  (
+            purchased.business_id = canceled.business_id AND
+            purchased.credential_key = canceled.credential_key AND
+            purchased.amount = -canceled.amount AND
+            purchased.masked_card_number = canceled.masked_card_number AND
+            (
+                purchased.card_type = 4 AND
+                purchased.authorization_number = canceled.authorization_number OR
+                (
+                    purchased.card_type != 4 AND
+                    CAST(purchased.transacted_at AS DATE) = CAST(canceled.transacted_at AS DATE) AND
+                    purchased.purchase_cancel_seq = canceled.purchase_cancel_seq
+                )
+            )
+          )
+          '''
+      }
+      cache: true
+    }
+    {
+      name: prev_purchase_candidates
+      inputs:
+      [
+        prev_purchases
+        current_purchase_candidates
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    /*+ BROADCAST(canceled) */
+                    struct(purchased.*) AS purchased,
+                    struct(canceled.*) AS canceled,
+                    COALESCE(purchased.created_at_date, canceled.created_at_date) AS created_at_date
+          FROM      (
+            SELECT  *
+            FROM    prev_purchases
+            WHERE   amount > 0
+          ) purchased INNER JOIN (
+            SELECT  canceled.*
+            FROM    current_purchase_candidates
+            WHERE   purchased.business_id is null
+          ) canceled
+          ON  (
+            purchased.business_id = canceled.business_id AND
+            purchased.credential_key = canceled.credential_key AND
+            purchased.amount = -canceled.amount AND
+            purchased.masked_card_number = canceled.masked_card_number AND
+            (
+                purchased.card_type = 4 AND
+                purchased.authorization_number = canceled.authorization_number OR
+                (
+                    purchased.card_type != 4 AND
+                    CAST(purchased.transacted_at AS DATE) = CAST(canceled.transacted_at AS DATE) AND
+                    purchased.purchase_cancel_seq = canceled.purchase_cancel_seq
+                )
+            )
+          )
+          '''
+      }
+    }
+    {
+      name: purchase_candidates
+      inputs:
+      [
+        current_purchase_candidates
+        prev_purchase_candidates
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT * FROM current_purchase_candidates
+          UNION ALL
+          SELECT * FROM prev_purchase_candidates
+          '''
+      }
+      cache: true
+    }
+    {
+      name: merged_purchases
+      inputs:
+      [
+        purchase_candidates
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    purchased.*,
+                    CAST(null AS TIMESTAMP) AS purchase_canceled_at,
+                    'purchased' AS type
+          FROM      purchase_candidates
+          WHERE     canceled.business_id is null
+
+          UNION ALL
+
+          SELECT    purchased.*,
+                    canceled.purchased_at AS purchase_canceled_at,
+                    'purchase_cancel' AS type
+          FROM      purchase_candidates
+          WHERE     purchased.business_id is not null AND canceled.business_id is not null
+          '''
+      }
+    }
+    // merge into tx
+    {
+      name: transaction_candidates
+      inputs:
+      [
+        merged_approvals
+        merged_purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    struct(a.*) as approval,
+                    struct(p.*) as purchase,
+                    COALESCE(a.created_at_date, p.created_at_date) AS created_at_date
+          FROM      merged_approvals a FULL OUTER JOIN merged_purchases p
+          ON    (
+            a.business_id = p.business_id AND
+            a.credential_key = p.credential_key AND
+            a.authorization_number = p.authorization_number AND
+            CAST(a.transacted_at AS DATE) = CAST(p.transacted_at AS DATE) AND
+            a.issuer_name = p.issuer_name AND
+            a.amount = p.amount AND
+            (
+                p.issuer_name = '비씨'
+                OR (
+                  a.masked_card_number = p.masked_card_number AND
+                  a.approval_seq = p.purchase_seq
+                )
+            )
+          )
+          '''
+      }
+      cache: true
+    }
+    {
+      name: current_transactions
+      inputs:
+      [
+        transaction_candidates
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    DISTINCT
+                      acquirer_name,
+                      amount,
+                      approval_canceled_at,
+                      approval_seq,
+                      authorization_number,
+                      base_fee,
+                      business_id,
+                      card_number,
+                      card_type,
+                      credential_key,
+                      encrypted_card_number,
+                      estimated_paid_at,
+                      etc_fee,
+                      fee,
+                      installment,
+                      issuer_name,
+                      masked_card_number,
+                      merchant_number,
+                      paid_at,
+                      payment,
+                      point_fee,
+                      purchase_cancel_seq,
+                      purchase_canceled_at,
+                      purchase_delayed,
+                      purchase_seq,
+                      purchased_at,
+                      scraping_type,
+                      status,
+                      transacted_at,
+                      vat_fee,
+                      created_at,
+                      updated_at,
+                      created_at_date
+          FROM        (
+            SELECT    approval.acquirer_name,
+                      approval.amount,
+                      CAST(approval.approval_seq AS integer) AS approval_seq,
+                      approval.authorization_number,
+                      CAST(null AS integer) AS base_fee,
+                      approval.business_id,
+                      approval.card_number,
+                      approval.card_type,
+                      approval.credential_key,
+                      approval.encrypted_card_number,
+                      approval.estimated_paid_at,
+                      CAST(null AS integer) AS etc_fee,
+                      approval.fee AS fee,
+                      approval.installment,
+                      approval.issuer_name,
+                      approval.masked_card_number,
+                      approval.merchant_number,
+                      CAST(null AS timestamp) AS paid_at,
+                      approval.payment AS payment,
+                      CAST(null AS integer) AS point_fee,
+                      CAST(null AS integer) AS purchase_cancel_seq,
+                      CAST(null AS timestamp) AS purchase_canceled_at,
+                      CAST(null AS boolean) AS purchase_delayed,
+                      CAST(null AS integer) AS purchase_seq,
+                      CAST(null AS timestamp) AS purchased_at,
+                      approval.scraping_type,
+                      approval.status,
+                      approval.transacted_at,
+                      approval.approval_canceled_at,
+                      approval.vat_fee AS vat_fee,
+                      approval.created_at,
+                      approval.updated_at,
+                      date_format(approval.created_at, 'yyyy-MM-dd') AS created_at_date
+            FROM      transaction_candidates
+            WHERE     purchase.business_id is null
+
+            UNION ALL
+
+            SELECT    purchase.acquirer_name,
+                      purchase.amount,
+                      CAST(null AS integer) AS approval_seq,
+                      purchase.authorization_number,
+                      purchase.base_fee,
+                      purchase.business_id,
+                      purchase.card_number,
+                      purchase.card_type,
+                      purchase.credential_key,
+                      CAST(null AS string) AS encrypted_card_number,
+                      CAST(null AS timestamp) AS estimated_paid_at,
+                      purchase.etc_fee,
+                      purchase.fee,
+                      CAST(null AS integer) AS installment,
+                      purchase.issuer_name,
+                      purchase.masked_card_number,
+                      purchase.merchant_number,
+                      purchase.paid_at,
+                      purchase.payment,
+                      purchase.point_fee,
+                      CAST(purchase.purchase_cancel_seq AS integer) AS purchase_cancel_seq,
+                      purchase.purchase_canceled_at,
+                      purchase.purchase_delayed,
+                      CAST(purchase.purchase_seq AS integer) AS purchase_seq,
+                      purchase.purchased_at,
+                      purchase.scraping_type,
+                      CAST(null AS integer) AS status,
+                      purchase.transacted_at,
+                      CAST(null AS timestamp) AS approval_canceled_at,
+                      purchase.vat_fee,
+                      purchase.created_at,
+                      purchase.updated_at,
+                      date_format(purchase.created_at, 'yyyy-MM-dd') AS created_at_date
+            FROM      transaction_candidates
+            WHERE     approval.business_id is null
+
+            UNION ALL
+
+            SELECT    approval.acquirer_name,
+                      approval.amount,
+                      CAST(approval.approval_seq AS integer) AS approval_seq,
+                      approval.authorization_number,
+                      purchase.base_fee,
+                      approval.business_id,
+                      approval.card_number,
+                      approval.card_type,
+                      approval.credential_key,
+                      approval.encrypted_card_number,
+                      approval.estimated_paid_at,
+                      purchase.etc_fee,
+                      purchase.fee,
+                      approval.installment,
+                      approval.issuer_name,
+                      approval.masked_card_number,
+                      approval.merchant_number,
+                      purchase.paid_at,
+                      purchase.payment,
+                      purchase.point_fee,
+                      CAST(purchase.purchase_cancel_seq AS integer) AS purchase_cancel_seq,
+                      purchase.purchase_canceled_at,
+                      purchase.purchase_delayed,
+                      CAST(purchase.purchase_seq AS integer) AS purchase_seq,
+                      purchase.purchased_at,
+                      approval.scraping_type,
+                      approval.status,
+                      approval.transacted_at,
+                      approval.approval_canceled_at,
+                      purchase.vat_fee,
+                      approval.created_at,
+                      approval.updated_at,
+                      date_format(approval.created_at, 'yyyy-MM-dd') AS created_at_date
+            FROM      transaction_candidates
+            WHERE     approval.business_id is not null AND purchase.business_id is not null
+          )
+          '''
+      }
+    }
+    {
+      name: merged_transactions
+      inputs:
+      [
+        prev_transactions
+        current_transactions
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    struct(prev.*) AS prev,
+                    struct(current.*) AS current
+          FROM      prev_transactions prev FULL OUTER JOIN current_transactions current
+          ON        (
+            prev.business_id = current.business_id AND
+            prev.credential_key = current.credential_key AND
+            prev.authorization_number = current.authorization_number AND
+            CAST(prev.transacted_at AS DATE) = CAST(current.transacted_at AS DATE) AND
+            prev.issuer_name = current.issuer_name AND
+            prev.amount = current.amount AND
+            (
+                current.issuer_name = '비씨' OR
+                (
+                  prev.masked_card_number = current.masked_card_number AND
+                  COALESCE(prev.approval_seq, prev.purchase_seq) = COALESCE(current.approval_seq, current.purchase_seq)
+                )
+            )
+          )
+          '''
+      }
+      cache: true
+    }
+    {
+      name: transactions_updated
+      inputs:
+      [
+        merged_transactions
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    current.acquirer_name AS acquirer_name,
+                    current.amount AS amount,
+                    current.authorization_number AS authorization_number,
+                    CAST(current.approval_seq AS integer) AS approval_seq,
+                    current.base_fee AS base_fee,
+                    current.business_id AS business_id,
+                    current.card_number AS card_number,
+                    current.card_type AS card_type,
+                    current.credential_key AS credential_key,
+                    current.encrypted_card_number AS encrypted_card_number,
+                    current.estimated_paid_at AS estimated_paid_at,
+                    current.etc_fee AS etc_fee,
+                    current.fee AS fee,
+                    current.installment AS installment,
+                    current.issuer_name AS issuer_name,
+                    current.masked_card_number AS masked_card_number,
+                    current.merchant_number AS merchant_number,
+                    current.paid_at AS paid_at,
+                    current.payment AS payment,
+                    current.point_fee AS point_fee,
+                    CAST(current.purchase_cancel_seq AS integer) AS purchase_cancel_seq,
+                    current.purchase_canceled_at AS purchase_canceled_at,
+                    current.purchase_delayed AS purchase_delayed,
+                    CAST(current.purchase_seq AS integer) AS purchase_seq,
+                    current.purchased_at AS purchased_at,
+                    current.scraping_type AS scraping_type,
+                    current.status AS status,
+                    current.transacted_at AS transacted_at,
+                    current.approval_canceled_at AS approval_canceled_at,
+                    current.vat_fee AS vat_fee,
+                    current.created_at AS created_at,
+                    current.updated_at AS updated_at,
+                    current.created_at_date AS created_at_date
+          FROM      merged_transactions
+          WHERE     prev.business_id is null
+
+          UNION ALL
+
+          SELECT    current.acquirer_name,
+                    current.amount,
+                    current.authorization_number,
+                    CAST(COALESCE(current.approval_seq, prev.approval_seq) AS integer) AS approval_seq,
+                    COALESCE(current.base_fee, prev.base_fee) AS base_fee,
+                    current.business_id,
+                    current.card_number,
+                    COALESCE(current.card_type, prev.card_type) AS card_type,
+                    COALESCE(current.credential_key, prev.credential_key) AS credential_key,
+                    COALESCE(current.encrypted_card_number, prev.encrypted_card_number) AS encrypted_card_number,
+                    COALESCE(current.estimated_paid_at, prev.estimated_paid_at) AS estimated_paid_at,
+                    COALESCE(current.etc_fee, prev.etc_fee) AS etc_fee,
+                    COALESCE(current.fee, prev.fee) AS fee,
+                    COALESCE(current.installment, prev.installment) AS installment,
+                    COALESCE(current.issuer_name, prev.issuer_name) AS issuer_name,
+                    COALESCE(current.masked_card_number, prev.masked_card_number) AS masked_card_number,
+                    COALESCE(current.merchant_number, prev.merchant_number) AS merchant_number,
+                    COALESCE(current.paid_at, prev.paid_at) AS paid_at,
+                    COALESCE(current.payment, prev.payment) AS payment,
+                    COALESCE(current.point_fee, prev.point_fee) AS point_fee,
+                    CAST(COALESCE(current.purchase_cancel_seq, prev.purchase_cancel_seq) AS integer) AS purchase_cancel_seq,
+                    COALESCE(current.purchase_canceled_at, prev.purchase_canceled_at) AS purchase_canceled_at,
+                    COALESCE(current.purchase_delayed, prev.purchase_delayed) AS purchase_delayed,
+                    CAST(COALESCE(current.purchase_seq, prev.purchase_seq) AS integer) AS purchase_seq,
+                    COALESCE(current.purchased_at, prev.purchased_at) AS purchased_at,
+                    COALESCE(current.scraping_type, prev.scraping_type) AS scraping_type,
+                    COALESCE(current.status, prev.status) AS status,
+                    IF (current.transacted_at > prev.transacted_at, current.transacted_at, prev.transacted_at) AS transacted_at,
+                    COALESCE(current.approval_canceled_at, prev.approval_canceled_at) AS approval_canceled_at,
+                    COALESCE(current.vat_fee, prev.vat_fee) AS vat_fee,
+                    IF (current.created_at < prev.created_at, current.created_at, prev.created_at) AS created_at,
+                    IF (current.updated_at > prev.updated_at, current.updated_at, prev.updated_at) AS updated_at,
+                    IF (current.created_at_date < prev.created_at_date, current.created_at_date, prev.created_at_date) AS created_at_date
+          FROM      merged_transactions
+          WHERE     prev.business_id is not null AND current.business_id is not null
+          '''
+      }
+    }
+    {
+      name: transactions_not_updated
+      inputs:
+      [
+        merged_transactions
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    prev.acquirer_name AS acquirer_name,
+                    prev.amount AS amount,
+                    prev.authorization_number AS authorization_number,
+                    CAST(prev.approval_seq AS integer) AS approval_seq,
+                    prev.base_fee AS base_fee,
+                    prev.business_id AS business_id,
+                    prev.card_number AS card_number,
+                    prev.card_type AS card_type,
+                    prev.credential_key AS credential_key,
+                    prev.encrypted_card_number AS encrypted_card_number,
+                    prev.estimated_paid_at AS estimated_paid_at,
+                    prev.etc_fee AS etc_fee,
+                    prev.fee AS fee,
+                    prev.installment AS installment,
+                    prev.issuer_name AS issuer_name,
+                    prev.masked_card_number AS masked_card_number,
+                    prev.merchant_number AS merchant_number,
+                    prev.paid_at AS paid_at,
+                    prev.payment AS payment,
+                    prev.point_fee AS point_fee,
+                    CAST(prev.purchase_cancel_seq AS integer) AS purchase_cancel_seq,
+                    prev.purchase_canceled_at AS purchase_canceled_at,
+                    prev.purchase_delayed AS purchase_delayed,
+                    CAST(prev.purchase_seq AS integer) AS purchase_seq,
+                    prev.purchased_at AS purchased_at,
+                    prev.scraping_type AS scraping_type,
+                    prev.status AS status,
+                    prev.transacted_at AS transacted_at,
+                    prev.approval_canceled_at AS approval_canceled_at,
+                    prev.vat_fee AS vat_fee,
+                    prev.created_at AS created_at,
+                    prev.updated_at AS updated_at,
+                    prev.created_at_date AS created_at_date
+          FROM      merged_transactions
+          WHERE     current.business_id is null
+          '''
+      }
+    }
+    // TODO: transactions_updated insertBulk to s2graph
+    {
+       name: transactions_table
+       inputs:
+       [
+         transactions_updated
+         transactions_not_updated
+       ]
+       type: sql
+       options:
+       {
+         sql:
+           '''
+           SELECT  DISTINCT
+                    acquirer_name,
+                    amount,
+                    approval_canceled_at,
+                    approval_seq,
+                    authorization_number,
+                    base_fee,
+                    business_id,
+                    card_number,
+                    card_type,
+                    credential_key,
+                    encrypted_card_number,
+                    estimated_paid_at,
+                    etc_fee,
+                    fee,
+                    installment,
+                    issuer_name,
+                    masked_card_number,
+                    merchant_number,
+                    paid_at,
+                    payment,
+                    point_fee,
+                    purchase_cancel_seq,
+                    purchase_canceled_at,
+                    purchase_delayed,
+                    purchase_seq,
+                    purchased_at,
+                    scraping_type,
+                    status,
+                    transacted_at,
+                    vat_fee,
+                    created_at,
+                    updated_at,
+                    created_at_date
+           FROM     (
+             SELECT *
+             FROM   transactions_updated
+
+             UNION ALL
+
+             SELECT *
+             FROM   transactions_not_updated
+           )
+           '''
+       }
+     }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        transactions_table
+      ]
+      name: file_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: "created_at_date"
+          evenPartitions: "true"
+          numOfRecordPerFile: "4000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

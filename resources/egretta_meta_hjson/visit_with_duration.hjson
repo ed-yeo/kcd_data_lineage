@@ -1,0 +1,88 @@
+{
+  name: visit_with_duration
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: visits
+      options:
+      {
+        format: parquet
+        paths: ${REVISIT_TARGET_PATH}/visits
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: visits_filtered
+      inputs:
+      [
+        visits
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      visits
+          WHERE     encrypted_card_number is not null
+          AND       purchase_canceled_at is null
+          AND       created_at_date >= '${START_DATE}'
+          AND       transacted_at >= '${START_DATE}'
+          AND       transacted_at < '${END_DATE}'
+          '''
+      }
+    }
+    {
+      inputs:
+      [
+        visits_filtered
+      ]
+      name: reformat
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    IF (add_months(current_month, -3) <= transacted_at_month and
+                        transacted_at_month < current_month, true, false) AS within_3_month,
+                    IF (add_months(current_month, -6) <= transacted_at_month and
+                        transacted_at_month < current_month, true, false) AS within_6_month,
+                    IF (add_months(current_month, -9) <= transacted_at_month and
+                        transacted_at_month < current_month, true, false) AS within_9_month,
+                    IF (add_months(current_month, -12) <= transacted_at_month and
+                        transacted_at_month < current_month, true, false) AS within_12_month
+          FROM      (
+              SELECT    *,
+                        date_trunc('month', transacted_at) AS transacted_at_month,
+                        date_trunc('month', current_timestamp()) AS current_month
+              FROM      visits_filtered
+          )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        reformat
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/visit_with_duration
+      }
+      type: file
+    }
+  ]
+}

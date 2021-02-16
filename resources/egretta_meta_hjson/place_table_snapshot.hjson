@@ -1,0 +1,216 @@
+{
+  name: place_table_initial
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: place_indexes
+      options:
+      {
+        format: json
+        paths: "${PLACE_INDEXES_INPUT_PATH}"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_info
+      options:
+      {
+        format: json
+        paths: "${PLACE_INFO_INPUT_PATH}"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_menus
+      options:
+      {
+        format: json
+        paths: "${PLACE_MENUS_INPUT_PATH}"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_reviews
+      options:
+      {
+        format: json
+        paths: "${PLACE_REVIEWS_INPUT_PATH}"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+          place_indexes
+      ]
+      name: place_indexes_distinct
+      options:
+      {
+        sql:
+          '''
+              SELECT
+                  *
+              FROM
+                  (
+                  SELECT
+                      row_number() OVER (PARTITION BY registration_number, merchant_number, issuer ORDER BY _scrap_id DESC) AS rownum,
+                      *
+                  FROM
+                      place_indexes
+                  )
+              WHERE
+                  rownum = 1
+          '''
+      }
+      type: sql
+    },
+    {
+      inputs:
+      [
+          place_info
+      ]
+      name: place_info_distinct
+      options:
+      {
+        sql:
+          '''
+             SELECT
+                 *
+             FROM
+                 (SELECT
+                     row_number() OVER (PARTITION BY place_uid, place_type ORDER BY _scrap_id DESC) AS rownum,
+                     *
+                 FROM
+                     place_info
+                 )
+             WHERE
+                 rownum = 1
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+          place_menus
+      ]
+      name: place_menus_distinct
+      options:
+      {
+        sql:
+          '''
+             SELECT
+                  *
+             FROM
+                 (SELECT B.* FROM
+                     (SELECT
+                         place_uid,
+                         place_type,
+                         max(_scrap_id) as max_id
+                     FROM
+                         place_menus
+                     GROUP BY
+                         place_uid, place_type
+                     ) A INNER JOIN place_menus B
+                         ON   A.place_uid = B.place_uid
+                         AND  A.place_type = B.place_type
+                 )
+          '''
+      }
+      type: sql
+    }
+     {
+       inputs:
+       [
+           place_reviews
+       ]
+       name: place_reviews_distinct
+       options:
+       {
+         sql:
+           '''
+               SELECT
+                   *
+               FROM
+                   (SELECT
+                       *,
+                       row_number() OVER (PARTITION BY place_uid, place_type, review_type, unique_key ORDER BY _scrap_id DESC) AS rownum
+                   FROM
+                       (SELECT CASE WHEN url IS null OR trim(url) = '' THEN review_id ELSE url END as unique_key, * FROM place_reviews)
+                   )
+               WHERE rownum = 1
+
+           '''
+       }
+       type: sql
+     }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        place_indexes_distinct
+      ]
+      name: place_indexes_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}/place_indexes"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        place_info_distinct
+      ]
+      name: place_info_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}/place_info"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        place_menus_distinct
+      ]
+      name: place_menus_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}/place_menus"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        place_reviews_distinct
+      ]
+      name: place_reviews_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}/place_reviews"
+      }
+      type: file
+    }
+  ]
+}

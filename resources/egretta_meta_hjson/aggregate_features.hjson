@@ -1,0 +1,66 @@
+{
+  name: aggregate_features
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: joined
+      options:
+      {
+        format: parquet
+        paths: "${output_path}/joined"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        joined
+      ]
+      name: aggregated
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    (
+            SELECT  business_id,
+                    feature_value,
+                    AVG(count_weight) AS count_weight,
+                    SUM(count) AS count
+            FROM    (
+              SELECT  raw_feature.*
+              FROM    joined
+            )
+            WHERE   feature_value is not null
+            GROUP BY business_id, feature_value
+          )
+          WHERE   count >= 10
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        aggregated
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${output_path}/aggregated"
+      }
+      type: file
+    }
+  ]
+}

@@ -1,0 +1,158 @@
+{
+  name: user_stat
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: user_meta
+        options:
+        {
+          format: parquet
+          paths: ${BASE_DIR}/meta/latest
+        }
+        type: file
+    }
+    {
+        inputs: []
+        name: business_meta
+        options:
+        {
+          format: parquet
+          paths: s3://kcd-data/dmp/meta/latest
+        }
+        type: file
+     }
+    {
+      inputs: []
+      name: card_payments_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/incremental/card_payments
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        card_payments_src
+        business_meta
+      ]
+      name: card_payments_with_meta
+      options:
+      {
+        sql:
+          '''
+              SELECT
+                        payment.user_id,
+                        payment.timestamp,
+                        payment.card_type,
+                        payment.card_issuer,
+                        payment.amount,
+                        payment.merchant,
+                        business_meta.name AS business_name,
+                        business_meta.business_id,
+                        business_meta.kakao_basic.cate1name AS kakao_main_category,
+                        business_meta.kakao_basic.category AS kakao_sub_category,
+                        business_meta.naver_basic.category AS naver_category,
+                        split(business_meta.naver_basic.address, ' ') AS address_arr
+              FROM      (
+                            SELECT  *,
+                                    date_trunc('${TIME_UNIT}', approved_at) AS timestamp
+                            FROM    card_payments_src
+                            WHERE   user_id IS NOT NULL
+                            AND     approved_at between '${from_date_id}' AND '${to_date_id}'
+              ) AS payment
+              LEFT OUTER JOIN
+                        business_meta
+              ON        payment.registration_number = business_meta.businesses.registration_number
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        card_payments_with_meta
+      ]
+      name: card_payments
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    user_id,
+                    timestamp,
+                    SUM(amount) AS amount_sum,
+                    COUNT(1) AS tx_count,
+                    collect_set(card_type) AS card_type_arr,
+                    collect_set(card_issuer) AS card_issuer_arr,
+                    collect_set(business_id) AS business_id_arr,
+                    collect_set(merchant) AS merchant_arr,
+                    collect_set(business_name) AS business_name_arr,
+                    collect_set(kakao_main_category) AS kakao_main_category_arr,
+                    collect_set(kakao_sub_category) AS kakao_sub_category_arr,
+                    collect_set(naver_category) AS naver_category_arr,
+                    collect_set(address_arr[0]) AS main_area_arr,
+                    collect_set(
+                        CONCAT(address_arr[0], ' ', address_arr[1])
+                    ) AS sub_area_arr
+            FROM
+                    card_payments_with_meta
+            GROUP BY user_id, timestamp
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        card_payments
+        user_meta
+      ]
+      name: with_meta
+      options:
+      {
+        sql:
+          '''
+          SELECT    date_format(card_payments.timestamp, 'yyyy-MM-dd') AS date_id,
+                    user_meta.users.*,
+                    card_payments.user_id,
+                    card_payments.timestamp,
+                    struct(card_payments.*) AS card_payments
+          FROM
+                    user_meta
+          FULL OUTER JOIN
+                    card_payments
+          ON        user_meta.user_id = card_payments.user_id
+          WHERE     card_payments.timestamp IS NOT NULL
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        with_meta
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${BASE_DIR}/stat/time_unit=${TIME_UNIT}"
+        evenPartitions: "true"
+        partitions: date_id
+      }
+      type: file
+    }
+  ]
+}

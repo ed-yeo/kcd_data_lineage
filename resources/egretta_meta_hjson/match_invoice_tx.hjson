@@ -1,0 +1,143 @@
+{
+  //parameter: db_file_path, output_path
+  name: match_invoice_tx
+  udfs: [
+    {
+        name: match_purchase_invoice_with_tx
+        class: com.kcd.thrush.hometax.spark.udfs.MatchPurchaseInvoiceWithTx
+        params: {}
+    }
+    {
+        name: match_sale_invoice_with_tx
+        class: com.kcd.thrush.hometax.spark.udfs.MatchSaleInvoiceWithTx
+        params: {}
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: purchase_invoices_txs_joined_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: parquet
+        paths: s3://${output_path}/etl/date_id=${date_id}/purchase_invoices_txs_joined
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: sale_invoices_txs_joined_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: parquet
+        paths: s3://${output_path}/etl/date_id=${date_id}/sale_invoices_txs_joined
+      }
+      type: custom
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        purchase_invoices_txs_joined_raw
+      ]
+      name: purchase_invoices_txs_joined
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    purchase_invoices_txs_joined_raw
+          DISTRIBUTE BY business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        sale_invoices_txs_joined_raw
+      ]
+      name: sale_invoices_txs_joined
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    sale_invoices_txs_joined_raw
+          DISTRIBUTE BY business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        sale_invoices_txs_joined
+      ]
+      name: sale_invoices_txs_matches
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  explode(match_sale_invoice_with_tx(invoices, transactions)) AS matches
+          FROM    sale_invoices_txs_joined
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        purchase_invoices_txs_joined
+      ]
+      name: purchase_invoices_txs_matches
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  explode(match_purchase_invoice_with_tx(invoices, transactions)) AS matches
+          FROM    purchase_invoices_txs_joined
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        sale_invoices_txs_matches
+      ]
+      name: sale_invoices_txs_matches_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://${output_path}/etl/date_id=${date_id}/sale_invoices_txs_matches
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        purchase_invoices_txs_matches
+      ]
+      name: purchase_invoices_txs_matches_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://${output_path}/etl/date_id=${date_id}/purchase_invoices_txs_matches
+      }
+      type: file
+    }
+  ]
+}

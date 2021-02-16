@@ -1,0 +1,47 @@
+{
+  "name": "send_log_to_es",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "send_log",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-data/raw/catalog_v2/raw/tb=dmp_message_result_stat",
+        "partition_keys": "created_at_date,created_at_hour",
+        "log_leaf_file": "true"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "send_log"
+      ],
+      "name": "formatted_send",
+      "options": {
+        "sql": "    SELECT\n            'send' AS type,\n            timestamp,\n            meta_campaign_id AS campaign_id,\n            meta_ad_group_id AS ad_group_id,\n            meta_creative_id AS creative_id,\n            meta_user_id AS user_id,\n            meta_business_id AS business_id,\n            meta_user_type AS user_type,\n            meta_type AS ad_group_type,\n            message_message_type AS message_type,\n            message_ad_flag AS ad_flag,\n            status,\n            error_code,\n            CASE\n                WHEN error_code = '400' THEN 'AdGroupNotFound'\n                WHEN error_code = '401' THEN 'UserNotFound'\n                WHEN error_code = '402' THEN 'AdGroupDisabled'\n                WHEN error_code = '403' THEN 'BlockedByFrequencyCap'\n                WHEN error_code = '500' THEN 'InvalidResponse'\n                WHEN error_code = '501' THEN 'UnknownError'\n                WHEN error_code = '200' THEN 'Success'\n                ELSE 'EtcError'\n            END AS status_msg\n    FROM (\n            SELECT  *,\n                    row_number() OVER (PARTITION BY _event_id ORDER BY timestamp DESC) AS rank\n            FROM    send_log\n            WHERE   nvl(meta_test_mode, false) = false\n    )\n    WHERE rank = 1",
+        "backup_sql": "message_template_code\n            AND     nvl(meta_test_mode_skip_user, false) = false\n            AND     nvl(meta_test_mode_skip_frequency_cap, false) = false\n            AND     nvl(meta_test_mode_skip_ad_group, false) = false\n            AND     nvl(meta_test_mode_skip_send, false) = false"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "formatted_send"
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "message_history-2020-09",
+        "es.nodes": "https://vpc-dmp-es-prod-tw5nccwbgynfhq5ivdolhmaxsq.ap-northeast-2.es.amazonaws.com",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true"
+      },
+      "type": "es"
+    }
+  ]
+}

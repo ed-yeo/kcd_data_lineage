@@ -1,0 +1,57 @@
+{
+  "name": "purchases_canceled_transactions",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "transactions",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-staging/work/ryan/DR/DR-71/210115/2020/daily_transaction"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "purchases_canceled_transactions",
+      "inputs": [
+        "transactions"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          purchase_canceled_at,\n          purchased_at,\n          approval_canceled_at,\n          transacted_at,\n          paid_at,\n          payment\nFROM      transactions\nWHERE     purchase_canceled_at is not null"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "purchases_canceled_transactions"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/DR/DR-71/210115/2020/purchases_canceled_transactions",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "purchases_canceled_transactions"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "format": "csv",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/DR/DR-71/210115/2020/results/purchases_canceled_transactions",
+        "header": "true",
+        "numPartitions": "1",
+        "sep": "|"
+      },
+      "type": "custom"
+    }
+  ]
+}

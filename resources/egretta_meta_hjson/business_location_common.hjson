@@ -1,0 +1,199 @@
+{
+  name: business_location_kcd
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: hometax
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=hometax
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_naver
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=place_naver
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_kakao
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=place_kakao
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: naver_basic
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=naver_basic
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: kakao_basic
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=kakao_basic
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        hometax
+        businesses
+        place_naver
+        place_kakao
+        naver_basic
+        kakao_basic
+      ]
+      name: merged
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.MergeSchemaProcess
+        joinColumns: business_id
+        joinType: full_outer
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        merged
+      ]
+      name: common_location
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    business_id,
+                    common.*
+          FROM (
+                  SELECT
+                            business_id,
+                            CASE
+                                WHEN place_naver IS NOT NULL THEN struct(
+                                                                          place_naver.geo_point,
+                                                                          place_naver.full_address,
+                                                                          place_naver.b_code,
+                                                                          place_naver.sido,
+                                                                          place_naver.sido_code,
+                                                                          place_naver.sigungu,
+                                                                          place_naver.sigungu_code,
+                                                                          place_naver.dong,
+                                                                          place_naver.h_codes
+                                                                        )
+                                WHEN place_kakao IS NOT NULL THEN struct(
+                                                                          place_kakao.geo_point,
+                                                                          place_kakao.full_address,
+                                                                          place_kakao.b_code,
+                                                                          place_kakao.sido,
+                                                                          place_kakao.sido_code,
+                                                                          place_kakao.sigungu,
+                                                                          place_kakao.sigungu_code,
+                                                                          place_kakao.dong,
+                                                                          place_kakao.h_codes
+                                                                        )
+                                WHEN naver_basic IS NOT NULL THEN struct(
+                                                                          naver_basic.geo_point,
+                                                                          naver_basic.full_address,
+                                                                          naver_basic.b_code,
+                                                                          naver_basic.sido,
+                                                                          naver_basic.sido_code,
+                                                                          naver_basic.sigungu,
+                                                                          naver_basic.sigungu_code,
+                                                                          naver_basic.dong,
+                                                                          naver_basic.h_codes
+                                                                        )
+                                WHEN kakao_basic IS NOT NULL THEN struct(
+                                                                          kakao_basic.geo_point,
+                                                                          kakao_basic.full_address,
+                                                                          kakao_basic.b_code,
+                                                                          kakao_basic.sido,
+                                                                          kakao_basic.sido_code,
+                                                                          kakao_basic.sigungu,
+                                                                          kakao_basic.sigungu_code,
+                                                                          kakao_basic.dong,
+                                                                          kakao_basic.h_codes
+                                                                        )
+                                WHEN hometax IS NOT NULL THEN struct(
+                                                                        hometax.geo_point,
+                                                                        hometax.full_address,
+                                                                        hometax.b_code,
+                                                                        hometax.sido,
+                                                                        hometax.sido_code,
+                                                                        hometax.sigungu,
+                                                                        hometax.sigungu_code,
+                                                                        hometax.dong,
+                                                                        hometax.h_codes
+                                                                      )
+                                ELSE struct(
+                                             businesses.geo_point,
+                                             businesses.full_address,
+                                             businesses.b_code,
+                                             businesses.sido,
+                                             businesses.sido_code,
+                                             businesses.sigungu,
+                                             businesses.sigungu_code,
+                                             businesses.dong,
+                                             businesses.h_codes
+                                           )
+                            END AS common
+                  FROM      merged
+          )
+          WHERE business_id is not null
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        common_location
+      ]
+      name: common_location_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=common
+        numPartitions: "10"
+      }
+      type: file
+    }
+  ]
+}

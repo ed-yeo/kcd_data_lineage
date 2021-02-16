@@ -1,0 +1,134 @@
+{
+  name: business_address_common
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: address_data
+        options:
+        {
+            class: com.kcd.thrush.dmp.spark.MergeSchemaSource
+            format: parquet
+            basePath: '${TARGET_PATH}'
+            partitionName: address_type
+            joinType: full_outer
+            joinColumns: business_id
+        }
+        type: custom
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        address_data
+      ]
+      name: address_common
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    business_id,
+                    common.*
+          FROM (
+                  SELECT
+                            business_id,
+                            CASE
+                                WHEN place_naver IS NOT NULL THEN struct(
+                                                                          place_naver.location,
+                                                                          place_naver.full_address,
+                                                                          place_naver.b_code,
+                                                                          place_naver.sido,
+                                                                          place_naver.sido_code,
+                                                                          place_naver.sigungu,
+                                                                          place_naver.sigungu_code,
+                                                                          place_naver.dong,
+                                                                          place_naver.h_codes
+                                                                        )
+                                WHEN place_kakao IS NOT NULL THEN struct(
+                                                                          place_kakao.location,
+                                                                          place_kakao.full_address,
+                                                                          place_kakao.b_code,
+                                                                          place_kakao.sido,
+                                                                          place_kakao.sido_code,
+                                                                          place_kakao.sigungu,
+                                                                          place_kakao.sigungu_code,
+                                                                          place_kakao.dong,
+                                                                          place_kakao.h_codes
+                                                                        )
+                                WHEN naver_basic IS NOT NULL THEN struct(
+                                                                          naver_basic.location,
+                                                                          naver_basic.full_address,
+                                                                          naver_basic.b_code,
+                                                                          naver_basic.sido,
+                                                                          naver_basic.sido_code,
+                                                                          naver_basic.sigungu,
+                                                                          naver_basic.sigungu_code,
+                                                                          naver_basic.dong,
+                                                                          naver_basic.h_codes
+                                                                        )
+                                WHEN kakao_basic IS NOT NULL THEN struct(
+                                                                          kakao_basic.location,
+                                                                          kakao_basic.full_address,
+                                                                          kakao_basic.b_code,
+                                                                          kakao_basic.sido,
+                                                                          kakao_basic.sido_code,
+                                                                          kakao_basic.sigungu,
+                                                                          kakao_basic.sigungu_code,
+                                                                          kakao_basic.dong,
+                                                                          kakao_basic.h_codes
+                                                                        )
+                                WHEN hometax IS NOT NULL THEN struct(
+                                                                        hometax.location,
+                                                                        hometax.full_address,
+                                                                        hometax.b_code,
+                                                                        hometax.sido,
+                                                                        hometax.sido_code,
+                                                                        hometax.sigungu,
+                                                                        hometax.sigungu_code,
+                                                                        hometax.dong,
+                                                                        hometax.h_codes
+                                                                      )
+                                ELSE struct(
+                                             businesses.location,
+                                             businesses.full_address,
+                                             businesses.b_code,
+                                             businesses.sido,
+                                             businesses.sido_code,
+                                             businesses.sigungu,
+                                             businesses.sigungu_code,
+                                             businesses.dong,
+                                             businesses.h_codes
+                                           )
+                            END AS common
+                  FROM      address_data
+          )
+          WHERE business_id is not null
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        address_common
+      ]
+      name: address_common_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/address_type=common
+        numPartitions: "10"
+      }
+      type: file
+    }
+  ]
+}

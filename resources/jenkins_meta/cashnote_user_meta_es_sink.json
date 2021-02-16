@@ -1,0 +1,46 @@
+{
+  "name": "cashnote_user_meta_es_sink",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "cashnote_user_meta",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_cubes/dimension/name=cashnote_user_meta"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "cashnote_user_meta"
+      ],
+      "name": "add_join_field",
+      "options": {
+        "sql": "  SELECT\n            to_timestamp('2021-01-29', 'yyyy-MM-dd') AS timestamp,\n            named_struct(\n                'name', 'meta'\n            ) AS join_field,\n            *\n  FROM      cashnote_user_meta"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "add_join_field"
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "cashnote_user_cube-2021-01-29",
+        "es.nodes": "https://vpc-dmp-es-prod-tw5nccwbgynfhq5ivdolhmaxsq.ap-northeast-2.es.amazonaws.com",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+        "es.mapping.id": "target_id",
+        "es.mapping.join": "join_field"
+      },
+      "type": "es"
+    }
+  ]
+}

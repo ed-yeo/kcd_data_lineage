@@ -1,0 +1,81 @@
+{
+  "name": "registration_number_businesses",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_merchants",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/card_merchants"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_payments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/incremental/card_payments"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "businesses",
+        "card_merchants"
+      ],
+      "name": "cashnote_businesses",
+      "options": {
+        "sql": "  SELECT  business_id, registration_number,\n          collect_set(merchant) AS merchants,\n          collect_set(card_issuer) card_issuers\n  FROM (\n          SELECT\n                  business_id,\n                  registration_number,\n                  CASE\n                      WHEN merchant_number IS NOT NULL THEN struct(card_issuer,merchant_number)\n                      ELSE null\n                  END AS merchant,\n                  card_issuer\n          FROM (\n                  SELECT  businesses.id AS business_id,\n                          businesses.registration_number,\n                          IF(m.issuer_name == '하나(구 외환)', '하나', m.issuer_name) AS card_issuer,\n                          m.merchant_number\n                  FROM    businesses\n                  LEFT OUTER JOIN (\n                          SELECT  *\n                          FROM    card_merchants\n                          WHERE   current = true\n                          AND     affiliated = false\n                  ) AS m\n                  ON businesses.id = m.business_id\n          )\n  )\n  GROUP BY business_id, registration_number"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "card_payments"
+      ],
+      "name": "paynote_business",
+      "options": {
+        "sql": "SELECT    registration_number,\n          collect_set(struct(card_issuer, merchant_number)) AS merchants,\n          collect_set(card_issuer) AS card_issuers\nFROM (\n        SELECT\n                registration_number, merchant_number,\n                CASE\n                    WHEN card_issuer = 'bc' THEN '비씨'\n                    WHEN card_issuer = 'shinhan' THEN '신한'\n                    WHEN card_issuer = 'hyundai' THEN '현대'\n                    ELSE card_issuer\n                END AS card_issuer\n        FROM (\n            SELECT DISTINCT registration_number, merchant_number, card_issuer\n            FROM  card_payments\n            WHERE card_issuer is not null\n        )\n)\nGROUP BY registration_number"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "cashnote_businesses",
+        "paynote_business"
+      ],
+      "name": "joined",
+      "options": {
+        "sql": "SELECT\n          *, size(merchants) AS merchant_size\nFROM (\n        SELECT\n                  nvl(cashnote_businesses.registration_number, paynote_business.registration_number) AS registration_number,\n                  cashnote_businesses.business_id,\n                  IF(cashnote_businesses.registration_number IS NOT NULL, true, false) AS is_cashnote_business,\n                  IF(paynote_business.registration_number IS NOT NULL, true, false) AS is_paynote_business,\n                  array_distinct(\n                      array_except(\n                          array_union(\n                              nvl(cashnote_businesses.merchants, array(null)),\n                              nvl(paynote_business.merchants, array(null))\n                          ),\n                          array(null)\n                      )\n                   ) AS merchants,\n                  array_distinct(\n                      array_except(\n                          array_union(\n                              nvl(cashnote_businesses.card_issuers, array(null)),\n                              nvl(paynote_business.card_issuers, array(null))\n                          ),\n                          array(null)\n                      )\n                   ) AS card_issuers\n        FROM  cashnote_businesses\n        FULL OUTER JOIN paynote_business\n        ON    cashnote_businesses.registration_number = paynote_business.registration_number\n  )"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "joined"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=businesses/name=businesses"
+      },
+      "type": "file"
+    }
+  ]
+}

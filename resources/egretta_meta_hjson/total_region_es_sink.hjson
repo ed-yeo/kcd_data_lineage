@@ -1,0 +1,66 @@
+{
+  name: total_region_es_sink
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: total_region
+      options:
+      {
+        format: parquet
+        paths: ${LOOKUP_DIR}/subject=${SUBJECT}/name=total_region
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+      {
+          inputs:
+          [
+            total_region
+          ]
+          name: total_region_with_ts
+          options:
+          {
+            sql:
+              '''
+                SELECT
+                        to_timestamp('${targetDate}', 'yyyy-MM-dd') AS timestamp,
+                        code, region_type, sido, sido_code, sigungu, sigungu_code, dong, full_address,
+                        mapping_codes,
+                        IF(
+                            geometry is not null,
+                            named_struct(
+                                'type', 'multipolygon',
+                                'coordinates', geometry.coordinates
+                            ),
+                            null
+                        ) AS geometry
+                FROM  total_region
+              '''
+          }
+          type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      "inputs": [
+        total_region_with_ts
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "${INDEX_NAME}",
+        "es.nodes": "${ES_HOST}",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true"
+      },
+      "type": "es"
+    }
+  ]
+}

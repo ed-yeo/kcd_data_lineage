@@ -1,0 +1,338 @@
+{
+  name: build_delivery_app_payments
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: delivery_apps
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_SNAPSHOT_DB_PATH}/delivery_apps
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: baemin_payments_src
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/baemin_payments
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: yogiyo_payments_src
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/yogiyo_payments
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: baedaltong_payments_src
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/baedaltong_payments
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: baemin_payments
+      inputs:
+      [
+        baemin_payments_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  adjustment_amounts,
+                  advertise_fee,
+                  created_at,
+                  cycle,
+                  deduction_amount,
+                  delivery_tip,
+                  delivery_tip_discount,
+                  deposited_at,
+                  fee_deduction,
+                  order_amount,
+                  period_ended_at,
+                  period_started_at,
+                  rate_fee,
+                  received_amount,
+                  reward_amount,
+                  service_fee_amounts,
+                  settle_code,
+                  shop_id,
+                  status,
+                  transaction_amounts,
+                  updated_at,
+                  vat
+          FROM    baemin_payments_src
+          WHERE   created_at_date >= '${MIN_DATE}'
+          AND     created_at_date < '${MAX_DATE}'
+          '''
+      }
+    }
+    {
+      name: yogiyo_payments
+      inputs:
+      [
+        yogiyo_payments_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  certification_fee,
+                  contract_type,
+                  created_at,
+                  delivery_tip,
+                  deposited_at,
+                  monthly_fee,
+                  offline_amount,
+                  order_amount,
+                  payment_number,
+                  period_ended_at,
+                  period_started_at,
+                  rate_fee,
+                  received_amount,
+                  reserved_amount,
+                  shop_discount,
+                  shop_id,
+                  terminal_fee,
+                  transaction_fee,
+                  unpaid_amount,
+                  updated_at,
+                  vat
+          FROM    yogiyo_payments_src
+          WHERE   created_at_date >= '${MIN_DATE}'
+          AND     created_at_date < '${MAX_DATE}'
+          '''
+      }
+    }
+    {
+      name: baedaltong_payments
+      inputs:
+      [
+        baedaltong_payments_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  created_at,
+                  deposited_at,
+                  offline_canceled_amount,
+                  offline_fee,
+                  offline_order_amount,
+                  offline_received_amount,
+                  offline_vat,
+                  online_canceled_amount,
+                  online_fee,
+                  online_order_amount,
+                  online_received_amount,
+                  online_vat,
+                  period_ended_at,
+                  period_started_at,
+                  previous_reserved_amount,
+                  received_amount,
+                  reserved_amount,
+                  shop_id,
+                  updated_at
+          FROM    baedaltong_payments_src
+          WHERE   created_at_date >= '${MIN_DATE}'
+          AND     created_at_date < '${MAX_DATE}'
+          '''
+      }
+    }
+    // dedup
+    {
+      inputs:
+      [
+        delivery_apps
+        baemin_payments
+      ]
+      name: merged_baemin_payments
+      options:
+      {
+        sql:
+          '''
+          SELECT  /*+ BROADCAST(a) */
+                  a.business_id,
+                  s.*,
+                  'baemin' AS app_name
+          FROM    (
+              SELECT  *,
+                      row_number() OVER (
+                          PARTITION BY shop_id, deposited_at, period_started_at, period_ended_at, settle_code
+                          ORDER BY status_seq DESC
+                      ) AS status_rank
+              FROM    (
+                  SELECT *,
+                         CASE
+                          WHEN status = 'COMPLETE' THEN 2
+                          WHEN status = 'REQUEST' THEN 1
+                          WHEN status = 'PLAN' THEN 0
+                          ELSE 0
+                         END AS status_seq
+                  FROM   baemin_payments
+                  WHERE  received_amount > 0
+              )
+          ) s, delivery_apps a
+          WHERE   status_rank = 1
+          AND     s.shop_id = a.id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        delivery_apps
+        baedaltong_payments
+      ]
+      name: merged_baedaltong_payments
+      options:
+      {
+        sql:
+          '''
+          SELECT  /*+ BROADCAST(a) */
+                  a.business_id,
+                  s.*,
+                  'baedaltong' AS app_name
+          FROM    baedaltong_payments s, delivery_apps a
+          WHERE   received_amount > 0
+          AND     s.shop_id = a.id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        delivery_apps
+        yogiyo_payments
+      ]
+      name: merged_yogiyo_payments
+      options:
+      {
+        sql:
+          '''
+          SELECT  /*+ BROADCAST(a) */
+                  a.business_id,
+                  s.*,
+                  'yogiyo' AS app_name
+          FROM    yogiyo_payments s, delivery_apps a
+          WHERE   received_amount > 0
+          AND     s.shop_id = a.id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        merged_baemin_payments
+        merged_baedaltong_payments
+        merged_yogiyo_payments
+      ]
+      name: delivery_app_payments
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  shop_id,
+                  app_name,
+                  CAST(null AS string) AS contract_type,
+                  deposited_at,
+                  CAST(null AS string) AS payment_number,
+                  period_started_at,
+                  period_ended_at,
+                  order_amount + delivery_tip AS online_order_amount,
+                  received_amount,
+                  order_amount,
+                  settle_code,
+                  status,
+                  date_format(created_at, 'yyyy-MM-dd') AS created_at_date
+          FROM    merged_baemin_payments
+
+          UNION ALL
+
+          SELECT  business_id,
+                  shop_id,
+                  app_name,
+                  CAST(null AS string) AS contract_type,
+                  deposited_at,
+                  CAST(null AS string) AS payment_number,
+                  period_started_at,
+                  period_ended_at,
+                  online_order_amount,
+                  received_amount,
+                  online_order_amount + offline_order_amount AS order_amount,
+                  CAST(null AS string) AS settle_code,
+                  CAST(null AS string) AS status,
+                  date_format(created_at, 'yyyy-MM-dd') AS created_at_date
+          FROM    merged_baedaltong_payments
+
+          UNION ALL
+
+          SELECT  business_id,
+                  shop_id,
+                  app_name,
+                  contract_type,
+                  deposited_at,
+                  payment_number,
+                  period_started_at,
+                  period_ended_at,
+                  order_amount + delivery_tip - offline_amount AS online_order_amount,
+                  received_amount,
+                  order_amount,
+                  CAST(null AS string) AS settle_code,
+                  CAST(null AS string) AS status,
+                  date_format(created_at, 'yyyy-MM-dd') AS created_at_date
+          FROM    merged_yogiyo_payments
+          '''
+      }
+      type: sql
+    }
+
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        delivery_app_payments
+      ]
+      name: file_sink
+      options:
+      {
+        mode: overwritePartitions
+        path: "${OUTPUT_BASE_PATH}/delivery_app_payments"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: created_at_date
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

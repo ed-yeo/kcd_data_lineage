@@ -1,0 +1,107 @@
+{
+  name: append_visit_orders
+  udfs: [
+   {
+        name: append_visit_count
+        class: com.kcd.thrush.cardsales.spark.udfs.AppendVisitCount
+        params: {
+            windowDays: "365"
+            minTransactedAt: "${UDF_MIN_TRANSACTED_AT}"
+            maxTransactedAt: "${UDF_MAX_TRANSACTED_AT}"
+        }
+      }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: transactions_raw
+      options:
+      {
+        format: parquet
+        paths: ${TRANSACTIONS_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: transactions
+      inputs:
+      [
+        transactions_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT *
+           FROM   transactions_raw
+           WHERE  transacted_at >= '${MIN_TRANSACTED_AT}'
+           AND    transacted_at < '${MAX_TRANSACTED_AT}'
+          '''
+      }
+    }
+    {
+      name: grouped
+      inputs:
+      [
+        transactions
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  key,
+                  business_id,
+                  collect_list(struct(*)) AS histories
+          FROM    (
+             SELECT *,
+                    COALESCE(encrypted_card_number, CONCAT_WS('_', issuer_name, card_number)) AS key
+             FROM   transactions
+          )
+          GROUP BY key, business_id
+          '''
+      }
+    }
+    {
+      name: visits
+      inputs:
+      [
+        grouped
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  tx.*
+          FROM    (
+            SELECT  explode(append_visit_count(histories)) AS tx
+            FROM    grouped
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      name: file_sink
+      inputs:
+      [
+        visits
+      ]
+      type: file
+      options:
+      {
+        path: ${OUTPUT_PATH}
+        format: parquet
+        mode: overwrite
+      }
+    }
+  ]
+}

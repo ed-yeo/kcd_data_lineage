@@ -1,0 +1,60 @@
+{
+  // PARAMS: TEMP_PATH, TARGET_PATH
+  name: all_classification
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: kcd_classification
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}"
+        paths: ${LOOKUP_DIR}/subject=classification/name=kcd_classification
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        kcd_classification
+      ]
+      name: filtered
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    depth_1_name AS category1,
+                    depth_2_name AS category2,
+                    depth_3_name AS category3
+            FROM kcd_classification
+            WHERE depth_1_name = '외식업'
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        filtered
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_DIR}/classifications
+      }
+      type: file
+    }
+  ]
+}

@@ -1,0 +1,472 @@
+{
+  name: paynote_place_topk
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: paynote_location_mapping
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}"
+        paths: ${LOOKUP_DIR}/subject=paynote/paynote_location_mapping.tsv
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: registration_number_meta
+      options:
+      {
+        format: parquet
+        paths: ${DATA_CUBE_DIR}/dimension/name=registration_number_meta
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        registration_number_meta
+      ]
+      name: filtered_business
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  registration_number,
+                  places.name,
+
+                  location.full_address,
+                  location.b_code,
+                  location.sigungu_code,
+                  location.sido_code,
+
+                  CONCAT(classification.depth_1_name, '>', classification.depth_2_name, '>', classification.depth_3_name) AS classification_full_name,
+
+                  places.reviews.total_review_cnt AS place_review_cnt,
+                  places.reviews.total_avg_rating AS place_avg_rating,
+
+                  cardsales.cashnote.amount_sum AS cashnote_amount_sum,
+                  cardsales.cashnote.tx_count AS cashnote_tx_count,
+                  cardsales.paynote_age_band_gender.total_amount_sum AS paynote_amount_sum,
+                  cardsales.paynote_age_band_gender.total_tx_count AS paynote_tx_count,
+                  cardsales.paynote_age_band_gender.stats AS age_band_gender_stats,
+                  cardsales.paynote_age_band.stats AS age_band_stats,
+                  cardsales.paynote_gender.stats AS gender_stats
+          FROM   registration_number_meta
+          WHERE  businesses.merchant_size <= 8
+          AND    businesses.is_paynote_business = true
+          AND    classification.depth_1_code = 'D'
+          AND    classification.depth_2_code != 'D13'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        filtered_business
+        paynote_location_mapping
+      ]
+      name: filtered_business_with_paynote_location
+      options:
+      {
+        sql:
+          '''
+          SELECT meta.*,
+                 paynote_location_mapping.depth_1_code AS paynote_location_depth_1_code,
+                 paynote_location_mapping.depth_2_code AS paynote_location_depth_2_code
+          FROM (
+                  SELECT
+                          *,
+                          array(b_code, sigungu_code, sido_code) AS location_codes
+                  FROM   filtered_business
+          ) AS meta
+          JOIN paynote_location_mapping
+          ON array_contains(meta.location_codes, paynote_location_mapping.location_code)
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        filtered_business_with_paynote_location
+      ]
+      name: location_topk
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  partition.*,
+                  registration_number,
+                  name,
+                  full_address,
+                  classification_full_name,
+                  p_tx_score,
+                  p_am_score,
+                  c_tx_score,
+                  c_am_score
+          FROM (
+                  SELECT
+                          explode(partitions) AS partition, *
+                  FROM (
+                          SELECT
+                                  array(
+                                      named_struct('type', 'location', 'key', paynote_location_depth_1_code),
+                                      named_struct('type', 'location', 'key', paynote_location_depth_2_code)
+                                  ) AS partitions,
+                                  *,
+                                  format_number((paynote_tx_count / max_p_tx_score) * 10000, 4) AS p_tx_score,
+                                  format_number((paynote_amount_sum / max_p_am_score) * 10000, 4) AS p_am_score,
+                                  format_number((cashnote_tx_count / max_c_tx_score) * 10000, 4) AS c_tx_score,
+                                  format_number((cashnote_amount_sum / max_c_am_score) * 10000, 4) AS c_am_score
+                          FROM   filtered_business_with_paynote_location
+                          CROSS JOIN (
+                                  SELECT
+                                          max(paynote_tx_count) AS max_p_tx_score,
+                                          max(paynote_amount_sum) AS max_p_am_score,
+                                          max(cashnote_tx_count) AS max_c_tx_score,
+                                          max(cashnote_amount_sum) AS max_c_am_score
+                                  FROM   filtered_business_with_paynote_location
+                          ) AS max_values
+                          ON 1 = 1
+                  )
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        filtered_business_with_paynote_location
+      ]
+      name: location_gender_topk
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  partition.*,
+                  registration_number,
+                  name,
+                  full_address,
+                  classification_full_name,
+                  p_tx_score,
+                  p_am_score
+          FROM (
+                  SELECT
+                          explode(partitions) AS partition, *
+                  FROM (
+                          SELECT
+                                  array(
+                                      named_struct('type', 'location_gender', 'key', CONCAT(paynote_location_depth_1_code, '_', b.key)),
+                                      named_struct('type', 'location_gender', 'key', CONCAT(paynote_location_depth_2_code, '_', b.key))
+                                  ) AS partitions,
+                                  *,
+                                  format_number((b.values.tx_count / max_p_tx_score) * 10000, 4) AS p_tx_score,
+                                  format_number((b.values.amount_sum / max_p_am_score) * 10000, 4) AS p_am_score
+                          FROM  (
+                              SELECT
+                                      stats.*, *
+                              FROM (
+                                  SELECT explode(gender_stats) AS stats, *
+                                  FROM   filtered_business_with_paynote_location
+                              )
+                          ) AS b
+                          JOIN (
+                              SELECT
+                                      stats.key,
+                                      max(stats.values.tx_count) AS max_p_tx_score,
+                                      max(stats.values.amount_sum) AS max_p_am_score
+                              FROM (
+                                      SELECT explode(gender_stats) AS stats
+                                      FROM   filtered_business_with_paynote_location
+                              )
+                              WHERE stats.key is not null
+                              GROUP BY stats.key
+                          ) AS max_values
+                          ON b.key = max_values.key
+                  )
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        filtered_business_with_paynote_location
+      ]
+      name: location_age_band_topk
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  partition.*,
+                  registration_number,
+                  name,
+                  full_address,
+                  classification_full_name,
+                  p_tx_score,
+                  p_am_score
+          FROM (
+                  SELECT
+                          explode(partitions) AS partition, *
+                  FROM (
+                          SELECT
+                                  array(
+                                      named_struct('type', 'location_age_band', 'key', CONCAT(paynote_location_depth_1_code, '_', b.key)),
+                                      named_struct('type', 'location_age_band', 'key', CONCAT(paynote_location_depth_2_code, '_', b.key))
+                                  ) AS partitions,
+                                  *,
+                                  format_number((b.values.tx_count / max_p_tx_score) * 10000, 4) AS p_tx_score,
+                                  format_number((b.values.amount_sum / max_p_am_score) * 10000, 4) AS p_am_score
+                          FROM  (
+                              SELECT
+                                      stats.*, *
+                              FROM (
+                                  SELECT explode(age_band_stats) AS stats, *
+                                  FROM   filtered_business_with_paynote_location
+                              )
+                          ) AS b
+                          JOIN (
+                              SELECT
+                                      stats.key,
+                                      max(stats.values.tx_count) AS max_p_tx_score,
+                                      max(stats.values.amount_sum) AS max_p_am_score
+                              FROM (
+                                      SELECT explode(age_band_stats) AS stats
+                                      FROM   filtered_business_with_paynote_location
+                              )
+                              WHERE stats.key is not null
+                              AND stats.key != 'none'
+                              GROUP BY stats.key
+                          ) AS max_values
+                          ON b.key = max_values.key
+                  )
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        filtered_business_with_paynote_location
+      ]
+      name: location_age_band_gender_topk
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  partition.*,
+                  registration_number,
+                  name,
+                  full_address,
+                  classification_full_name,
+                  p_tx_score,
+                  p_am_score
+          FROM (
+                  SELECT
+                          explode(partitions) AS partition, *
+                  FROM (
+                          SELECT
+                                  array(
+                                      named_struct('type', 'location_age_band_gender', 'key', CONCAT(paynote_location_depth_1_code, '_', b.key)),
+                                      named_struct('type', 'location_age_band_gender', 'key', CONCAT(paynote_location_depth_2_code, '_', b.key))
+                                  ) AS partitions,
+                                  *,
+                                  format_number((b.values.tx_count / max_p_tx_score) * 10000, 4) AS p_tx_score,
+                                  format_number((b.values.amount_sum / max_p_am_score) * 10000, 4) AS p_am_score
+                          FROM  (
+                              SELECT
+                                      stats.*, *
+                              FROM (
+                                  SELECT explode(age_band_gender_stats) AS stats, *
+                                  FROM   filtered_business_with_paynote_location
+                              )
+                          ) AS b
+                          JOIN (
+                              SELECT
+                                      stats.key,
+                                      max(stats.values.tx_count) AS max_p_tx_score,
+                                      max(stats.values.amount_sum) AS max_p_am_score
+                              FROM (
+                                      SELECT explode(age_band_gender_stats) AS stats
+                                      FROM   filtered_business_with_paynote_location
+                              )
+                              WHERE stats.key is not null
+                              GROUP BY stats.key
+                          ) AS max_values
+                          ON b.key = max_values.key
+                  )
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        filtered_business_with_paynote_location
+      ]
+      name: location_review_topk
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  partition.*,
+                  registration_number,
+                  name,
+                  full_address,
+                  classification_full_name,
+                  review_score
+          FROM (
+                  SELECT explode(partitions) AS partition, *
+                  FROM (
+                          SELECT
+                                  array(
+                                        named_struct('type', 'location_review', 'key', paynote_location_depth_1_code),
+                                        named_struct('type', 'location_review', 'key', paynote_location_depth_2_code)
+                                  ) AS partitions,
+                                  *,
+                                  CAST(
+                                      format_number((place_review_cnt / max_review_cnt) * 100 * nvl(place_avg_rating, 2.5), 4)
+                                      AS DOUBLE
+                                  ) AS review_score
+                          FROM (
+                                  SELECT *
+                                  FROM filtered_business_with_paynote_location
+                                  WHERE place_review_cnt is not null
+                                  AND place_review_cnt > 5
+                          ) AS b
+                          CROSS JOIN (
+                                  SELECT
+                                          max(place_review_cnt) AS max_review_cnt
+                                  FROM  filtered_business_with_paynote_location
+                                  WHERE place_review_cnt is not null
+                                  AND place_review_cnt > 5
+                          ) AS max_values
+                          ON 1 = 1
+                  )
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        location_topk
+        location_gender_topk
+        location_age_band_topk
+        location_age_band_gender_topk
+        location_review_topk
+      ]
+      name: merged_topk
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  unix_timestamp() * 1000 AS timestamp,
+                  key AS `from`,
+                  registration_number AS to,
+                  'paynote_place_topk' AS label,
+                  to_json(named_struct(
+                      'type', type,
+                      'name', name,
+                      'address', full_address,
+                      'classification_name', classification_full_name,
+                      'p_tx_score', CAST(p_tx_score AS DOUBLE),
+                      'p_am_score', CAST(p_am_score AS DOUBLE),
+                      'c_tx_score', CAST(c_tx_score AS DOUBLE),
+                      'c_am_score', CAST(c_am_score AS DOUBLE),
+                      'review_score', CAST(review_score AS DOUBLE)
+                  )) AS props
+          FROM (
+              SELECT    key, registration_number, type, name, full_address,  classification_full_name,
+                        p_tx_score,
+                        p_am_score,
+                        c_tx_score,
+                        c_am_score,
+                        null AS review_score
+              FROM      location_topk
+
+              UNION ALL
+
+              SELECT    key, registration_number, type, name, full_address,  classification_full_name,
+                        p_tx_score,
+                        p_am_score,
+                        null AS c_tx_score,
+                        null AS c_am_score,
+                        null AS review_score
+              FROM  location_gender_topk
+
+              UNION ALL
+
+              SELECT    key, registration_number, type, name, full_address,  classification_full_name,
+                        p_tx_score,
+                        p_am_score,
+                        null AS c_tx_score,
+                        null AS c_am_score,
+                        null AS review_score
+              FROM      location_age_band_topk
+
+              UNION ALL
+
+              SELECT    key, registration_number, type, name, full_address,  classification_full_name,
+                        p_tx_score,
+                        p_am_score,
+                        null AS c_tx_score,
+                        null AS c_am_score,
+                        null AS review_score
+              FROM      location_age_band_gender_topk
+
+              UNION ALL
+
+              SELECT    key, registration_number, type, name, full_address,  classification_full_name,
+                        null AS p_tx_score,
+                        null AS p_am_score,
+                        null AS c_tx_score,
+                        null AS c_am_score,
+                        review_score
+              FROM      location_review_topk
+          )
+          WHERE key is not null
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        merged_topk
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${BULKLOAD_DIR}/${LABEL}
+      }
+      type: file
+    }
+  ]
+}

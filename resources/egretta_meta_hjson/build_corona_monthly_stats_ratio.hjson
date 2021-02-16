@@ -1,0 +1,145 @@
+{
+  name: build_corona_monthly_stats
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: targets
+      options:
+      {
+        format: parquet
+        paths: "s3://thrush/test/shon/corona/targets_20200331"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: transactions_stat_with_meta
+      options:
+      {
+        format: parquet
+        paths: "${TRANSACTIONS_STAT_WITH_META_PATH}"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        targets
+        transactions_stat_with_meta
+      ]
+      name: monthly_stats
+      options:
+      {
+        sql:
+          '''
+          SELECT  st.business_id,
+                  date_trunc('month', time) AS transacted_at_month,
+                  SUM(card_sales_amount) AS amount_sum,
+                  MAX(st.place.lot_address_1_depth) as lot_address_1_depth,
+                  MAX(st.place.lot_address_2_depth) as lot_address_2_depth,
+                  MAX(st.place.lot_address_3_depth) as lot_address_3_depth,
+                  MAX(st.place.kcd_classification_1_depth) as kcd_classification_1_depth,
+                  MAX(st.place.kcd_classification_2_depth) as kcd_classification_2_depth,
+                  MAX(st.place.kcd_classification_3_depth) as kcd_classification_3_depth
+          FROM    transactions_stat_with_meta st, targets t
+          WHERE   st.business_id = t.business_id
+          AND     t.transacted_at_month_count = 13
+          AND     st.time_unit = 'month'
+          GROUP BY 1, 2
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        monthly_stats
+      ]
+      name: 2019_avg_card_sales_classification
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  CASE
+                      WHEN avg_sales < 5000000 THEN '500만원_미만'
+                      WHEN avg_sales >= 5000000 AND avg_sales < 10000000 THEN '500만원_이상_1000만원_미만'
+                      WHEN avg_sales >= 10000000 AND avg_sales < 20000000 THEN '1000만원_이상_2000만원_미만'
+                      WHEN avg_sales >= 20000000 AND avg_sales < 30000000 THEN '2000만원_이상_3000만원_미만'
+                      WHEN avg_sales >= 30000000 THEN '3000만원_이상'
+                      ELSE null
+                  END AS avg_sales_classification
+          FROM    (
+                  SELECT  business_id,
+                          avg(amount_sum) AS avg_sales
+                  FROM    monthly_stats
+                  WHERE   year(transacted_at_month) = 2019
+                  GROUP BY 1
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        monthly_stats
+        2019_avg_card_sales_classification
+      ]
+      name: business_sales_ratio_with_meta
+      options:
+      {
+        sql:
+          '''
+          SELECT  a.*,
+                  c.avg_sales_classification,
+                  CAST(a.2020_year_amount AS double) / CAST(a.2019_year_amount AS double) AS ratio
+          FROM (
+              SELECT  business_id,
+                      MAX(lot_address_1_depth) as lot_address_1_depth,
+                      MAX(lot_address_2_depth) as lot_address_2_depth,
+                      MAX(kcd_classification_1_depth) as kcd_classification_1_depth,
+                      MAX(kcd_classification_2_depth) as kcd_classification_2_depth,
+                      sum(IF (year(transacted_at_month) = 2020, amount_sum, 0)) as 2020_year_amount,
+                      sum(IF (year(transacted_at_month) = 2019, amount_sum, 0)) as 2019_year_amount
+              FROM    monthly_stats
+              WHERE   month(transacted_at_month) < month(current_date())
+              GROUP BY 1
+          ) a JOIN 2019_avg_card_sales_classification c
+          ON  a.business_id = c.business_id
+          WHERE lot_address_1_depth IS NOT NULL
+          AND   lot_address_2_depth IS NOT NULL
+          AND   kcd_classification_1_depth IS NOT NULL
+          AND   kcd_classification_2_depth IS NOT NULL
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        business_sales_ratio_with_meta
+      ]
+      name: file_sink
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sinks.CSVSink
+        format: csv
+        mode: overwrite
+        path: "${OUTPUT_PATH}/business_sales_ratio_with_meta"
+        header: "true"
+        numPartitions: "1"
+      }
+      type: custom
+    }
+  ]
+}

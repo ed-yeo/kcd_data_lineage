@@ -1,0 +1,43 @@
+{
+  "name": "card_sales_payments",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "payments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/payments"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "payments"
+      ],
+      "name": "payments_stat",
+      "options": {
+        "sql": "  SELECT\n          timestamp,\n          business_id,\n          date_format(timestamp, 'yyyy-MM-dd') AS date_id,\n          SUM(sales_amount_sum) AS sales_amount_sum,\n          SUM(sales_count) AS sales_count,\n          map_from_entries(collect_list(struct(issuer_name, sales_amount_sum))) AS issuer_amount_sum,\n          map_from_entries(collect_list(struct(issuer_name, sales_count))) AS issuer_tx_count\n  FROM (\n          SELECT\n                  timestamp,\n                  business_id,\n                  issuer_name,\n                  SUM(sales_amount) AS sales_amount_sum,\n                  SUM(sales_count) AS sales_count\n          FROM (\n                  SELECT\n                          business_id,\n                          date_trunc('MONTH', received_at) AS timestamp,\n                          sales_amount,\n                          sales_count,\n                          issuer_name\n                  FROM    payments\n                  WHERE   business_id IS NOT NULL\n                  AND     received_at between '2019-01-01' AND '2020-09-05'\n          )\n          GROUP BY business_id, issuer_name, timestamp\n ) GROUP BY business_id, timestamp"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "payments_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=cardsales/name=sales_payments",
+        "evenPartitions": "true",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    }
+  ]
+}

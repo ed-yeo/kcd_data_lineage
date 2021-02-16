@@ -1,0 +1,108 @@
+{
+  name: build_summary
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: monthly
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_PATH}/monthly
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: weekly
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_PATH}/weekly
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: monthly_summary
+      inputs:
+      [
+        monthly
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id, time,
+                  CAST(revisit_amount AS DOUBLE) / CAST(total_amount AS DOUBLE) AS amount_ratio
+          FROM    (
+            SELECT  business_id, time,
+                    SUM(total_amount) AS total_amount,
+                    SUM(IF (visit_count > 1, total_amount, 0)) AS revisit_amount
+            FROM    monthly
+            GROUP BY 1, 2
+          )
+          '''
+      }
+    }
+    {
+      name: weekly_summary
+      inputs:
+      [
+        weekly
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id, time,
+                  CAST(revisit_amount AS DOUBLE) / CAST(total_amount AS DOUBLE) AS amount_ratio
+          FROM    (
+            SELECT  business_id, time,
+                    SUM(total_amount) AS total_amount,
+                    SUM(IF (visit_count > 1, total_amount, 0)) AS revisit_amount
+            FROM    weekly
+            GROUP BY 1, 2
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      name: file_sink
+      inputs:
+      [
+        monthly_summary
+      ]
+      type: file
+      options:
+      {
+        path: ${TARGET_PATH}/monthly_summary
+        format: parquet
+        mode: overwrite
+      }
+    }
+    {
+      name: file_sink
+      inputs:
+      [
+        weekly_summary
+      ]
+      type: file
+      options:
+      {
+        path: ${TARGET_PATH}/weekly_summary
+        format: parquet
+        mode: overwrite
+      }
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "name": "business_id_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "card_sales_transactions",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=cardsales/name=sales_transactions"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "card_sales_transactions"
+      ],
+      "name": "recent_1_year",
+      "options": {
+        "sql": "SELECT\n          business_id,\n          SUM(amount_sum) AS amount_sum,\n          AVG(amount_sum) AS amount_avg,\n          SUM(tx_count) AS tx_count_sum,\n          AVG(tx_count) AS tx_count_avg,\n          COUNT(DISTINCT(date_id)) AS date_cnt\nFROM      card_sales_transactions\nWHERE     date_id >= date_trunc('MONTH', add_months(current_date, -12))\nAND       date_id <= date_trunc('MONTH', add_months(current_date, -1))\nGROUP BY business_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "recent_1_year"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=cardsales/name=recent_1_year"
+      },
+      "type": "file"
+    }
+  ]
+}

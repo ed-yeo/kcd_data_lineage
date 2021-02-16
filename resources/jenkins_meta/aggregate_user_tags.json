@@ -1,0 +1,62 @@
+{
+  "name": "aggregate_user_tags",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "user_tags",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/market_area/analysis/user_tags"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "stat",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/market_area/analysis/address_classification_stat"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "user_tags"
+      ],
+      "name": "aggr_user_tags",
+      "options": {
+        "sql": "SELECT\n   business_id, month, type, address, classification,\n   SUM(a_visitors_count) AS a_visitors_count,\n   SUM(b_visitors_count) AS b_visitors_count\nFROM (\n   SELECT\n           business_id, month, type, address, classification,\n           IF (tag = 'A', visitors_count, 0) AS a_visitors_count,\n           IF (tag = 'B', visitors_count, 0) AS b_visitors_count\n   FROM (\n           SELECT  business_id, min(month) AS month, type, tag, address, classification,\n                   approx_count_distinct(encrypted_card_number) AS visitors_count\n           FROM    user_tags\n           WHERE   type != 'month'\n           GROUP BY business_id, type, tag, address, classification\n\n           UNION ALL\n\n           SELECT  business_id, month, type, tag, address, classification,\n                   approx_count_distinct(encrypted_card_number) AS visitors_count\n           FROM    user_tags\n           WHERE   type = 'month'\n           GROUP BY business_id, month, type, tag, address, classification\n   )\n)\nGROUP BY business_id, month, type, address, classification"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "aggr_user_tags",
+        "stat"
+      ],
+      "name": "pivot",
+      "options": {
+        "sql": "SELECT\n   business_id, month, type, address, classification,\n   stack(4,\n       'A', a_visitors_count,\n       'B', b_visitors_count,\n       'C', c_visitors_count,\n       'C_AVG', CAST(c_visitors_avg AS LONG)\n   ) AS (tag, visitors_count)\nFROM (\n   SELECT\n           aggr_user_tags.*,\n           (stat.user_cnt - (a_visitors_count + b_visitors_count)) AS c_visitors_count,\n           (\n               (stat.user_cnt - (a_visitors_count + b_visitors_count)) / (stat.business_cnt - 1)\n           ) AS c_visitors_avg\n   FROM    aggr_user_tags\n   JOIN    stat\n   ON      aggr_user_tags.type = stat.type\n   AND     aggr_user_tags.month = stat.month\n   AND     aggr_user_tags.address = stat.address\n   AND     aggr_user_tags.classification = stat.classification\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "pivot"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/market_area/analysis/user_tags_aggr",
+        "partitions": "type"
+      },
+      "type": "file"
+    }
+  ]
+}

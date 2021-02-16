@@ -1,0 +1,253 @@
+{
+  name: invoice_reports
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: purchase_invoices
+        options:
+        {
+          format: parquet
+          paths: ${DB_DUMP_DIR}/snowdon/incremental/hometax_purchases_invoices/created_at_date=${TARGET_DATE}
+        }
+        type: file
+     }
+    {
+        inputs: []
+        name: sales_invoices
+        options:
+        {
+          format: parquet
+          paths: ${DB_DUMP_DIR}/snowdon/incremental/hometax_sales_invoices/created_at_date=${TARGET_DATE}
+        }
+        type: file
+     }
+    {
+      inputs: []
+      name: memberships
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/memberships
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        purchase_invoices
+      ]
+      name: purchase_invoices_report
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  business_id,
+                  min(sent_at) AS min_sent_at,
+                  max(sent_at) AS max_sent_at,
+                  collect_list(invoice) AS invoices,
+                  count(1) AS cnt
+          FROM (
+              SELECT  business_id, sent_at,
+                      struct(
+                          written_at,
+                          nvl(vendor_business_name, vendor_owner_name) AS vendor_name,
+                          format_number(price, 0) AS price,
+                          format_number(tax, 0) AS tax,
+                          format_number(amount, 0) AS amount
+                      ) AS invoice
+              FROM purchase_invoices
+          )
+          GROUP BY business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        purchase_invoices_report
+      ]
+      name: purchase_invoices_format
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    IF(min_date = max_date, min_date, CONCAT(min_date, ' - ', max_date)) AS duration
+          FROM (
+              SELECT    *,
+                        date_format(min_sent_at, 'MM월 dd일 (E)') AS min_date,
+                        date_format(max_sent_at, 'MM월 dd일 (E)') AS max_date
+              FROM      purchase_invoices_report
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        purchase_invoices_format
+        memberships
+      ]
+      name: purchase_invoices_with_target_id
+      options:
+      {
+        sql:
+          '''
+          SELECT    CONCAT(user_id, '_', business_id) AS target_id,
+                    *
+          FROM (
+                    SELECT
+                            purchase_invoices_format.*,
+                            memberships.user_id
+                    FROM    purchase_invoices_format
+                    JOIN    memberships
+                    ON      purchase_invoices_format.business_id = memberships.business_id
+        )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        sales_invoices
+      ]
+      name: sales_invoices_report
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  business_id,
+                  min(min_sent_at) AS min_sent_at,
+                  max(max_sent_at) AS max_sent_at,
+                  collect_list(customer_invoice) AS customer_invoices,
+                  sum(total_cnt) AS total_cnt
+          FROM (
+              SELECT
+                      business_id,
+                      min(min_sent_at) AS min_sent_at,
+                      max(max_sent_at) AS max_sent_at,
+                      struct(
+                          date_format(written_at, 'MM월 dd일') AS written_at,
+                          slice(collect_list(invoice), 1, 10) AS invoices,
+                          IF(count(1) < 10, 0, count(1) - 10) AS more_customer_cnt
+                      ) AS customer_invoice,
+                      sum(total_cnt) AS total_cnt
+              FROM (
+                  SELECT
+                          business_id, written_at, customer_registration_number,
+                          min(sent_at) AS min_sent_at,
+                          max(sent_at) AS max_sent_at,
+                          struct(
+                              first(customer_name) AS customer_name,
+                              format_number(sum(amount), 0) AS amount,
+                              count(1) AS cnt
+                          ) AS invoice,
+                          count(1) AS total_cnt
+                  FROM (
+                      SELECT  business_id, sent_at,
+                              written_at, customer_registration_number,
+                              nvl(customer_business_name, customer_owner_name) AS customer_name,
+                              amount
+                      FROM sales_invoices
+                  )
+                  GROUP BY business_id, written_at, customer_registration_number
+              )
+              GROUP BY business_id, written_at
+          )
+          GROUP BY business_id
+
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        sales_invoices_report
+      ]
+      name: sales_invoices_format
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    IF(min_date = max_date, min_date, CONCAT(min_date, ' - ', max_date)) AS duration
+          FROM (
+              SELECT    *,
+                        date_format(min_sent_at, 'MM월 dd일 (E)') AS min_date,
+                        date_format(max_sent_at, 'MM월 dd일 (E)') AS max_date
+              FROM      sales_invoices_report
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        sales_invoices_format
+        memberships
+      ]
+      name: sales_invoices_with_target_id
+      options:
+      {
+        sql:
+          '''
+          SELECT    CONCAT(user_id, '_', business_id) AS target_id,
+                    *
+          FROM (
+                    SELECT
+                            sales_invoices_format.*,
+                            memberships.user_id
+                    FROM    sales_invoices_format
+                    JOIN    memberships
+                    ON      sales_invoices_format.business_id = memberships.business_id
+        )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        purchase_invoices_with_target_id
+      ]
+      name: purchase_invoices_sink
+      options:
+      {
+        format: json
+        mode: overwrite
+        path: ${REPORT_DIR}/date_id=${TARGET_DATE}/report_name=purchase_invoices
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        sales_invoices_with_target_id
+      ]
+      name: sales_invoices_sink
+      options:
+      {
+        format: json
+        mode: overwrite
+        path: ${REPORT_DIR}/date_id=${TARGET_DATE}/report_name=sales_invoices
+      }
+      type: file
+    }
+  ]
+}

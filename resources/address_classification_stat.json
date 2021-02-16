@@ -1,0 +1,42 @@
+{
+  "name": "address_classification_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "user_tags",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/market_area/analysis/user_tags"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "user_tags"
+      ],
+      "name": "aggr",
+      "options": {
+        "sql": "SELECT\n   type,\n   min(month) AS month,\n   address,\n   classification,\n   approx_count_distinct(encrypted_card_number) AS user_cnt,\n   approx_count_distinct(business_id) AS business_cnt\nFROM user_tags\nWHERE type != 'month'\nGROUP BY type, address, classification\n\nUNION ALL\n\nSELECT\n   type,\n   month,\n   address,\n   classification,\n   approx_count_distinct(encrypted_card_number) AS user_cnt,\n   approx_count_distinct(business_id) AS business_cnt\nFROM user_tags\nWHERE type = 'month'\nGROUP BY type, month, address, classification"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "aggr"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/market_area/analysis/address_classification_stat",
+        "partitions": "type"
+      },
+      "type": "file"
+    }
+  ]
+}

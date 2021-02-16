@@ -1,0 +1,234 @@
+{
+  //OUTPUT_BASE_PATH, TRANSACTION_STAT_WITH_META_PATH
+  name: build_sales_stat_optimized
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: regions_src
+      options:
+      {
+        format: csv
+        paths: s3://kcd-de-staging/misc/swallow_staging/regions.csv
+        read: "{\"header\":\"true\"}"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: classifications
+      options:
+      {
+        format: csv
+        paths: s3://kcd-de-staging/misc/swallow_staging/classifications.csv
+        read: "{\"header\":\"true\"}"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: targets_src
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/test/shon/corona/targets_20200331
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: tx_with_meta_src
+      options:
+      {
+        format: parquet
+        paths: ${TRANSACTION_STAT_WITH_META_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: regions
+      inputs:
+      [
+        regions_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    regions_src
+          WHERE   dong is null
+          '''
+      }
+      cache: true
+    }
+    {
+      name: classification_tree
+      inputs:
+      [
+        classifications
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  id,
+                  name AS classification_kcd_depth_1_name,
+                  CAST(null AS string) AS classification_kcd_depth_2_name
+          FROM    classifications
+          WHERE   classification_type = 'KCDClassification'
+          AND     parent_id is null
+
+          UNION ALL
+
+          SELECT  s.id,
+                  f.name AS classification_kcd_depth_1_name,
+                  s.name AS classification_kcd_depth_2_name
+          FROM    classifications s, classifications f
+          WHERE   s.classification_type = 'KCDClassification'
+          AND     f.classification_type = 'KCDClassification'
+          AND     f.parent_id is null
+          AND     s.parent_id = f.id
+          '''
+      }
+      cache: true
+    }
+    {
+      name: tx_with_meta
+      inputs:
+      [
+        targets_src
+        tx_with_meta_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  /*+ BROADCAST(t) */
+                  src.*,
+                  location.common.sido AS sido,
+                  location.common.sigungu AS sigungu,
+                  location.common.dong AS dong,
+                  CASE
+                    WHEN classification.kcd.depth_1_name = '금융/보헙업' THEN '금융/보험업'
+                    ELSE classification.kcd.depth_1_name
+                  END AS classification_kcd_depth_1_name,
+                  CASE
+                    WHEN classification.kcd.depth_2_name = '금융/보헙업' THEN '금융/보험업'
+                    ELSE classification.kcd.depth_2_name
+                  END AS classification_kcd_depth_2_name
+          FROM    tx_with_meta_src src, (
+            SELECT  *
+            FROM    targets_src
+            WHERE   transacted_at_month_count = 13
+          ) t
+          WHERE   src.business_id = t.business_id
+          AND     classification.kcd.depth_1_name is not null
+          '''
+      }
+    }
+    {
+      inputs:
+      [
+        tx_with_meta
+      ]
+      name: aggr
+      options:
+      {
+        sql:
+          '''
+          SELECT  sido,
+                  sigungu,
+                  classification_kcd_depth_1_name,
+                  classification_kcd_depth_2_name,
+                  time,
+                  time_unit,
+                  SUM(card_sales_amount) AS card_sales_amount,
+                  SUM(card_sales_count) AS card_sales_count,
+                  COUNT(DISTINCT business_id) business_count,
+                  SUM(delivery_sales_amount) AS delivery_sales_amount,
+                  COUNT(DISTINCT delivery_business_id) delivery_count
+          FROM    tx_with_meta
+          GROUP BY  sido, sigungu, classification_kcd_depth_1_name, classification_kcd_depth_2_name, time, time_unit
+          GROUPING SETS (
+            (sido, time_unit, time),
+            (sido, sigungu, time_unit, time),
+            (classification_kcd_depth_1_name, time_unit, time),
+            (classification_kcd_depth_1_name, classification_kcd_depth_2_name, time_unit, time),
+            (sido, sigungu, classification_kcd_depth_1_name, classification_kcd_depth_2_name, time_unit, time),
+            (sido, sigungu, classification_kcd_depth_1_name, time_unit, time),
+            (sido, classification_kcd_depth_1_name, classification_kcd_depth_2_name, time_unit, time),
+            (sido, classification_kcd_depth_1_name, time_unit, time)
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      name: sales_stat
+      inputs:
+      [
+        regions
+        classification_tree
+        aggr
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  /*+ BROADCAST(r, c) */
+                  CAST(r.id AS bigint) AS region_id,
+                  CAST(c.id AS bigint) AS classification_id,
+                  a.sido,
+                  a.sigungu,
+                  a.classification_kcd_depth_1_name,
+                  a.classification_kcd_depth_2_name,
+                  a.time AS base_date,
+                  a.time_unit AS date_unit,
+                  a.business_count,
+                  a.card_sales_amount,
+                  a.card_sales_count,
+                  a.delivery_sales_amount,
+                  a.delivery_count,
+                  current_timestamp() AS created_at,
+                  current_timestamp() AS updated_at
+          FROM    aggr a LEFT OUTER JOIN regions r
+          ON (
+            COALESCE(a.sido, '전국') = r.sido AND
+            COALESCE(a.sigungu, 'null') = COALESCE(r.sigungu, 'null')
+          ) LEFT OUTER JOIN classification_tree c
+          ON (
+            COALESCE(a.classification_kcd_depth_1_name, '전체업종') = c.classification_kcd_depth_1_name AND
+            COALESCE(a.classification_kcd_depth_2_name, 'null') = COALESCE(c.classification_kcd_depth_2_name, 'null')
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        sales_stat
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${OUTPUT_BASE_PATH}/sales_stat
+      }
+      type: file
+    }
+  ]
+}

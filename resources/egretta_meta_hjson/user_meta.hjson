@@ -1,0 +1,199 @@
+{
+  name: user_meta
+  udfs: [
+    {
+      name: filterJsonTrue
+      class: com.kcd.thrush.dmp.spark.udfs.JsonFilter
+      params: {}
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: users_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/snapshot/latest/users
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: card_agreements_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/snapshot/latest/card_agreements
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: card_payments_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/incremental/card_payments
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: deleted_users_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/snapshot/latest/deleted_users
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        users_src
+        card_payments_src
+      ]
+      name: users
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    a.user_id,
+                    gender,
+                    plus_friends,
+                    provider,
+                    year(birth_date) AS birth_year,
+                    month(birth_date) AS birth_month,
+                    date_format(birth_date, 'MM-dd') AS birthday,
+                    (year(current_date()) - year(birth_date) + 1) AS age,
+                    user_created_at,
+                    COALESCE(b.sinhan_card_tx_count, 0) AS sinhan_card_tx_count,
+                    COALESCE(b.hyundai_card_tx_count, 0) AS hyundai_card_tx_count
+            FROM (
+                    SELECT
+                            id AS user_id,
+                            gender,
+                            provider,
+                            to_date(birthday, 'yyyyMMdd') AS birth_date,
+                            plus_friends,
+                            created_at AS user_created_at
+                    FROM users_src
+            ) a LEFT OUTER JOIN (
+              SELECT user_id,
+                     SUM(IF (card_issuer = 'shinhan', 1, 0)) AS sinhan_card_tx_count,
+                     SUM(IF (card_issuer = 'hyundai', 1, 0)) AS hyundai_card_tx_count
+              FROM   card_payments_src
+              GROUP BY user_id
+            ) b ON (a.user_id = b.user_id)
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        card_agreements_src
+      ]
+      name: card_agreements
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    user_id,
+                    agreed,
+                    issuer,
+                    explode(
+                        filterJsonTrue(options)
+                    ) AS option_type,
+                    last_terms_to,
+                    created_at AS agree_created_at,
+                    updated_at AS agree_updated_at
+            FROM    card_agreements_src
+            WHERE   issuer = 'shinhan'
+
+            UNION ALL
+
+            SELECT
+                    user_id,
+                    agreed,
+                    issuer,
+                    null AS option_type,
+                    last_terms_to,
+                    created_at AS agree_created_at,
+                    updated_at AS agree_updated_at
+            FROM    card_agreements_src
+            WHERE   issuer = 'hyundai'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        deleted_users_src
+      ]
+      name: deleted_users
+      options:
+      {
+        sql:
+          '''
+            SELECT  user_id,
+                    provider,
+                    year(birth_date) AS birth_year,
+                    month(birth_date) AS birth_month,
+                    date_format(birth_date, 'MM-dd') AS birthday,
+                    (year(current_date()) - year(birth_date) + 1) AS age,
+                    gender,
+                    has_agreed,
+                    deleted_at,
+                    has_privacy_agreed
+            FROM    (
+              SELECT  *, to_date(birthday, 'yyyyMMdd') AS birth_date
+              FROM    deleted_users_src
+            )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        users
+        card_agreements
+        deleted_users
+      ]
+      name: merge
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.MergeSchemaProcess
+        joinColumns: user_id
+        joinType: full_outer
+      }
+      type: custom
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        merge
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}
+      }
+      type: file
+    }
+  ]
+}

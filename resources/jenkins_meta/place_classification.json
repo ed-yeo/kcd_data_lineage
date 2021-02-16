@@ -1,0 +1,186 @@
+{
+  "name": "place_classification",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "places_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/places"
+      },
+      "type": "file",
+      "cache": true
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "places_src"
+      ],
+      "name": "naver",
+      "options": {
+        "sql": "SELECT  *, classification AS naver_classification\nFROM    places_src\nWHERE   type = 'Places::Naver'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "places_src"
+      ],
+      "name": "kakao",
+      "options": {
+        "sql": "SELECT  *, classification AS kakao_classification\nFROM    places_src\nWHERE   type = 'Places::Daum'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "naver",
+        "kakao"
+      ],
+      "name": "mapping",
+      "options": {
+        "sql": "SELECT  *\nFROM    (\n  SELECT  *,\n          row_number() OVER (PARTITION BY naver_classification ORDER BY count DESC) AS rank\n  FROM    (\n    SELECT  naver_classification, kakao_classification,\n            count(1) AS count\n    FROM  (\n      SELECT  business_id, classification AS kakao_classification\n      FROM    kakao\n      WHERE   classification is not null\n    ) kakao, (\n      SELECT  business_id, classification AS naver_classification\n      FROM    naver\n      WHERE   classification is not null\n    ) naver\n    WHERE   kakao.business_id = naver.business_id\n    GROUP BY 1, 2\n  )\n)\nWHERE rank = 1"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "naver",
+        "kakao"
+      ],
+      "name": "kakao_only",
+      "options": {
+        "sql": "SELECT  *, classification AS kcd_classification\nFROM    kakao\nWHERE   kakao_classification is not null"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "naver",
+        "kakao",
+        "mapping"
+      ],
+      "name": "naver_only",
+      "options": {
+        "sql": "SELECT  /*+BROADCAST(m) */\n        n.*, m.kakao_classification AS kcd_classification\nFROM    (\n  SELECT  /*+BROADCAST(k) */\n          n.*\n  FROM    naver n LEFT OUTER JOIN kakao k ON (n.business_id = k.business_id)\n  WHERE   k.business_id is null\n  AND     n.naver_classification is not null\n) n LEFT OUTER JOIN mapping m ON (n.classification = m.naver_classification)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "kakao_only",
+        "naver_only"
+      ],
+      "name": "place_classification_with_location",
+      "options": {
+        "sql": "SELECT business_id,\n       split(kcd_classification, ' > ') AS classification_arr,\n       split(lot_address, ' ') AS location_arr,\n       street_address\nFROM  (\n    SELECT * FROM kakao_only\n    UNION ALL\n    SELECT * FROM naver_only\n)\nWHERE business_id IS NOT NULL"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "place_classification_with_location"
+      ],
+      "name": "kcd_classification",
+      "options": {
+        "sql": "SELECT\n          CAST(business_id AS Int) AS business_id,\n          classification_arr[0] AS depth_1_name,\n          classification_arr[1] AS depth_2_name,\n          classification_arr[2] AS depth_3_name,\n          classification_arr[3] AS depth_4_name,\n          classification_arr[4] AS depth_5_name\nFROM      place_classification_with_location"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "naver"
+      ],
+      "name": "naver_classification",
+      "options": {
+        "sql": "SELECT    *\nFROM (\n        SELECT  CAST(business_id AS Int) AS business_id,\n                arr[0] AS depth_1_name,\n                arr[1] AS depth_2_name,\n                arr[2] AS depth_3_name,\n                arr[3] AS depth_4_name,\n                arr[4] AS depth_5_name\n        FROM (\n                SELECT  business_id,\n                        split(classification, ' > ') AS arr\n                FROM    naver\n                WHERE   business_id is not null\n        )\n)\nWHERE depth_1_name IS NOT NULL"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "kakao"
+      ],
+      "name": "kakao_classification",
+      "options": {
+        "sql": "SELECT    *\nFROM (\n        SELECT  CAST(business_id AS Int) AS business_id,\n                arr[0] AS depth_1_name,\n                arr[1] AS depth_2_name,\n                arr[2] AS depth_3_name,\n                arr[3] AS depth_4_name,\n                arr[4] AS depth_5_name\n        FROM (\n                SELECT  business_id,\n                        split(classification, ' > ') AS arr\n                FROM    kakao\n                WHERE   business_id is not null\n        )\n)\nWHERE depth_1_name IS NOT NULL"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "place_classification_with_location"
+      ],
+      "name": "kcd_location",
+      "options": {
+        "sql": "SELECT\n          CAST(business_id AS Int) AS business_id,\n           case\n               when location_arr[0] = '서울' then '서울특별시'\n               when location_arr[0] = '세종특별자치' then '세종특별자치시'\n               when location_arr[0] = '강원' then '강원도'\n               when location_arr[0] = '경기' then '경기도'\n               when location_arr[0] = '경남' then '경상남도'\n               when location_arr[0] = '경북' then '경상북도'\n               when location_arr[0] = '광주' then '광주광역시'\n               when location_arr[0] = '대구' then '대구광역시'\n               when location_arr[0] = '대전' then '대전광역시'\n               when location_arr[0] = '부산' then '부산광역시'\n               when location_arr[0] = '세종' then '세종특별자치시'\n               when location_arr[0] = '울산' then '울산광역시'\n               when location_arr[0] = '인천' then '인천광역시'\n               when location_arr[0] = '전남' then '전라남도'\n               when location_arr[0] = '전북' then '전라북도'\n               when location_arr[0] = '제주' then '제주특별자치도'\n               when location_arr[0] = '충남' then '충청남도'\n               when location_arr[0] = '충북' then '충청북도'\n               else location_arr[0]\n           end as lot_address_1_depth,\n           location_arr[1] AS lot_address_2_depth,\n           location_arr[2] AS lot_address_3_depth,\n           street_address\nFROM      place_classification_with_location"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "mapping"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/lookup/subject=classification/name=naver_kakao_map"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "kakao_classification"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=kakao"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "naver_classification"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=naver"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "kcd_classification"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=place"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "kcd_location"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=place_classification"
+      },
+      "type": "file"
+    }
+  ]
+}

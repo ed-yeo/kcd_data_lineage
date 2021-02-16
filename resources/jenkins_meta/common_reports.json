@@ -1,0 +1,49 @@
+{
+  "name": "common_reports",
+  "udfs": [
+    {
+      "name": "flattenMap",
+      "class": "com.kcd.thrush.dmp.spark.udfs.RowToFlattenMap",
+      "params": {
+        "delimiter": "."
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "meta",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_cubes/dimension/name=cashnote_user_meta"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "meta"
+      ],
+      "name": "flatten",
+      "options": {
+        "sql": "  SELECT  to_json(flattenMap(struct(*))) AS json\n  FROM    meta\n"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "flatten"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "text",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/message/reports/user_type=cashnote/date_id=2020-08-10/report_name=common"
+      },
+      "type": "file"
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  name: build_business_features
+  udfs: [
+    {
+      name: merge_histories_with_features
+      class: com.kcd.thrush.analysis.spark.udfs.MergeHistoriesWithFeatures
+      params: {
+        minVisitCount: '2'
+      }
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: card_histories
+      options:
+      {
+        format: parquet
+        paths: "${output_path}/card_histories"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: card_raw_features
+      options:
+      {
+        format: parquet
+        paths: "${output_path}/card_raw_features"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        card_histories
+        card_raw_features
+      ]
+      name: joined
+      options:
+      {
+        sql:
+          '''
+          SELECT  explode(merge_histories_with_features(h.histories, f.raw_features)) AS raw_feature
+          FROM    card_histories h, card_raw_features f
+          WHERE   h.encrypted_card_number = f.encrypted_card_number
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        joined
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${output_path}/joined"
+      }
+      type: file
+    }
+  ]
+}

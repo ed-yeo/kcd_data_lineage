@@ -1,0 +1,683 @@
+{
+  name: build_daily_reports
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: card_purchases_stat_raw
+      options:
+      {
+        format: parquet
+        paths: ${CARD_PURCHASES_STAT_PATH}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_stat_raw
+      options:
+      {
+        format: parquet
+        paths: ${HOMETAX_STAT_PATH}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: payments_stat_raw
+      options:
+      {
+        format: parquet
+        paths: ${CARD_SALES_PAYMENTS_STAT_PATH}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: transactions_stat_raw
+      options:
+      {
+        format: parquet
+        paths: ${CARD_SALES_TRANSACTIONS_STAT_PATH}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: delivery_app_orders_stat_raw
+      options:
+      {
+        format: parquet
+        paths: ${DELIVERY_APP_ORDERS_STAT_PATH}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: delivery_app_payments_stat_raw
+      options:
+      {
+        format: parquet
+        paths: ${DELIVERY_APP_PAYMENTS_STAT_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: card_purchases_stat
+      inputs:
+      [
+        card_purchases_stat_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      card_purchases_stat_raw
+          WHERE     (
+            (
+              time_unit = 'month' AND
+              time >= date_trunc('month', to_date('${MIN_DATE}')) AND
+              time < '${MAX_DATE}'
+            ) OR
+            (
+              time_unit = 'day' AND
+              time >= '${MIN_DATE}' AND
+              time < '${MAX_DATE}'
+            ) OR
+            (
+              time_unit = 'day_hour' AND
+              time >= '${MIN_DATE}' AND
+              time < '${MAX_DATE}'
+            )
+          )
+          '''
+      }
+    }
+    {
+      name: hometax_stat
+      inputs:
+      [
+        hometax_stat_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      hometax_stat_raw
+          WHERE     (
+            (
+              time_unit = 'month' AND
+              time >= date_trunc('month', to_date('${MIN_DATE}')) AND
+              time < '${MAX_DATE}'
+            ) OR
+            (
+              time_unit = 'day' AND
+              time >= '${MIN_DATE}' AND
+              time < '${MAX_DATE}'
+            ) OR
+            (
+              time_unit = 'day_hour' AND
+              time >= '${MIN_DATE}' AND
+              time < '${MAX_DATE}'
+            )
+          )
+          '''
+      }
+    }
+    {
+      name: payments_stat
+      inputs:
+      [
+        payments_stat_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      payments_stat_raw
+          WHERE     (
+            (
+              time_unit = 'month' AND
+              time >= date_trunc('month', to_date('${MIN_DATE}')) AND
+              time < '${MAX_DATE}'
+            ) OR
+            (
+              time_unit = 'day' AND
+              time >= '${MIN_DATE}' AND
+              time < '${MAX_DATE}'
+            ) OR
+            (
+              time_unit = 'day_hour' AND
+              time >= '${MIN_DATE}' AND
+              time < '${MAX_DATE}'
+            )
+          )
+          '''
+      }
+    }
+    {
+      name: transactions_stat
+      inputs:
+      [
+        transactions_stat_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      transactions_stat_raw
+          WHERE     (
+            (
+              time_unit = 'month' AND
+              time >= date_trunc('month', to_date('${MIN_DATE}')) AND
+              time < '${MAX_DATE}'
+            ) OR
+            (
+              time_unit = 'day' AND
+              time >= '${MIN_DATE}' AND
+              time < '${MAX_DATE}'
+            ) OR
+            (
+              time_unit = 'day_hour' AND
+              time >= '${MIN_DATE}' AND
+              time < '${MAX_DATE}'
+            )
+          )
+          '''
+      }
+    }
+    {
+      name: delivery_app_orders_stat
+      inputs:
+      [
+        delivery_app_orders_stat_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      delivery_app_orders_stat_raw
+          WHERE     (
+            (
+              time_unit = 'month' AND
+              time >= date_trunc('month', to_date('${MIN_DATE}')) AND
+              time < '${MAX_DATE}'
+            ) OR
+            (
+              time_unit = 'day' AND
+              time >= '${MIN_DATE}' AND
+              time < '${MAX_DATE}'
+            ) OR
+            (
+              time_unit = 'day_hour' AND
+              time >= '${MIN_DATE}' AND
+              time < '${MAX_DATE}'
+            )
+          )
+          '''
+      }
+    }
+    {
+      name: delivery_app_payments_stat
+      inputs:
+      [
+        delivery_app_payments_stat_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      delivery_app_payments_stat_raw
+          WHERE     (
+            (
+              time_unit = 'month' AND
+              time >= date_trunc('month', to_date('${MIN_DATE}')) AND
+              time < '${MAX_DATE}'
+            ) OR
+            (
+              time_unit = 'day' AND
+              time >= '${MIN_DATE}' AND
+              time < '${MAX_DATE}'
+            ) OR
+            (
+              time_unit = 'day_hour' AND
+              time >= '${MIN_DATE}' AND
+              time < '${MAX_DATE}'
+            )
+          )
+          '''
+      }
+    }
+    // daily sales
+    {
+      name: daily_card_sales
+      inputs:
+      [
+        transactions_stat
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id,
+                    time,
+                    card_sales_amount,
+                    card_sales_count,
+                    card_sales_fee,
+                    card_sales_vat_fee,
+                    card_sales_payment,
+                    returning_amount,
+                    card_sales_amount - returning_amount AS new_amount
+          FROM      transactions_stat
+          WHERE     time_unit = 'day'
+          '''
+      }
+    }
+    {
+      name: monthly_card_sales
+      inputs:
+      [
+        transactions_stat
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id,
+                    time,
+                    card_sales_amount,
+                    card_sales_count,
+                    card_sales_fee,
+                    card_sales_vat_fee,
+                    card_sales_payment,
+                    returning_amount,
+                    card_sales_amount - returning_amount AS new_amount
+          FROM      transactions_stat
+          WHERE     time_unit = 'month'
+          '''
+      }
+    }
+    {
+      name: card_sales
+      inputs:
+      [
+        daily_card_sales
+        monthly_card_sales
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    d.business_id,
+                    d.time AS date,
+                    m.time AS month,
+                    d.card_sales_amount,
+                    d.card_sales_count,
+                    d.card_sales_fee,
+                    d.card_sales_vat_fee,
+                    d.card_sales_payment,
+                    d.returning_amount,
+                    d.new_amount,
+                    m.card_sales_amount AS monthly_card_sales_amount
+          FROM      daily_card_sales d, monthly_card_sales m
+          WHERE     d.business_id = m.business_id
+          AND       date_trunc('month', d.time) = date_trunc('month', m.time)
+          '''
+      }
+    }
+    {
+      name: daily_delivery_app_sales
+      inputs:
+      [
+        delivery_app_orders_stat
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id,
+                    time,
+                    amount_sum,
+                    baemin_online_amount_sum,
+                    yogiyo_online_amount_sum,
+                    baedaltong_online_amount_sum
+          FROM      delivery_app_orders_stat
+          WHERE     time_unit = 'day'
+          '''
+      }
+    }
+    {
+      name: monthly_delivery_app_sales
+      inputs:
+      [
+        delivery_app_orders_stat
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id,
+                    time,
+                    amount_sum,
+                    baemin_online_amount_sum,
+                    yogiyo_online_amount_sum,
+                    baedaltong_online_amount_sum
+          FROM      delivery_app_orders_stat
+          WHERE     time_unit = 'month'
+          '''
+      }
+    }
+    {
+      name: delivery_app_sales
+      inputs:
+      [
+        daily_delivery_app_sales
+        monthly_delivery_app_sales
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    d.business_id,
+                    d.time AS date,
+                    m.time AS month,
+                    d.amount_sum,
+                    d.baemin_online_amount_sum,
+                    d.yogiyo_online_amount_sum,
+                    d.baedaltong_online_amount_sum,
+                    m.baemin_online_amount_sum + m.baedaltong_online_amount_sum + m.yogiyo_online_amount_sum AS monthly_delivery_app_sales_amount
+          FROM      daily_delivery_app_sales d, monthly_delivery_app_sales m
+          WHERE     d.business_id = m.business_id
+          AND       date_trunc('month', d.time) = date_trunc('month', m.time)
+          '''
+      }
+    }
+    {
+      name: delivery_app_payments
+      inputs:
+      [
+        delivery_app_payments_stat
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id,
+                    time AS date,
+                    date_trunc('month', time) AS month,
+                    received_amount,
+                    baemin_received_amount,
+                    baedaltong_received_amount,
+                    yogiyo_received_amount,
+                    order_amount,
+                    baemin_order_amount,
+                    baedaltong_order_amount,
+                    yogiyo_order_amount,
+                    period_started_at,
+                    period_ended_at
+          FROM      delivery_app_payments_stat
+          WHERE     time_unit = 'day'
+          '''
+      }
+    }
+    {
+      name: card_payments
+      inputs:
+      [
+        payments_stat
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id,
+                    time AS date,
+                    date_trunc('month', time) AS month,
+                    collect_set(
+                      struct(
+                        issuer_name,
+                        reserved,
+                        received
+                      )
+                    ) as payments
+          FROM      payments_stat
+          WHERE     time_unit = 'day'
+          GROUP BY  1, 2
+          '''
+      }
+    }
+    {
+      name: hourly_sales
+      inputs:
+      [
+        delivery_app_orders_stat
+        transactions_stat
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_trunc('month', date) AS month
+          FROM      (
+            SELECT    business_id,
+                      time AS date,
+                      SUM(IF (hour >= 0 AND hour < 6, amount, 0)) AS 0_6_sales_amount,
+                      SUM(IF (hour >= 6 AND hour < 11, amount, 0)) AS 6_11_sales_amount,
+                      SUM(IF (hour >= 11 AND hour < 14, amount, 0)) AS 11_14_sales_amount,
+                      SUM(IF (hour >= 14 AND hour < 17, amount, 0)) AS 14_17_sales_amount,
+                      SUM(IF (hour >= 17 AND hour < 24, amount, 0)) AS 17_24_sales_amount
+            FROM      (
+              SELECT    business_id,
+                        date_trunc('day', time) AS time,
+                        hour(time) AS hour,
+                        card_sales_amount AS amount
+              FROM      transactions_stat
+              WHERE     time_unit = 'day_hour'
+
+              UNION ALL
+
+              SELECT    business_id,
+                        date_trunc('day', time) AS time,
+                        hour(time) AS hour,
+                        amount_sum AS amount
+              FROM      delivery_app_orders_stat
+              WHERE     time_unit = 'day_hour'
+            )
+            GROUP BY  1, 2
+          )
+          '''
+      }
+    }
+    // daily
+    {
+      name: daily_stat_joined
+      inputs:
+      [
+        card_sales
+        delivery_app_sales
+        hourly_sales
+        delivery_app_payments
+        card_payments
+      ]
+      type: custom
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.MergeSchemaProcess
+        joinColumns: business_id,date,month
+        joinType: full_outer
+      }
+    }
+    {
+      name: daily_stat
+      inputs:
+      [
+        daily_stat_joined
+      ]
+      type: sql
+      options:
+      {
+        sql:
+        '''
+        SELECT    *, date_format(date, 'yyyy-MM-dd') AS date_str
+        FROM      daily_stat_joined
+        '''
+      }
+      cache: true
+    }
+    // monthly
+    {
+      name: card_purchases
+      inputs:
+      [
+        card_purchases_stat
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id,
+                    time AS month,
+                    SUM(amount) AS amount
+          FROM      card_purchases_stat
+          WHERE     time_unit = 'month'
+          GROUP BY  business_id, time
+          '''
+      }
+    }
+    {
+      name: hometax
+      inputs:
+      [
+        hometax_stat
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id,
+                    time AS month,
+                    hometax_sales_invoices_amount,
+                    hometax_sales_cash_receipts_amount,
+                    hometax_purchases_invoices_amount,
+                    hometax_purchases_cash_receipts_amount
+          FROM      hometax_stat
+          WHERE     time_unit = 'month'
+          '''
+      }
+    }
+    {
+      name: merged_stat
+      inputs:
+      [
+        daily_stat
+        card_purchases
+        hometax
+      ]
+      type: custom
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.MergeSchemaProcess
+        joinColumns: business_id,month
+        joinType: full_outer
+      }
+    }
+    {
+      name: merged_stat_with_date
+      inputs:
+      [
+        merged_stat
+      ]
+      type: sql
+      options:
+      {
+        sql: '''
+        SELECT  business_id,
+                daily_stat.date,
+                date_id,
+                daily_stat.card_sales.card_sales_amount AS card_sales_amount,
+                daily_stat.card_sales.card_sales_count AS card_sales_count,
+                daily_stat.card_sales.card_sales_fee AS card_sales_fee,
+                daily_stat.card_sales.card_sales_vat_fee AS card_sales_vat_fee,
+                daily_stat.card_sales.card_sales_payment AS card_sales_payment,
+                daily_stat.card_sales.returning_amount AS returning_amount,
+                daily_stat.card_sales.new_amount AS new_amount,
+                daily_stat.card_sales.monthly_card_sales_amount AS monthly_card_sales_amount,
+                daily_stat.hourly_sales.0_6_sales_amount AS 0_6_sales_amount,
+                daily_stat.hourly_sales.6_11_sales_amount AS 6_11_sales_amount,
+                daily_stat.hourly_sales.11_14_sales_amount AS 11_14_sales_amount,
+                daily_stat.hourly_sales.14_17_sales_amount AS 14_17_sales_amount,
+                daily_stat.hourly_sales.17_24_sales_amount AS 17_24_sales_amount,
+                daily_stat.delivery_app_sales.baemin_online_amount_sum AS baemin_online_amount_sum,
+                daily_stat.delivery_app_sales.yogiyo_online_amount_sum AS yogiyo_online_amount_sum,
+                daily_stat.delivery_app_sales.baedaltong_online_amount_sum AS baedaltong_online_amount_sum,
+                daily_stat.delivery_app_sales.monthly_delivery_app_sales_amount AS monthly_delivery_app_sales_amount,
+                daily_stat.delivery_app_payments.baemin_received_amount AS baemin_received_amount,
+                daily_stat.delivery_app_payments.yogiyo_received_amount AS yogiyo_received_amount,
+                daily_stat.delivery_app_payments.baedaltong_received_amount AS baedaltong_received_amount,
+                daily_stat.card_payments.payments AS card_payments,
+                card_purchases.amount AS card_purchases_amount,
+                hometax.hometax_sales_invoices_amount AS hometax_sales_invoices_amount,
+                hometax.hometax_sales_cash_receipts_amount AS hometax_sales_cash_receipts_amount,
+                hometax.hometax_purchases_invoices_amount AS hometax_purchases_invoices_amount,
+                hometax.hometax_purchases_cash_receipts_amount AS hometax_purchases_cash_receipts_amount
+        FROM    (
+          SELECT  *,
+                  daily_stat.date_str AS date_id
+          FROM    merged_stat
+        )
+        WHERE   date_id is not null
+        '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        merged_stat_with_date
+      ]
+      name: file_sink
+      options: {
+          mode: overwritePartitions
+          path: ${OUTPUT_BASE_PATH}/report
+          format: parquet
+          partitions: date_id
+          evenPartitions: "true"
+          numOfRecordPerFile: "4000000"
+          sampleRatio: "0.1"
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          checkpoint: "false"
+      }
+      type: custom
+    }
+  ]
+}

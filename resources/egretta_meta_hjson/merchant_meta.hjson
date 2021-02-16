@@ -1,0 +1,101 @@
+{
+  name: merchant_meta
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: merchant
+        options:
+        {
+          class: com.kcd.thrush.dmp.spark.MergeSchemaSource
+          format: parquet
+          basePath: '${DIMENSION_DIR}/id_type=merchant_number/subject=merchant'
+          partitionName: name
+          joinType: full_outer
+          joinColumns: registration_number,card_issuer,merchant_number
+        }
+        type: custom
+    }
+    {
+        inputs: []
+        name: classification
+        options:
+        {
+          class: com.kcd.thrush.dmp.spark.MergeSchemaSource
+          format: parquet
+          basePath: '${DIMENSION_DIR}/id_type=merchant_number/subject=classification'
+          partitionName: name
+          joinType: full_outer
+          joinColumns: registration_number,card_issuer,merchant_number
+        }
+        type: custom
+    }
+    {
+        inputs: []
+        name: places
+        options:
+        {
+          class: com.kcd.thrush.dmp.spark.MergeSchemaSource
+          format: parquet
+          basePath: '${DIMENSION_DIR}/id_type=merchant_number/subject=places'
+          partitionName: name
+          joinType: full_outer
+          joinColumns: registration_number,card_issuer,merchant_number
+        }
+        type: custom
+    }
+    {
+        inputs: []
+        name: location
+        options:
+        {
+          class: com.kcd.thrush.dmp.spark.MergeSchemaSource
+          format: parquet
+          basePath: '${DIMENSION_DIR}/id_type=merchant_number/subject=location'
+          partitionName: name
+          joinType: full_outer
+          joinColumns: registration_number,card_issuer,merchant_number
+        }
+        type: custom
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        merchant
+        classification
+        places
+        location
+      ]
+      name: merge
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.MergeSchemaProcess
+        joinType: full_outer
+        joinColumns: registration_number,card_issuer,merchant_number
+      }
+      type: custom
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        merge
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DATACUBE_DIR}/dimension/name=merchant_meta
+      }
+      type: file
+    }
+  ]
+}

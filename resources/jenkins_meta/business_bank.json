@@ -1,0 +1,116 @@
+{
+  "name": "business_bank",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "bank_accounts_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/bank_accounts"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "credentials_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/credentials"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "bank_withdraw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=bank/name=withdraw"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "bank_deposit",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=bank/name=deposit"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "bank_accounts_src",
+        "credentials_src"
+      ],
+      "name": "bank_accounts",
+      "options": {
+        "sql": "  SELECT  bank_accounts_src.business_id,\n          collect_set(concat(bank_name, '_', account_type)) AS bank_names\n  FROM    bank_accounts_src\n  JOIN    credentials_src\n  ON      bank_accounts_src.credential_id = credentials_src.id\n  WHERE   credentials_src.status != 2\n  GROUP BY bank_accounts_src.business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "bank_withdraw",
+        "bank_deposit"
+      ],
+      "name": "bank_transactions",
+      "options": {
+        "sql": "SELECT    business_id,\n          array_distinct(\n              flatten(\n                  collect_list(contents)\n              )\n          ) AS contents\nFROM (\n        SELECT    business_id, contents\n        FROM      bank_withdraw\n        WHERE     date_id     between '2020-07-31' AND '2021-01-27'\n\n        UNION     ALL\n\n        SELECT    business_id, contents\n        FROM      bank_deposit\n        WHERE     date_id     between '2020-07-31' AND '2021-01-27'\n)\nGROUP BY business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "bank_withdraw",
+        "bank_deposit",
+        "bank_accounts_src"
+      ],
+      "name": "invalid_account_numbers",
+      "options": {
+        "sql": "SELECT    business_id,\n          collect_set(account_number) account_numbers\nFROM (\n    SELECT    bank_accounts_src.business_id, bank_accounts_src.account_number\n    FROM      bank_accounts_src\n    LEFT OUTER JOIN (\n        SELECT    DISTINCT business_id, account_number\n        FROM (\n                SELECT    business_id, explode(account_numbers) AS account_number\n                FROM      bank_withdraw\n\n                UNION     ALL\n\n                SELECT    business_id, explode(account_numbers) AS account_number\n                FROM      bank_deposit\n        )\n    ) AS t\n    ON bank_accounts_src.account_number = t.account_number\n    AND bank_accounts_src.business_id = t.business_id\n    WHERE t.account_number IS NULL\n)\nGROUP BY business_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "bank_accounts"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=bank/name=bank_accounts"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "bank_transactions"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=bank/name=bank_transactions"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "invalid_account_numbers"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=bank/name=invalid_account_numbers"
+      },
+      "type": "file"
+    }
+  ]
+}

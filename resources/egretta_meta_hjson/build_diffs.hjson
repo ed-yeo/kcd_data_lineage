@@ -1,0 +1,391 @@
+{
+  //parameter: db_file_path, output_path
+  name: build_diffs
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: traders
+      options:
+      {
+        format: parquet
+        paths: s3://${db_file_path}/traders
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: prev_vendor_transactions
+      options:
+      {
+        format: parquet
+        paths: s3://${db_file_path}/vendor_transactions
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: current_vendor_transactions
+      options:
+      {
+        format: parquet
+        paths: s3://${output_path}/etl/date_id=${date_id}/vendor_transactions
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: prev_customer_transactions
+      options:
+      {
+        format: parquet
+        paths: s3://${db_file_path}/customer_transactions
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: current_customer_transactions
+      options:
+      {
+        format: parquet
+        paths: s3://${output_path}/etl/date_id=${date_id}/customer_transactions
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: prev_vendor_invoices
+      options:
+      {
+        format: parquet
+        paths: s3://${db_file_path}/vendor_invoices
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: current_vendor_invoices
+      options:
+      {
+        format: parquet
+        paths: s3://${output_path}/etl/date_id=${date_id}/vendor_invoices
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: prev_customer_invoices
+      options:
+      {
+        format: parquet
+        paths: s3://${db_file_path}/customer_invoices
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: current_customer_invoices
+      options:
+      {
+        format: parquet
+        paths: s3://${output_path}/etl/date_id=${date_id}/customer_invoices
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        prev_vendor_transactions
+        current_vendor_transactions
+      ]
+      name: vendor_transactions
+      options:
+      {
+        sql:
+          '''
+          SELECT 'update' AS operation,
+                 c.vendor_id,
+                 c.bank_transaction_id,
+                 c.month,
+                 c.matched,
+                 c.similarity_score,
+                 p.created_at,
+                 c.updated_at
+          FROM   current_vendor_transactions c JOIN prev_vendor_transactions p
+          ON     (c.bank_transaction_id = p.bank_transaction_id)
+          WHERE  (
+            c.vendor_id != p.vendor_id OR
+            c.month != p.month OR
+            (p.matched is null OR c.matched != p.matched) OR
+            (COALESCE(c.similarity_score, 0.0) != COALESCE(p.similarity_score, 0.0))
+          )
+
+          UNION ALL
+
+          SELECT 'insert' AS operation,
+                 c.vendor_id,
+                 c.bank_transaction_id,
+                 c.month,
+                 c.matched,
+                 c.similarity_score,
+                 p.created_at,
+                 c.updated_at
+          FROM   current_vendor_transactions c LEFT OUTER JOIN prev_vendor_transactions p
+          ON     (c.bank_transaction_id = p.bank_transaction_id)
+          WHERE  p.bank_transaction_id is null
+
+          UNION ALL
+
+          SELECT 'delete' AS operation,
+                 c.vendor_id,
+                 c.bank_transaction_id,
+                 c.month,
+                 c.matched,
+                 c.similarity_score,
+                 p.created_at,
+                 c.updated_at
+          FROM   prev_vendor_transactions c LEFT OUTER JOIN current_vendor_transactions p
+          ON     (c.bank_transaction_id = p.bank_transaction_id)
+          WHERE  p.bank_transaction_id is null
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        prev_customer_transactions
+        current_customer_transactions
+      ]
+      name: customer_transactions
+      options:
+      {
+        sql:
+          '''
+          SELECT 'update' AS operation,
+                 c.customer_id,
+                 c.bank_transaction_id,
+                 c.month,
+                 c.matched,
+                 c.similarity_score,
+                 p.created_at,
+                 c.updated_at
+          FROM   current_customer_transactions c JOIN prev_customer_transactions p
+          ON     (c.bank_transaction_id = p.bank_transaction_id)
+          WHERE  (
+            c.customer_id != p.customer_id OR
+            c.month != p.month OR
+            (p.matched is null OR c.matched != p.matched) OR
+            (COALESCE(c.similarity_score, 0.0) != COALESCE(p.similarity_score, 0.0))
+          )
+
+          UNION ALL
+
+          SELECT 'insert' AS operation,
+                 c.customer_id,
+                 c.bank_transaction_id,
+                 c.month,
+                 c.matched,
+                 c.similarity_score,
+                 p.created_at,
+                 c.updated_at
+          FROM   current_customer_transactions c LEFT OUTER JOIN prev_customer_transactions p
+          ON     (c.bank_transaction_id = p.bank_transaction_id)
+          WHERE  p.bank_transaction_id is null
+
+          UNION ALL
+
+          SELECT 'delete' AS operation,
+                 c.customer_id,
+                 c.bank_transaction_id,
+                 c.month,
+                 c.matched,
+                 c.similarity_score,
+                 p.created_at,
+                 c.updated_at
+          FROM   prev_customer_transactions c LEFT OUTER JOIN current_customer_transactions p
+          ON     (c.bank_transaction_id = p.bank_transaction_id)
+          WHERE  p.bank_transaction_id is null
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        prev_vendor_invoices
+        current_vendor_invoices
+      ]
+      name: vendor_invoices
+      options:
+      {
+        sql:
+          '''
+          SELECT  'update' AS operation,
+                  c.vendor_id,
+                  c.hometax_purchases_invoice_id,
+                  c.month,
+                  c.matched,
+                  p.created_at,
+                  c.updated_at
+          FROM    current_vendor_invoices c JOIN prev_vendor_invoices p
+          ON      (c.hometax_purchases_invoice_id = p.hometax_purchases_invoice_id)
+          WHERE   (c.vendor_id != p.vendor_id OR
+                  c.month != p.month OR
+                  (p.matched is null OR c.matched != p.matched)
+          )
+
+          UNION ALL
+
+          SELECT  'insert' AS operation,
+                  c.vendor_id,
+                  c.hometax_purchases_invoice_id,
+                  c.month,
+                  c.matched,
+                  p.created_at,
+                  c.updated_at
+          FROM    current_vendor_invoices c JOIN prev_vendor_invoices p
+          ON      (c.hometax_purchases_invoice_id = p.hometax_purchases_invoice_id)
+          WHERE   p.hometax_purchases_invoice_id is null
+
+          UNION ALL
+
+          SELECT  'delete' AS operation,
+                  c.vendor_id,
+                  c.hometax_purchases_invoice_id,
+                  c.month,
+                  c.matched,
+                  p.created_at,
+                  c.updated_at
+          FROM    prev_vendor_invoices c JOIN current_vendor_invoices p
+          ON      (c.hometax_purchases_invoice_id = p.hometax_purchases_invoice_id)
+          WHERE   p.hometax_purchases_invoice_id is null
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        prev_customer_invoices
+        current_customer_invoices
+      ]
+      name: customer_invoices
+      options:
+      {
+        sql:
+          '''
+          SELECT  'update' AS operation,
+                  c.customer_id,
+                  c.hometax_sales_invoice_id,
+                  c.month,
+                  c.matched,
+                  p.created_at,
+                  c.updated_at
+          FROM    current_customer_invoices c JOIN prev_customer_invoices p
+          ON      (c.hometax_sales_invoice_id = p.hometax_sales_invoice_id)
+          WHERE   (c.customer_id != p.customer_id OR
+                  c.month != p.month OR
+                  (p.matched is null OR c.matched != p.matched)
+          )
+
+          UNION ALL
+
+          SELECT  'insert' AS operation,
+                  c.customer_id,
+                  c.hometax_sales_invoice_id,
+                  c.month,
+                  c.matched,
+                  p.created_at,
+                  c.updated_at
+          FROM    current_customer_invoices c JOIN prev_customer_invoices p
+          ON      (c.hometax_sales_invoice_id = p.hometax_sales_invoice_id)
+          WHERE   p.hometax_sales_invoice_id is null
+
+          UNION ALL
+
+          SELECT  'delete' AS operation,
+                  c.customer_id,
+                  c.hometax_sales_invoice_id,
+                  c.month,
+                  c.matched,
+                  p.created_at,
+                  c.updated_at
+          FROM    prev_customer_invoices c JOIN current_customer_invoices p
+          ON      (c.hometax_sales_invoice_id = p.hometax_sales_invoice_id)
+          WHERE   p.hometax_sales_invoice_id is null
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        vendor_transactions
+      ]
+      name: vendor_transactions_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://${output_path}/etl/date_id=${date_id}/diff/vendor_transactions
+        partitions: operation
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        customer_transactions
+      ]
+      name: customer_transactions_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://${output_path}/etl/date_id=${date_id}/diff/customer_transactions
+        partitions: operation
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        vendor_invoices
+      ]
+      name: vendor_invoices_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://${output_path}/etl/date_id=${date_id}/diff/vendor_invoices
+        partitions: operation
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        customer_invoices
+      ]
+      name: customer_invoices_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://${output_path}/etl/date_id=${date_id}/diff/customer_invoices
+        partitions: operation
+      }
+      type: file
+    }
+  ]
+}

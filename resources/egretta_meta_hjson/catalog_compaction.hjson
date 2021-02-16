@@ -1,0 +1,43 @@
+{
+  name: catalog_compaction
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: catalog_raw_src
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: text
+        paths: ${INPUT_PATH}
+      }
+      type: custom
+    }
+  ]
+  process:
+  [
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        catalog_raw_src
+      ]
+      name: file_sink
+      options:
+      {
+        mode: overwritePartitions
+        path: "${OUTPUT_PATH}"
+        format: text
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: tb,created_at_date
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

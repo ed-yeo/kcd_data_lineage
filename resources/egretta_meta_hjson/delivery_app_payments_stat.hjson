@@ -1,0 +1,269 @@
+{
+  name: delivery_app_payments_stat
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: delivery_apps
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_SNAPSHOT_DB_PATH}/delivery_apps
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: baemin_payments
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/baemin_payments
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: yogiyo_payments
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/yogiyo_payments
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: baedaltong_payments
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/baedaltong_payments
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        delivery_apps
+        baemin_payments
+      ]
+      name: valid_baemin_payments
+      options:
+      {
+        sql:
+          '''
+          SELECT  a.business_id,
+                  s.*,
+                  'baemin' AS app_name
+          FROM    (
+              SELECT  *,
+                      row_number() OVER (
+                          PARTITION BY shop_id, deposited_at, period_started_at, period_ended_at, settle_code
+                          ORDER BY status_seq DESC
+                      ) AS status_rank
+              FROM    (
+                  SELECT *,
+                         CASE
+                          WHEN status = 'COMPLETE' THEN 2
+                          WHEN status = 'REQUEST' THEN 1
+                          WHEN status = 'PLAN' THEN 0
+                          ELSE 0
+                         END AS status_seq
+                  FROM   baemin_payments
+                  WHERE  deposited_at between '${MIN_DATE}' AND '${MAX_DATE}'
+                  AND    received_amount > 0
+              )
+          ) s, delivery_apps a
+          WHERE   status_rank = 1
+          AND     s.shop_id = a.id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        delivery_apps
+        baedaltong_payments
+      ]
+      name: valid_baedaltong_payments
+      options:
+      {
+        sql:
+          '''
+          SELECT  a.business_id, s.*, 'baedaltong' AS app_name
+          FROM    baedaltong_payments s, delivery_apps a
+          WHERE   received_amount > 0
+          AND     deposited_at between '${MIN_DATE}' AND '${MAX_DATE}'
+          AND     s.shop_id = a.id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        delivery_apps
+        yogiyo_payments
+      ]
+      name: valid_yogiyo_payments
+      options:
+      {
+        sql:
+          '''
+          SELECT  a.business_id, s.*, 'yogiyo' AS app_name
+          FROM    yogiyo_payments s, delivery_apps a
+          WHERE   received_amount > 0
+          AND     deposited_at between '${MIN_DATE}' AND '${MAX_DATE}'
+          AND     s.shop_id = a.id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        valid_baemin_payments
+        valid_baedaltong_payments
+        valid_yogiyo_payments
+      ]
+      name: daily_order_payments_stat
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd') AS time_key
+          FROM      (
+              SELECT    business_id,
+                        date_trunc('day', deposited_at) AS time,
+                        'day' AS time_unit,
+                        SUM(received_amount) AS received_amount,
+                        SUM(IF (app_name = 'baemin', received_amount, 0)) AS baemin_received_amount,
+                        SUM(IF (app_name = 'baedaltong', received_amount, 0)) AS baedaltong_received_amount,
+                        SUM(IF (app_name = 'yogiyo', received_amount, 0)) AS yogiyo_received_amount,
+                        SUM(order_amount) AS order_amount,
+                        SUM(IF (app_name = 'baemin', order_amount, 0)) AS baemin_order_amount,
+                        SUM(IF (app_name = 'baedaltong', order_amount, 0)) AS baedaltong_order_amount,
+                        SUM(IF (app_name = 'yogiyo', order_amount, 0)) AS yogiyo_order_amount,
+                        MIN(period_started_at) AS period_started_at,
+                        MAX(period_ended_at) AS period_ended_at
+              FROM      (
+                SELECT  business_id,
+                        deposited_at,
+                        received_amount,
+                        order_amount + delivery_tip AS order_amount,
+                        period_started_at,
+                        period_ended_at,
+                        app_name
+                FROM    valid_baemin_payments
+
+                UNION ALL
+
+                SELECT  business_id,
+                        deposited_at,
+                        received_amount,
+                        online_order_amount AS order_amount,
+                        period_started_at,
+                        period_ended_at,
+                        app_name
+                FROM    valid_baedaltong_payments
+
+                UNION ALL
+
+                SELECT  business_id,
+                        deposited_at,
+                        received_amount,
+                        order_amount + delivery_tip - offline_amount AS order_amount,
+                        period_started_at,
+                        period_ended_at,
+                        app_name
+                FROM    valid_yogiyo_payments
+              )
+              GROUP BY  1, 2
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        daily_order_payments_stat
+      ]
+      name: monthly_order_payments_stat
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd') AS time_key
+          FROM      (
+              SELECT    business_id,
+                        date_trunc('month', time) AS time,
+                        'month' AS time_unit,
+                        SUM(received_amount) AS received_amount,
+                        SUM(baemin_received_amount) AS baemin_received_amount,
+                        SUM(baedaltong_received_amount) AS baedaltong_received_amount,
+                        SUM(yogiyo_received_amount) AS yogiyo_received_amount,
+                        SUM(order_amount) AS order_amount,
+                        SUM(baemin_order_amount) AS baemin_order_amount,
+                        SUM(baedaltong_order_amount) AS baedaltong_order_amount,
+                        SUM(yogiyo_order_amount) AS yogiyo_order_amount,
+                        MIN(period_started_at) AS period_started_at,
+                        MAX(period_ended_at) AS period_ended_at
+              FROM      daily_order_payments_stat
+              GROUP BY  1, 2
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        daily_order_payments_stat
+        monthly_order_payments_stat
+      ]
+      name: delivery_app_payments_stat
+      options:
+      {
+        sql:
+          '''
+          SELECT * FROM daily_order_payments_stat
+          UNION ALL
+          SELECT * FROM monthly_order_payments_stat
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        delivery_app_payments_stat
+      ]
+      name: file_sink
+      options:
+      {
+        mode: overwritePartitions
+        path: "${OUTPUT_BASE_PATH}/delivery_app_payments_stat"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: time_unit,time_key
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: file
+    }
+  ]
+}

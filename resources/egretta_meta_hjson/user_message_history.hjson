@@ -1,0 +1,120 @@
+{
+  name: user_message_history
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: target_messages
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_MESSAGE_DIR}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: dmp_message_result_stat
+      options:
+      {
+        format: json
+        paths: ${CATALOG_DIR}/raw/tb=dmp_message_result_stat
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: user_message_history_prev
+      options:
+      {
+        format: parquet
+        paths: ${USER_HISTORY_DIR}/date_id=${PREV_DATE}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        dmp_message_result_stat
+        target_messages
+      ]
+      name: user_message_history_cur
+      options:
+      {
+        sql:
+          '''
+            SELECT  DISTINCT
+                    meta_user_id AS user_id,
+                    meta_business_id AS business_id,
+                    meta_ad_group_id AS ad_group_id,
+                    meta_user_type AS user_type
+            FROM    dmp_message_result_stat
+            WHERE   meta_user_id IS NOT NULL
+            AND     status = true
+            AND     created_at_date BETWEEN '${START_DATE}' AND '${END_DATE}'
+            AND     meta_campaign_id != 2
+
+            UNION ALL
+
+            SELECT  DISTINCT
+                    meta.user_id,
+                    meta.business_id,
+                    meta.ad_group_id,
+                    meta.user_type
+            FROM    target_messages
+            WHERE   date_id BETWEEN '${START_DATE}' AND '${END_DATE}'
+            AND     meta.campaign_id = 2
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        user_message_history_cur
+        user_message_history_prev
+      ]
+      name: user_message_history
+      options:
+      {
+        sql:
+          '''
+          SELECT    m.*
+          FROM (
+              SELECT
+                        IF(prev.user_id IS NOT NULL, struct(prev.*), struct(cur.*)) AS m
+              FROM      user_message_history_prev AS prev
+              FULL OUTER JOIN   user_message_history_cur AS cur
+              ON    prev.business_id = cur.business_id
+              AND   prev.user_id = cur.user_id
+              AND   prev.ad_group_id = cur.ad_group_id
+              AND   prev.user_type = cur.user_type
+          )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        user_message_history
+      ]
+      name: user_message_history_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${USER_HISTORY_DIR}/date_id=${TARGET_DATE}
+      }
+      type: file
+    }
+  ]
+}

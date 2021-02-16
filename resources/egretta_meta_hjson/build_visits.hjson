@@ -1,0 +1,91 @@
+{
+  name: build_visits
+  udfs: [
+   {
+        name: append_visit_count
+        class: com.kcd.thrush.cardsales.spark.udfs.AppendVisitCount
+        params: {
+
+        }
+      }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: card_sales_transaction_src
+      options:
+      {
+        format: parquet
+        paths: ${CARD_SALES_TRANSACTION_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: grouped
+      inputs:
+      [
+        card_sales_transaction_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  key,
+                  business_id,
+                  collect_list(struct(*)) AS histories
+          FROM    (
+             SELECT *,
+                    COALESCE(encrypted_card_number, CONCAT_WS('_', issuer_name, card_number)) AS key
+             FROM   card_sales_transaction_src
+             WHERE  transacted_at >= '${from_date_id}'
+             AND    created_at_date >= '${from_date_id}'
+          )
+          GROUP BY key, business_id
+          '''
+      }
+    }
+    {
+      name: visits
+      inputs:
+      [
+        grouped
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  tx_with_count.transaction.*,
+                  tx_with_count.prev_visit_count
+          FROM    (
+            SELECT  explode(append_visit_count(histories)) AS tx_with_count
+            FROM    grouped
+          )
+          WHERE   transacted_at >= date_add('${from_date_id}', 365)
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      name: file_sink
+      inputs:
+      [
+        visits
+      ]
+      type: file
+      options:
+      {
+        path: ${TARGET_PATH}/visits
+        format: parquet
+        mode: overwrite
+      }
+    }
+  ]
+}

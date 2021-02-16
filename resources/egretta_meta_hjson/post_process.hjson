@@ -1,0 +1,62 @@
+{
+  name: post_process
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: aggregated
+      options:
+      {
+        format: parquet
+        paths: "${output_path}/aggregated"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        aggregated
+      ]
+      name: norm
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  count_weight / CAST(total_count_weight AS DOUBLE) AS confidence
+          FROM    (
+            SELECT  business_id,
+                    feature_value,
+                    count_weight,
+                    SUM(count_weight) OVER (PARTITION BY feature_value) AS total_count_weight,
+                    SUM(count_weight) OVER (PARTITION BY business_id) AS business_total_count_weight
+            FROM    aggregated
+          )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        norm
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${output_path}/norm"
+      }
+      type: file
+    }
+  ]
+}

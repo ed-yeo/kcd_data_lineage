@@ -1,0 +1,194 @@
+{
+  name: pos_menus_tok_k
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: pos_menus_raw
+      options:
+      {
+        format: parquet
+        paths: "${INPUT_PATH}"
+        partition_keys: 'created_at_date'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        pos_menus_raw
+      ]
+      name: pos_menus
+      options:
+      {
+        sql:
+          '''
+              SELECT
+                  *
+              FROM
+                  pos_menus_raw
+              WHERE
+                  created_at_date >= '${DATE_AFTER}'
+              AND business_id IS NOT NULL
+              AND name IS NOT NULL
+              AND name != ''
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_menus
+      ]
+      name: pos_menus_with_time_bucket
+      options:
+      {
+        sql:
+          '''
+             SELECT
+                 *,
+                 CASE
+                     WHEN order_hour = -1 then '전체'
+                     WHEN order_hour between 0 and 5 then '새벽'
+                     WHEN order_hour between 6 and 10 then '아침'
+                     WHEN order_hour between 11 and 13 then '점심'
+                     WHEN order_hour between 14 and 16 then '오후'
+                     ELSE '저녁'
+                 END AS time_bucket
+             FROM
+                 (SELECT
+                     business_id,
+                     name,
+                     price,
+                     order_time,
+                     order_month,
+                     count,
+                     CAST(date_format(to_timestamp(order_time, "yyyy-MM-dd HH:mm:ss"), "HH") as integer) as order_hour
+                 FROM
+                     pos_menus
+
+                 UNION ALL
+
+                 SELECT
+                     business_id,
+                     name,
+                     price,
+                     order_time,
+                     order_month,
+                     count,
+                     -1 as order_hour
+                 FROM
+                     pos_menus
+                 )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_menus_with_time_bucket
+      ]
+      name: pos_menus_top_k
+      options:
+      {
+        sql:
+          '''
+             SELECT
+                 *,
+                 row_number() OVER (PARTITION BY business_id, order_month, time_bucket ORDER BY total_amount DESC) AS rank
+             FROM
+                (
+                 SELECT
+                     business_id,
+                     order_month,
+                     time_bucket,
+                     name,
+                     sum(price * count) as total_amount,
+                     sum(`count`) as total_count
+                 FROM
+                     pos_menus_with_time_bucket
+                 GROUP BY
+                     business_id,
+                     order_month,
+                     time_bucket,
+                     name
+                )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_menus_top_k
+      ]
+      name: pos_menus_top_k_jdbc
+      options:
+      {
+        sql:
+          '''
+             SELECT
+                 business_id,
+                 order_month,
+                 time_bucket,
+                 sum(total_amount) as total_amount,
+                 sum(total_count) as total_count,
+                 to_json(collect_list(struct(rank, name, total_amount, total_count))) as rows
+             FROM
+                 pos_menus_top_k
+             GROUP BY
+                 business_id,
+                 order_month,
+                 time_bucket
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        pos_menus_top_k
+      ]
+      name: file_sink
+      options:
+      {
+        mode: overwrite
+        path: ${OUTPUT_PATH}
+        format: parquet
+        partitions: order_month
+        numPartitions: "10"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        pos_menus_top_k_jdbc
+      ]
+      name: jdbc_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        operation: upsert
+        dbtable: ${DB_TABLE_NAME}
+        conflictColumns: business_id,order_month,time_bucket
+        updateColumns: rows,total_amount,total_count
+        typeCastColumns: "rows:jsonb"
+      }
+      type: jdbc
+    }
+  ]
+}

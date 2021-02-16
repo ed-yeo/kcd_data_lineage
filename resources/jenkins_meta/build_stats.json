@@ -1,0 +1,173 @@
+{
+  "name": "build_stats",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "credentials",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "credentials",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "credential_keys",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "credential_keys",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "transactions_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/visits"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "purchases",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/purchases",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "payments",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/payments",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "transactions",
+      "inputs": [
+        "credential_keys",
+        "credentials",
+        "transactions_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    t.*\nFROM      transactions_raw t, credential_keys k, credentials c\nWHERE     t.business_id = k.business_id\nAND       t.credential_key = k.uuid\nAND       k.credential_id = c.id\nAND       c.status = 1\nAND       (\n            (purchased_at is not null AND purchase_canceled_at is null) OR\n            (purchased_at is null AND approval_canceled_at is null)\n          )"
+      }
+    },
+    {
+      "inputs": [
+        "transactions"
+      ],
+      "name": "daily_hour_transactions_stat",
+      "options": {
+        "sql": "SELECT    t.business_id,\n          t.credential_key,\n          date_trunc('hour', t.transacted_at) AS time,\n          'day_hour' AS time_unit,\n          COALESCE(SUM(t.amount), 0) AS card_sales_amount,\n          COUNT(*) AS card_sales_count,\n          COALESCE(SUM(t.fee), 0) AS card_sales_fee,\n          COALESCE(SUM(t.vat_fee), 0) AS card_sales_vat_fee,\n          COALESCE(SUM(t.payment), 0) AS card_sales_payment,\n          SUM(IF (t.visit_order > 1, t.amount, 0)) AS returning_amount,\n          SUM(IF (t.visit_order > 1, 1, 0)) AS returning_count\nFROM      transactions t\nGROUP BY  1, 2, 3"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "daily_hour_transactions_stat"
+      ],
+      "name": "daily_transactions_stat",
+      "options": {
+        "sql": "SELECT    t.business_id,\n          t.credential_key,\n          date_trunc('day', time) AS time,\n          'day' AS time_unit,\n          SUM(card_sales_amount) AS card_sales_amount,\n          SUM(card_sales_count) AS card_sales_count,\n          SUM(card_sales_fee) AS card_sales_fee,\n          SUM(card_sales_vat_fee) AS card_sales_vat_fee,\n          SUM(card_sales_payment) AS card_sales_payment,\n          SUM(returning_amount) AS returning_amount,\n          SUM(returning_count) AS returning_count\nFROM      daily_hour_transactions_stat t\nGROUP BY 1, 2, 3"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "daily_transactions_stat"
+      ],
+      "name": "monthly_transactions_stat",
+      "options": {
+        "sql": "SELECT    t.business_id,\n          t.credential_key,\n          date_trunc('month', time) AS time,\n          'month' AS time_unit,\n          SUM(card_sales_amount) AS card_sales_amount,\n          SUM(card_sales_count) AS card_sales_count,\n          SUM(card_sales_fee) AS card_sales_fee,\n          SUM(card_sales_vat_fee) AS card_sales_vat_fee,\n          SUM(card_sales_payment) AS card_sales_payment,\n          SUM(returning_amount) AS returning_amount,\n          SUM(returning_count) AS returning_count\nFROM      daily_transactions_stat t\nGROUP BY 1, 2, 3"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "daily_hour_transactions_stat",
+        "daily_transactions_stat",
+        "monthly_transactions_stat"
+      ],
+      "name": "transactions_stat",
+      "options": {
+        "sql": "SELECT * FROM daily_hour_transactions_stat\nUNION ALL\nSELECT * FROM daily_transactions_stat\nUNION ALL\nSELECT * FROM monthly_transactions_stat"
+      },
+      "type": "sql"
+    },
+    {
+      "name": "purchases_stat",
+      "inputs": [
+        "purchases"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          credential_key,\n          paid_at AS time,\n          issuer_name,\n          'day' AS time_unit,\n          SUM(payment) AS expected\nFROM      purchases\nGROUP BY 1, 2, 3, 4"
+      }
+    },
+    {
+      "name": "payments_stat",
+      "inputs": [
+        "payments"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id,\n        credential_key,\n        received_at AS time,\n        issuer_name,\n        'day' AS time_unit,\n        SUM(reserved_amount) AS reserved,\n        SUM(received_amount) AS received\nFROM    payments\nGROUP BY 1, 2, 3, 4"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "transactions_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/stat/snowdon/card_sales/transactions_stat",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "purchases_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/stat/snowdon/card_sales/purchases_stat",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "payments_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/stat/snowdon/card_sales/payments_stat",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

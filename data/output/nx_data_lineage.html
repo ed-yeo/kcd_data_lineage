@@ -1,0 +1,121 @@
+<html>
+<head>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.16.1/vis.css" type="text/css" />
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.16.1/vis-network.min.js"> </script>
+<center>
+<h1>None</h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+
+<style type="text/css">
+
+        #mynetwork {
+            width: 1000px;
+            height: 1000px;
+            background-color: #ffffff;
+            border: 1px solid lightgray;
+            position: relative;
+            float: left;
+        }
+
+        
+
+        
+
+        
+</style>
+
+</head>
+
+<body>
+<div id = "mynetwork"></div>
+
+
+<script type="text/javascript">
+
+    // initialize global variables.
+    var edges;
+    var nodes;
+    var network; 
+    var container;
+    var options, data;
+
+    
+    // This method is responsible for drawing the graph, returns the drawn network
+    function drawGraph() {
+        var container = document.getElementById('mynetwork');
+        
+        
+
+        // parsing and collecting nodes and edges from the python
+        nodes = new vis.DataSet([{"id": "process:::hometax_address:::business_location_sources", "label": "process:::hometax_address:::business_location_sources", "shape": "dot", "size": 10}, {"id": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=hometax", "label": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=hometax", "shape": "dot", "size": 10}, {"id": "snowdon.hometax_businesses", "label": "snowdon.hometax_businesses", "shape": "dot", "size": 10}, {"id": "jdbc:hometax_businesses", "label": "jdbc:hometax_businesses", "shape": "dot", "size": 10}, {"id": "s3://kcd-de-production/data_sources/lookup/subject=location/name=total_region", "label": "s3://kcd-de-production/data_sources/lookup/subject=location/name=total_region", "shape": "dot", "size": 10}]);
+        edges = new vis.DataSet([{"arrows": "to", "from": "process:::hometax_address:::business_location_sources", "to": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=hometax", "weight": 1}, {"arrows": "to", "from": "snowdon.hometax_businesses", "to": "process:::hometax_address:::business_location_sources", "weight": 1}, {"arrows": "to", "from": "jdbc:hometax_businesses", "to": "snowdon.hometax_businesses", "weight": 1}, {"arrows": "to", "from": "s3://kcd-de-production/data_sources/lookup/subject=location/name=total_region", "to": "process:::hometax_address:::business_location_sources", "weight": 1}]);
+
+        // adding nodes and edges to the graph
+        data = {nodes: nodes, edges: edges};
+
+        var options = {
+    "configure": {
+        "enabled": false
+    },
+    "edges": {
+        "color": {
+            "inherit": true
+        },
+        "smooth": {
+            "enabled": false,
+            "type": "continuous"
+        }
+    },
+    "interaction": {
+        "dragNodes": true,
+        "hideEdgesOnDrag": false,
+        "hideNodesOnDrag": false
+    },
+    "layout": {
+        "hierarchical": {
+            "blockShifting": true,
+            "edgeMinimization": true,
+            "enabled": true,
+            "levelSeparation": 150,
+            "parentCentralization": true,
+            "sortMethod": "hubsize",
+            "treeSpacing": 200
+        },
+        "improvedLayout": true,
+        "randomSeed": 0
+    },
+    "physics": {
+        "enabled": true,
+        "stabilization": {
+            "enabled": true,
+            "fit": true,
+            "iterations": 1000,
+            "onlyDynamicEdges": false,
+            "updateInterval": 50
+        }
+    }
+};
+        
+        
+
+        
+
+        network = new vis.Network(container, data, options);
+
+        
+
+
+        
+
+        return network;
+
+    }
+
+    drawGraph();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,96 @@
+{
+  "name": "asp_pos_post_process",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "items",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=pos_items/created_at_date=2021-01-28",
+        "partition_keys": "created_at_date",
+        "log_leaf_file": "true"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "payments",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=pos_payments/created_at_date=2021-01-28",
+        "partition_keys": "created_at_date",
+        "log_leaf_file": "true"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "items"
+      ],
+      "name": "formatted_items",
+      "options": {
+        "sql": "SELECT    *,\n          concat_ws('|', store_pos_key, receipt_key, item_key) as record_key,\n          current_timestamp() as ts,\n          date_format(date_trunc('day', receipt_ordered_at), 'yyyy-MM-dd') as ordered_at_date\nFROM      (\n    SELECT    concat_ws('|',\n                 brand_registration_number,\n                 francise_registration_number,\n                 store_registration_number,\n                 store_uid,\n                 pos_uid\n              ) as store_pos_key,\n              concat_ws('|',\n                 receipt_uid,\n                 receipt_status,\n                 date_format(receipt_ordered_at, 'yyyyMMDDHHmmss'),\n                 date_format(receipt_paid_at, 'yyyyMMDDHHmmss'),\n                 cancelled_receipt_uid\n              ) as receipt_key,\n              concat_ws('|',\n                 item_name,\n                 item_ordered_at,\n                 item_amount,\n                 item_price,\n                 item_quantity,\n                 item_discount,\n                 item_vat\n              ) as item_key,\n              a.*\n    FROM      (\n        SELECT DISTINCT\n               trim(target) as pos_asp_agent,\n               trim(payload_br_uid) as brand_uid,\n               trim(payload_br_name) as brand_name,\n               trim(replace(payload_br_registration_number, '-', '')) as brand_registration_number,\n               trim(payload_fr_uid) as francise_uid,\n               trim(payload_fr_name) as francise_name,\n               trim(replace(payload_fr_registration_number, '-', '')) as francise_registration_number,\n               trim(payload_st_uid) as store_uid,\n               trim(payload_st_name) as store_name,\n               trim(replace(payload_st_registration_number, '-', '')) as store_registration_number,\n               trim(payload_fr_address) as francise_address,\n               trim(payload_st_address) as store_address,\n               CAST(payload_st_site_area AS int) as store_area,\n               CAST(payload_st_table_count AS int) as store_table_count,\n               trim(payload_pos_uid) as pos_uid,\n               trim(payload_pos_name) as pos_name,\n               trim(payload_rcp_table_id) as table_uid,\n\n               trim(payload_rcp_uid) as receipt_uid,\n               trim(payload_rcp_cancelled_uid) as cancelled_receipt_uid,\n               trim(payload_rcp_status) as receipt_status,\n               to_timestamp(replace(regexp_replace(payload_rcp_ordered_at, '[\\:, \\-, \\s]', ''), '-', ''), 'yyyyMMddHHmmss') as receipt_ordered_at,\n               to_timestamp(replace(regexp_replace(payload_rcp_paid_at, '[\\:, \\-, \\s]', ''), '-', ''), 'yyyyMMddHHmmss') as receipt_paid_at,\n               CAST(payload_rcp_amount AS bigint) as receipt_amount,\n               CAST(payload_rcp_discount AS bigint) as receipt_discount,\n               CAST(payload_rcp_vat AS bigint) as receipt_vat,\n\n               trim(payload_menu_uid) as menu_uid,\n               trim(payload_item_name) as item_name,\n               to_timestamp(replace(regexp_replace(payload_item_ordered_at, '[\\:, \\-, \\s]', ''), '-', ''), 'yyyyMMddHHmmss') as item_ordered_at,\n               CAST(payload_item_amount AS int) as item_amount,\n               CAST(payload_item_discount AS bigint) as item_discount,\n               CAST(payload_item_price AS bigint) as item_price,\n               CAST(payload_item_quantity AS int) as item_quantity,\n               CAST(payload_item_vat AS bigint) as item_vat\n        FROM   items\n    ) as a\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "formatted_items"
+      ],
+      "name": "filtered_items",
+      "options": {
+        "sql": "SELECT    *\nFROM      formatted_items\nWHERE     record_key is not null"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "payments"
+      ],
+      "name": "formatted_payments",
+      "options": {
+        "sql": "SELECT    *,\n          concat_ws('|', store_pos_key, receipt_key, payment_key) as record_key,\n          current_timestamp() as ts,\n          date_format(date_trunc('day', receipt_ordered_at), 'yyyy-MM-dd') as ordered_at_date\nFROM      (\n    SELECT     concat_ws('|',\n                  brand_registration_number,\n                  francise_registration_number,\n                  store_registration_number,\n                  store_uid,\n                  pos_uid\n               ) as store_pos_key,\n               concat_ws('|',\n                  receipt_uid,\n                  receipt_status,\n                  date_format(receipt_ordered_at, 'yyyyMMDDHHmmss'),\n                  date_format(receipt_paid_at, 'yyyyMMDDHHmmss'),\n                  cancelled_receipt_uid\n               ) as receipt_key,\n               concat_ws('|',\n                  payment_approved_at,\n                  payment_authorization_number,\n                  payment_cash_receipt_identification,\n                  payment_issuer,\n                  payment_acquirer,\n                  payment_card_number,\n                  payment_amount,\n                  payment_method,\n                  payment_status\n               ) as payment_key,\n               a.*\n    FROM       (\n        SELECT DISTINCT\n               trim(target) as pos_asp_agent,\n               trim(payload_br_uid) as brand_uid,\n               trim(payload_br_name) as brand_name,\n               trim(replace(payload_br_registration_number, '-', '')) as brand_registration_number,\n               trim(payload_fr_uid) as francise_uid,\n               trim(payload_fr_name) as francise_name,\n               trim(replace(payload_fr_registration_number, '-', '')) as francise_registration_number,\n               trim(payload_st_uid) as store_uid,\n               trim(payload_st_name) as store_name,\n               trim(replace(payload_st_registration_number, '-', '')) as store_registration_number,\n               trim(payload_fr_address) as francise_address,\n               trim(payload_st_address) as store_address,\n               CAST(payload_st_site_area AS int) as store_area,\n               CAST(payload_st_table_count AS int) as store_table_count,\n               trim(payload_pos_uid) as pos_uid,\n               trim(payload_pos_name) as pos_name,\n               trim(payload_rcp_table_id) as table_uid,\n\n               trim(payload_rcp_uid) as receipt_uid,\n               trim(payload_rcp_cancelled_uid) as cancelled_receipt_uid,\n               trim(payload_rcp_status) as receipt_status,\n               to_timestamp(replace(regexp_replace(payload_rcp_ordered_at, '[\\:, \\-, \\s]', ''), '-', ''), 'yyyyMMddHHmmss') as receipt_ordered_at,\n               to_timestamp(replace(regexp_replace(payload_rcp_paid_at, '[\\:, \\-, \\s]', ''), '-', ''), 'yyyyMMddHHmmss') as receipt_paid_at,\n               CAST(payload_rcp_amount AS bigint) as receipt_amount,\n               CAST(payload_rcp_discount AS bigint) as receipt_discount,\n               CAST(payload_rcp_vat AS bigint) as receipt_vat,\n\n               trim(payload_pay_method) as payment_method,\n               trim(payload_pay_status) as payment_status,\n\n               trim(payload_pay_issuer) as payment_issuer,\n               trim(payload_pay_acquirer) as payment_acquirer,\n               trim(payload_pay_card_number) as payment_card_number,\n               trim(payload_pay_authorization_number) as payment_authorization_number,\n               trim(payload_pay_cash_receipt_identification) as payment_cash_receipt_identification,\n               to_timestamp(replace(regexp_replace(payload_pay_approved_at, '[\\:, \\-, \\s]', ''), '-', ''), 'yyyyMMddHHmmss') as payment_approved_at,\n               CAST(payload_pay_amount AS bigint) as payment_amount,\n               CAST(payload_pay_price AS bigint) as payment_price,\n               CAST(payload_pay_vat AS bigint) as payment_vat,\n               CAST(payload_pay_installment AS int) as payment_installment\n        FROM   payments\n    ) as a\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "formatted_payments"
+      ],
+      "name": "filtered_payments",
+      "options": {
+        "sql": "SELECT    *\nFROM      formatted_payments\nWHERE     record_key is not null"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "filtered_payments"
+      ],
+      "name": "formatted_payments_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/pos_asp/payments/created_at_date=2021-01-28",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "filtered_items"
+      ],
+      "name": "formatted_items_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/pos_asp/items/created_at_date=2021-01-28",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

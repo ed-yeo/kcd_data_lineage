@@ -1,0 +1,127 @@
+{
+  "name": "payments",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "credential_keys",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/credential_keys",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "current_payments_raw",
+      "options": {
+        "paths": "s3://kcd-logs-raw/dev/dumps/2019-08-27/card_sales_payments",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "after_payments_raw",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource",
+        "paths": "s3://kcd-logs-raw/dev/card_sales/incremental/payments",
+        "format": "parquet",
+        "partition_keys": "year,month,day,hour",
+        "log_leaf_file": "true",
+        "mergeSchema": "true",
+        "extraColumns": "credential_key:string,scraping_type:string"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "catalog_payments_raw",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=owl_api_card_sales_payments",
+        "format": "json",
+        "partition_keys": "created_at_date,created_at_hour",
+        "log_leaf_file": "true",
+        "mergeSchema": "true",
+        "extraColumns": "credential_key:string,scraping_type:string"
+      },
+      "type": "custom"
+    }
+  ],
+  "process": [
+    {
+      "name": "current_payments",
+      "inputs": [
+        "credential_keys",
+        "current_payments_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "  SELECT  CAST(a.business_id AS int) AS business_id,\n          k.uuid AS credential_key,\n          trim(issuer_name) AS issuer_name,\n          trim(merchant_number) AS merchant_number,\n          trim(bank_name) AS bank_name,\n          trim(account_number) AS account_number,\n          CAST(COALESCE(sales_count, 0) AS INT) AS sales_count,\n          CAST(null AS string) AS scraping_type,\n          CAST(COALESCE(reserved_amount, 0) AS BIGINT) AS reserved_amount,\n          CAST(COALESCE(etc_amount, 0) AS BIGINT) AS etc_amount,\n          CAST(COALESCE(sales_amount, 0) AS BIGINT) AS sales_amount,\n          CAST(COALESCE(received_amount, 0) AS BIGINT) AS received_amount,\n          CAST(COALESCE(vat_fee_amount, 0) AS BIGINT) AS vat_fee_amount,\n          received_at,\n          a.created_at,\n          a.updated_at\n  FROM    current_payments_raw a INNER JOIN credential_keys k\n  ON      a.business_id = k.business_id"
+      }
+    },
+    {
+      "name": "catalog_payments_filtered",
+      "inputs": [
+        "catalog_payments_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": " SELECT   *\n FROM     catalog_payments_raw\n WHERE    created_at_date >= '2020-12-25'\n AND      created_at_date < '2021-01-25'"
+      }
+    },
+    {
+      "name": "after_payments",
+      "inputs": [
+        "credential_keys",
+        "after_payments_raw",
+        "catalog_payments_filtered"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "  SELECT  CAST(a.business_id AS int) AS business_id,\n          COALESCE(a.credential_key, k.uuid) AS credential_key,\n          trim(IF (cardNm = '', null, replace(cardNm, '카드', ''))) AS issuer_name,\n          trim(IF (merNo = '', null, merNo)) AS merchant_number,\n          trim(IF (stlBankNm = '', null, replace(stlBankNm, '은행', ''))) AS bank_name,\n          trim(stlAcctNo) AS account_number,\n          CAST(pcaCnt AS int) AS sales_count,\n          scraping_type,\n          CAST(rsvAmt AS BIGINT) AS reserved_amount,\n          CAST(etcAmt AS BIGINT) AS etc_amount,\n          CAST(pcaAmt AS BIGINT) AS sales_amount,\n          CAST(rcpScdAmt AS BIGINT) AS received_amount,\n          CAST(vatFeeAmt AS BIGINT) AS vat_fee_amount,\n          to_timestamp(unix_timestamp(pymDate, 'yyyyMMdd')) AS received_at,\n          to_timestamp(\n            concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')\n          ) AS created_at,\n          to_timestamp(\n            concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')\n          ) AS updated_at\n  FROM    after_payments_raw a LEFT OUTER JOIN credential_keys k\n  ON      a.business_id = k.business_id\n\n  UNION ALL\n\n  SELECT  CAST(a.business_id AS int) AS business_id,\n          COALESCE(a.credential_key, k.uuid) AS credential_key,\n          trim(IF (cardnm = '', null, replace(cardnm, '카드', ''))) AS issuer_name,\n          trim(IF (merno = '', null, merno)) AS merchant_number,\n          trim(IF (stlbanknm = '', null, replace(stlbanknm, '은행', ''))) AS bank_name,\n          trim(stlacctno) AS account_number,\n          CAST(pcacnt AS int) AS sales_count,\n          scraping_type,\n          CAST(rsvamt AS BIGINT) AS reserved_amount,\n          CAST(etcamt AS BIGINT) AS etc_amount,\n          CAST(pcaamt AS BIGINT) AS sales_amount,\n          CAST(rcpscdamt AS BIGINT) AS received_amount,\n          CAST(vatfeeamt AS BIGINT) AS vat_fee_amount,\n          to_timestamp(unix_timestamp(pymdate, 'yyyyMMdd')) AS received_at,\n          to_timestamp(\n            concat(created_at_date, ' ', created_at_hour, ':00:00.000')\n          ) AS created_at,\n          to_timestamp(\n            concat(created_at_date, ' ', created_at_hour, ':00:00.000')\n          ) AS updated_at\n  FROM    catalog_payments_filtered a LEFT OUTER JOIN credential_keys k\n  ON      a.business_id = k.business_id"
+      }
+    },
+    {
+      "name": "reformat_payments",
+      "inputs": [
+        "current_payments",
+        "after_payments"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      (\n  SELECT  * FROM current_payments\n\n  UNION ALL\n\n  SELECT * FROM after_payments\n)\nWHERE     business_id is not null\nAND       merchant_number is not null\nAND       bank_name is not null\nAND       received_at is not null"
+      }
+    },
+    {
+      "name": "payments",
+      "inputs": [
+        "reformat_payments"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "  SELECT  business_id,\n          credential_key,\n          merchant_number,\n          bank_name,\n          received_at,\n          MIN(issuer_name) AS issuer_name,\n          MIN(account_number) AS account_number,\n          MIN(sales_count) AS sales_count,\n          MIN(scraping_type) AS scraping_type,\n          MIN(reserved_amount) AS reserved_amount,\n          MIN(etc_amount) AS etc_amount,\n          MIN(sales_amount) AS sales_amount,\n          MIN(received_amount) AS received_amount,\n          MIN(vat_fee_amount) AS vat_fee_amount,\n          MIN(created_at) AS created_at,\n          MIN(updated_at) AS updated_at,\n          MIN(date_format(created_at, 'yyyy-MM-dd')) AS created_at_date\n  FROM    reformat_payments\n  GROUP BY business_id, credential_key, merchant_number, bank_name, received_at"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "payments"
+      ],
+      "name": "payments_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-data-staging/raw/etl/snowdon/card_sales/payments",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

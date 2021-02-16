@@ -1,0 +1,72 @@
+{
+  name: result_log
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs:
+      []
+      name: tb_dmp_message_result_stat
+      options:
+      {
+        format: json
+        paths: ${CATALOG_DIR}/raw/tb=dmp_message_result_stat
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+        inputs:
+        [
+          tb_dmp_message_result_stat
+        ]
+        name: es_log
+        options:
+        {
+          sql:
+            '''
+                SELECT
+                        cast(timestamp/1000 as timestamp) AS timestamp,
+                        id AS message_id,
+                        meta_campaign_id AS campaign_id,
+                        meta_ad_group_id AS ad_group_id,
+                        meta_creative_id AS creative_id,
+                        meta_business_id AS business_id,
+                        meta_user_id AS user_id,
+                        meta_type AS `type`,
+                        raw_request_ad_flag AS ad_flag,
+                        raw_request_message_type AS message_type,
+                        status,
+                        message,
+                        error_detail AS error_detail
+                FROM tb_dmp_message_result_stat
+            '''
+        }
+        type: sql
+      }
+  ]
+  sink:
+  [
+    {
+      "inputs": [
+        es_log
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "${targetIndexName}",
+        "es.nodes": "${ES_HOST}"
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+        "es.mapping.id": "message_id"
+      },
+      "type": "es"
+    }
+  ]
+}

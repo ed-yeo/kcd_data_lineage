@@ -1,0 +1,159 @@
+{
+  "name": "dump_db_goose",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "users",
+      "options": {
+        "url": "jdbc:postgresql://goose-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/goose_production",
+        "dbtable": "users",
+        "user": "shon_ro",
+        "password": "Rht49bKsJrm3zvGP",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "card_agreements",
+      "options": {
+        "url": "jdbc:postgresql://goose-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/goose_production",
+        "dbtable": "card_agreements",
+        "user": "shon_ro",
+        "password": "Rht49bKsJrm3zvGP",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "place_merchants",
+      "options": {
+        "url": "jdbc:postgresql://goose-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/goose_production",
+        "dbtable": "place_merchants",
+        "user": "shon_ro",
+        "password": "Rht49bKsJrm3zvGP",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "place_masters",
+      "options": {
+        "url": "jdbc:postgresql://goose-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/goose_production",
+        "dbtable": "place_masters",
+        "user": "shon_ro",
+        "password": "Rht49bKsJrm3zvGP",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "places",
+      "options": {
+        "url": "jdbc:postgresql://goose-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/goose_production",
+        "dbtable": "places",
+        "user": "shon_ro",
+        "password": "Rht49bKsJrm3zvGP",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "devices",
+      "options": {
+        "url": "jdbc:postgresql://goose-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/goose_production",
+        "dbtable": "devices",
+        "user": "shon_ro",
+        "password": "Rht49bKsJrm3zvGP",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    }
+  ],
+  "process": [],
+  "sink": [
+    {
+      "inputs": [
+        "users"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/goose/snapshot/date_id=2021-01-29/hour=12/users"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "card_agreements"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/goose/snapshot/date_id=2021-01-29/hour=12/card_agreements"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "place_merchants"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/goose/snapshot/date_id=2021-01-29/hour=12/place_merchants"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "place_masters"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/goose/snapshot/date_id=2021-01-29/hour=12/place_masters"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "places"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/goose/snapshot/date_id=2021-01-29/hour=12/places"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "devices"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/db/goose/snapshot/date_id=2021-01-29/hour=12/devices"
+      },
+      "type": "file"
+    }
+  ]
+}

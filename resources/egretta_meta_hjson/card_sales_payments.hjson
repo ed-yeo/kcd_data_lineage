@@ -1,0 +1,82 @@
+{
+  name: card_sales_payments
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: payments
+      options:
+      {
+        format: parquet
+        paths: ${CARD_SALES_DIR}/payments
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        payments
+      ]
+      name: payments_stat
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    timestamp,
+                    business_id,
+                    date_format(timestamp, 'yyyy-MM-dd') AS date_id,
+                    SUM(sales_amount_sum) AS sales_amount_sum,
+                    SUM(sales_count) AS sales_count,
+                    map_from_entries(collect_list(struct(issuer_name, sales_amount_sum))) AS issuer_amount_sum,
+                    map_from_entries(collect_list(struct(issuer_name, sales_count))) AS issuer_tx_count
+            FROM (
+                    SELECT
+                            timestamp,
+                            business_id,
+                            issuer_name,
+                            SUM(sales_amount) AS sales_amount_sum,
+                            SUM(sales_count) AS sales_count
+                    FROM (
+                            SELECT
+                                    business_id,
+                                    date_trunc('${TIME_UNIT}', received_at) AS timestamp,
+                                    sales_amount,
+                                    sales_count,
+                                    issuer_name
+                            FROM    payments
+                            WHERE   business_id IS NOT NULL
+                            AND     received_at between '${from_date_id}' AND '${to_date_id}'
+                    )
+                    GROUP BY business_id, issuer_name, timestamp
+           ) GROUP BY business_id, timestamp
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        payments_stat
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${FACT_DIR}/time_unit=${TIME_UNIT}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=sales_payments
+        evenPartitions: "true"
+        partitions: date_id
+      }
+      type: file
+    }
+  ]
+}

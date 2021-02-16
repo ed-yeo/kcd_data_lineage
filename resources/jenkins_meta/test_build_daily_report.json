@@ -1,0 +1,280 @@
+{
+  "name": "build_daily_report",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "credentials",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-12-30/hour=11/credentials"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "credential_keys",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-12-30/hour=11/credential_keys"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_merchants",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-12-30/hour=11/card_merchants"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "issuer_histories",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/date_id=2020-12-30/hour=11/issuer_histories/"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "transactions_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/transactions"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "payments",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/payments",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_purchases_stat",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/card/card_purchases_stat"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_stat",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/hometax/hometax_stat"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "delivery_app_orders_stat_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/delivery_app_v2/delivery_app_orders_stat"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "issuer_purchase_period",
+      "inputs": [
+        "card_merchants",
+        "issuer_histories"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT\n        business_id,\n        issuer_name,\n        merchant_number,\n        date_sub(purchased_up_to, purchase_period) AS limit_date\nFROM (\n    SELECT\n            business_id,\n            issuer_name,\n            merchant_number,\n            COALESCE(calculated_purchase_period, 1) AS purchase_period,\n            purchased_up_to\n    FROM card_merchants\n    JOIN (\n            SELECT  issuer AS name,\n                    max(date) AS purchased_up_to\n            FROM issuer_histories\n            WHERE purchases = true AND purchases_checked = true\n            GROUP BY issuer\n    ) AS issuers\n    ON card_merchants.issuer_name = issuers.name\n)"
+      }
+    },
+    {
+      "name": "transactions",
+      "inputs": [
+        "credential_keys",
+        "credentials",
+        "transactions_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    t.*\nFROM      transactions_raw t, credential_keys k, credentials c\nWHERE     t.created_at_date >= date_format(add_months(to_date('2021-01-01', 'yyyy-MM-dd'), -1), 'yyyy-MM-01')\nAND       date_trunc('month', transacted_at) =  date_trunc('month', to_date('2021-01-01', 'yyyy-MM-dd'))\nAND       t.business_id = k.business_id\nAND       t.credential_key = k.uuid\nAND       k.credential_id = c.id\nAND       c.status = 1\nAND       (\n            (purchased_at is not null AND purchase_canceled_at is null) OR\n            (purchased_at is null AND approval_canceled_at is null)\n          )"
+      },
+      "cache": true
+    },
+    {
+      "inputs": [
+        "transactions"
+      ],
+      "name": "daily_hour_transactions_stat",
+      "options": {
+        "sql": "SELECT    t.business_id,\n          t.credential_key,\n          date_trunc('hour', t.transacted_at) AS time,\n          'day_hour' AS time_unit,\n          COALESCE(SUM(t.amount), 0) AS card_sales_amount,\n          COUNT(*) AS card_sales_count,\n          COALESCE(SUM(t.fee), 0) AS card_sales_fee,\n          COALESCE(SUM(t.vat_fee), 0) AS card_sales_vat_fee,\n          COALESCE(SUM(t.payment), 0) AS card_sales_payment,\n          SUM(t.amount) AS returning_amount,\n          1 AS returning_count\nFROM      transactions t\nWHERE     transacted_at BETWEEN '2021-01-01' AND date_format(date_add('2021-01-01', 1), 'yyyy-MM-dd')\nGROUP BY  1, 2, 3"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "transactions"
+      ],
+      "name": "daily_card_sales",
+      "options": {
+        "sql": "SELECT    business_id,\n          time,\n          card_sales_amount,\n          card_sales_count,\n          card_sales_fee,\n          card_sales_vat_fee,\n          card_sales_payment,\n          returning_amount,\n          card_sales_amount - returning_amount AS new_amount\nFROM (\n        SELECT    t.business_id,\n                  t.credential_key,\n                  date_trunc('day', t.transacted_at) AS time,\n                  'day' AS time_unit,\n                  COALESCE(SUM(t.amount), 0) AS card_sales_amount,\n                  COUNT(*) AS card_sales_count,\n                  COALESCE(SUM(t.fee), 0) AS card_sales_fee,\n                  COALESCE(SUM(t.vat_fee), 0) AS card_sales_vat_fee,\n                  COALESCE(SUM(t.payment), 0) AS card_sales_payment,\n                  SUM(t.amount) AS returning_amount,\n                  1 AS returning_count\n        FROM      transactions t\n        WHERE     transacted_at BETWEEN '2021-01-01' AND date_format(date_add('2021-01-01', 1), 'yyyy-MM-dd')\n        GROUP BY 1, 2, 3\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "transactions",
+        "issuer_purchase_period"
+      ],
+      "name": "monthly_card_sales",
+      "options": {
+        "sql": "SELECT    business_id,\n          time,\n          card_sales_amount,\n          card_sales_count,\n          card_sales_fee,\n          card_sales_vat_fee,\n          card_sales_payment,\n          returning_amount,\n          card_sales_amount - returning_amount AS new_amount\nFROM (\n        SELECT    t.business_id,\n                  t.credential_key,\n                  date_trunc('month', t.transacted_at) AS time,\n                  'month' AS time_unit,\n                  COALESCE(SUM(t.amount), 0) AS card_sales_amount,\n                  COUNT(*) AS card_sales_count,\n                  COALESCE(SUM(t.fee), 0) AS card_sales_fee,\n                  COALESCE(SUM(t.vat_fee), 0) AS card_sales_vat_fee,\n                  COALESCE(SUM(t.payment), 0) AS card_sales_payment,\n                  SUM(t.amount) AS returning_amount,\n                  1 AS returning_count\n        FROM      transactions t, issuer_purchase_period i\n        WHERE     t.business_id = i.business_id\n        AND       t.issuer_name = i.issuer_name\n        AND       t.merchant_number = i.merchant_number\n        AND       (\n                      (date_trunc('day', t.transacted_at) > i.limit_date) OR\n                      (purchased_at is not null AND purchase_canceled_at is null) OR\n                      (approval_canceled_at is not null)\n        )\n        GROUP BY 1, 2, 3\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "name": "card_sales",
+      "inputs": [
+        "daily_card_sales",
+        "monthly_card_sales"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    nvl(d.business_id, m.business_id) AS business_id,\n          nvl(d.time, to_timestamp('2021-01-01', 'yyyy-MM-dd')) AS date,\n          m.time AS month,\n          d.card_sales_amount,\n          d.card_sales_count,\n          d.card_sales_fee,\n          d.card_sales_vat_fee,\n          d.card_sales_payment,\n          d.returning_amount,\n          d.new_amount,\n          m.card_sales_amount AS monthly_card_sales_amount\nFROM      daily_card_sales d\nFULL OUTER JOIN monthly_card_sales m\nON        d.business_id = m.business_id\nAND       date_trunc('month', d.time) = date_trunc('month', m.time)"
+      }
+    },
+    {
+      "name": "card_payments",
+      "inputs": [
+        "payments"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "  SELECT      business_id,\n              time AS date,\n              date_trunc('month', time) AS month,\n              collect_set(\n                  struct(\n                      issuer_name,\n                      reserved,\n                      received\n                  )\n              ) as payments\n  FROM (\n          SELECT  business_id,\n                credential_key,\n                to_timestamp('2021-01-01', 'yyyy-MM-dd') AS time,\n                issuer_name,\n                'day' AS time_unit,\n                SUM(reserved_amount) AS reserved,\n                SUM(received_amount) AS received\n          FROM    payments\n          WHERE   created_at_date >= '2021-01-01'\n          AND     received_at = date_format(date_add('2021-01-01', 1), 'yyyy-MM-dd')\n          GROUP BY 1, 2, 3, 4\n  )\n  GROUP BY  1, 2"
+      }
+    },
+    {
+      "name": "delivery_app_orders_stat",
+      "inputs": [
+        "delivery_app_orders_stat_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      delivery_app_orders_stat_raw\nWHERE\n  (\n    time_unit = 'month' AND\n    time BETWEEN date_format(to_date('2021-01-01', 'yyyy-MM-dd'), 'yyyy-MM-01') AND date_format(last_day('2021-01-01'), 'yyyy-MM-dd')\n  )\n  OR\n  (\n    time_unit = 'day' AND\n    time BETWEEN '2021-01-01' AND date_format(date_add('2021-01-01', 1), 'yyyy-MM-dd')\n  )\n  OR\n  (\n    time_unit = 'day_hour' AND\n    time BETWEEN '2021-01-01' AND date_format(date_add('2021-01-01', 1), 'yyyy-MM-dd')\n  )"
+      },
+      "cache": true
+    },
+    {
+      "name": "delivery_app_sales",
+      "inputs": [
+        "delivery_app_orders_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    nvl(d.business_id, m.business_id) AS business_id,\n          nvl(d.time, to_timestamp('2021-01-01', 'yyyy-MM-dd')) AS date,\n          m.time AS month,\n          d.amount_sum,\n          d.baemin_online_amount_sum,\n          d.yogiyo_online_amount_sum,\n          d.baedaltong_online_amount_sum,\n          m.baemin_online_amount_sum + m.baedaltong_online_amount_sum + m.yogiyo_online_amount_sum AS monthly_delivery_app_sales_amount\nFROM\n(\n            SELECT    business_id,\n                      time,\n                      amount_sum,\n                      baemin_online_amount_sum,\n                      yogiyo_online_amount_sum,\n                      baedaltong_online_amount_sum\n            FROM      delivery_app_orders_stat\n            WHERE     time_unit = 'day'\n) AS d\nFULL OUTER JOIN   (\n            SELECT    business_id,\n                      time,\n                      amount_sum,\n                      baemin_online_amount_sum,\n                      yogiyo_online_amount_sum,\n                      baedaltong_online_amount_sum\n            FROM      delivery_app_orders_stat\n            WHERE     time_unit = 'month'\n) AS m\nON        d.business_id = m.business_id\nAND       date_trunc('month', d.time) = date_trunc('month', m.time)"
+      }
+    },
+    {
+      "name": "hourly_sales",
+      "inputs": [
+        "delivery_app_orders_stat",
+        "daily_hour_transactions_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *,\n          date_trunc('month', date) AS month\nFROM      (\n  SELECT    business_id,\n            time AS date,\n            SUM(IF (hour >= 0 AND hour < 6, amount, 0)) AS 0_6_sales_amount,\n            SUM(IF (hour >= 6 AND hour < 11, amount, 0)) AS 6_11_sales_amount,\n            SUM(IF (hour >= 11 AND hour < 14, amount, 0)) AS 11_14_sales_amount,\n            SUM(IF (hour >= 14 AND hour < 17, amount, 0)) AS 14_17_sales_amount,\n            SUM(IF (hour >= 17 AND hour < 24, amount, 0)) AS 17_24_sales_amount\n  FROM      (\n    SELECT    business_id,\n              date_trunc('day', time) AS time,\n              hour(time) AS hour,\n              card_sales_amount AS amount\n    FROM      daily_hour_transactions_stat\n\n    UNION ALL\n\n    SELECT    business_id,\n              date_trunc('day', time) AS time,\n              hour(time) AS hour,\n              (baemin_online_amount_sum + yogiyo_online_amount_sum + baedaltong_online_amount_sum) AS amount\n    FROM      delivery_app_orders_stat\n    WHERE     time_unit = 'day_hour'\n  )\n  GROUP BY  1, 2\n)"
+      }
+    },
+    {
+      "name": "daily_stat_joined",
+      "inputs": [
+        "card_sales",
+        "delivery_app_sales",
+        "hourly_sales",
+        "card_payments"
+      ],
+      "type": "custom",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinColumns": "business_id,date,month",
+        "joinType": "full_outer"
+      }
+    },
+    {
+      "name": "daily_stat",
+      "inputs": [
+        "daily_stat_joined"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *, date_format(date, 'yyyy-MM-dd') AS date_str\nFROM      daily_stat_joined"
+      }
+    },
+    {
+      "name": "monthly_card_purchases",
+      "inputs": [
+        "card_purchases_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "  SELECT      business_id,\n              time AS month,\n              SUM(amount) AS amount\n  FROM      card_purchases_stat\n  WHERE     time_unit = 'month'\n  AND       time BETWEEN date_format(to_date('2021-01-01', 'yyyy-MM-dd'), 'yyyy-MM-01') AND date_format(last_day('2021-01-01'), 'yyyy-MM-dd')\n  GROUP BY  business_id, time"
+      }
+    },
+    {
+      "name": "monthly_hometax",
+      "inputs": [
+        "hometax_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "  SELECT      business_id,\n              time AS month,\n              hometax_sales_invoices_amount,\n              hometax_sales_cash_receipts_amount,\n              hometax_purchases_invoices_amount,\n              hometax_purchases_cash_receipts_amount\n  FROM      hometax_stat\n  WHERE     time_unit = 'month'\n  AND       time BETWEEN date_format(to_date('2021-01-01', 'yyyy-MM-dd'), 'yyyy-MM-01') AND date_format(last_day('2021-01-01'), 'yyyy-MM-dd')"
+      }
+    },
+    {
+      "name": "merged_stat",
+      "inputs": [
+        "daily_stat",
+        "monthly_card_purchases",
+        "monthly_hometax"
+      ],
+      "type": "custom",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinColumns": "business_id,month",
+        "joinType": "full_outer"
+      }
+    },
+    {
+      "name": "formatted",
+      "inputs": [
+        "merged_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT\n      business_id,\n      card_sales_amount,\n      card_sales_count,\n      card_sales_fee,\n      card_sales_vat_fee,\n      card_sales_payment,\n      card_sales_new_amount,\n      card_sales_returning_amount,\n      card_sales_monthly_amount,\n      hourly_sales_0_6_amount,\n      hourly_sales_6_11_amount,\n      hourly_sales_11_14_amount,\n      hourly_sales_14_17_amount,\n      hourly_sales_17_24_amount,\n      delivery_app_sales_baemin_amount,\n      delivery_app_sales_yogiyo_amount,\n      delivery_app_sales_baedaltong_amount,\n      delivery_app_sales_monthly_amount,\n      card_purchases_monthly_amount,\n      hometax_sales_monthly_invoice_amount,\n      hometax_sales_monthly_cash_amount,\n      hometax_purchases_monthly_cash_amount,\n      hometax_purchases_monthly_invoice_amount,\n\n      card_payments_map.`KB` AS today_payments_kb,\n      card_payments_map.`농협NH` AS today_payments_nh,\n      card_payments_map.`롯데` AS today_payments_lotte,\n      card_payments_map.`배달의민족` AS today_payments_baemin,\n      card_payments_map.`비씨` AS today_payments_bc,\n      card_payments_map.`삼성` AS today_payments_samsung,\n      card_payments_map.`신한` AS today_payments_shinhan,\n      card_payments_map.`하나` AS today_payments_hana,\n      card_payments_map.`현대` AS today_payments_hyundai,\n      card_payments_map.`요기요` AS today_payments_yogiyo,\n      card_payments_map.`배달통` AS today_payments_baedaltong\nFROM (\n   SELECT\n           CAST(business_id AS LONG) AS business_id,\n           daily_stat.card_sales.card_sales_amount AS card_sales_amount,\n           daily_stat.card_sales.card_sales_count AS card_sales_count,\n           daily_stat.card_sales.card_sales_fee AS card_sales_fee,\n           daily_stat.card_sales.card_sales_vat_fee AS card_sales_vat_fee,\n           daily_stat.card_sales.card_sales_payment AS card_sales_payment,\n           daily_stat.card_sales.returning_amount AS card_sales_returning_amount,\n           daily_stat.card_sales.new_amount AS card_sales_new_amount,\n           daily_stat.card_sales.monthly_card_sales_amount AS card_sales_monthly_amount,\n           daily_stat.hourly_sales.0_6_sales_amount AS hourly_sales_0_6_amount,\n           daily_stat.hourly_sales.6_11_sales_amount AS hourly_sales_6_11_amount,\n           daily_stat.hourly_sales.11_14_sales_amount AS hourly_sales_11_14_amount,\n           daily_stat.hourly_sales.14_17_sales_amount AS hourly_sales_14_17_amount,\n           daily_stat.hourly_sales.17_24_sales_amount AS hourly_sales_17_24_amount,\n           daily_stat.delivery_app_sales.baemin_online_amount_sum AS delivery_app_sales_baemin_amount,\n           daily_stat.delivery_app_sales.yogiyo_online_amount_sum AS delivery_app_sales_yogiyo_amount,\n           daily_stat.delivery_app_sales.baedaltong_online_amount_sum AS delivery_app_sales_baedaltong_amount,\n           daily_stat.delivery_app_sales.monthly_delivery_app_sales_amount AS delivery_app_sales_monthly_amount,\n\n           monthly_card_purchases.amount AS card_purchases_monthly_amount,\n\n           monthly_hometax.hometax_sales_invoices_amount AS hometax_sales_monthly_invoice_amount,\n           monthly_hometax.hometax_sales_cash_receipts_amount AS hometax_sales_monthly_cash_amount,\n           monthly_hometax.hometax_purchases_invoices_amount AS hometax_purchases_monthly_invoice_amount,\n           monthly_hometax.hometax_purchases_cash_receipts_amount AS hometax_purchases_monthly_cash_amount,\n\n           map_from_entries(transform(daily_stat.card_payments.payments, m -> named_struct('issuer', m.issuer_name, 'amount', nvl(m.received, 0)))) AS card_payments_map\n\n    FROM    merged_stat\n)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "formatted"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/report/snowdon/daily_report/date_id=2021-01-01",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

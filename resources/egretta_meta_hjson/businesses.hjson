@@ -1,0 +1,333 @@
+{
+  name: businesses
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: businesses_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: iamport_customers_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/iamport_customers
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: credentials_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/credentials
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: subscriptions_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/subscriptions
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: cards_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/cards
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: users
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/users
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: phones
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/phones
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        businesses_src
+      ]
+      name: businesses
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    *,
+                    CASE
+                        WHEN business_check_number BETWEEN 1 AND 79 THEN '개인과세사업자'
+                        WHEN business_check_number >= 90 THEN '개인면세사업자'
+                        ELSE '법인사업자'
+                    END business_type
+          FROM (
+                SELECT
+                        id AS business_id,
+                        owner_id,
+                        name AS business_name,
+                        registration_number,
+                        public_id,
+                        created_at,
+                        opened_at,
+                        closed_at,
+                        tax_agent_id,
+                        operation_status,
+                        taxation_type,
+                        vat_withheld,
+                        card_merchant_signed_up_at,
+                        crefia_owner_birthday,
+                        crefia_size_code,
+                        CAST(substr(registration_number, 4, 2) AS INT) AS business_check_number
+                FROM    businesses_src
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        iamport_customers_src
+      ]
+      name: iamport_customers
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    business_id,
+                    status,
+                    card_name,
+                    created_at
+            FROM    iamport_customers_src
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        credentials_src
+      ]
+      name: credentials
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    business_id,
+                    collect_set(name)  AS types
+            FROM (
+                    SELECT
+                            business_id,
+                            created_at,
+                            replace(type, 'Credentials::', '') AS name
+                    FROM    credentials_src
+                    WHERE   status != 2
+            )
+            GROUP BY business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        subscriptions_src
+      ]
+      name: subscriptions
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    business_id,
+                    plan_id,
+                    paid,
+                    auto_renew,
+                    started_at,
+                    created_at,
+                    canceled_at,
+                    status
+            FROM    subscriptions_src
+            WHERE   status = 0
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        cards_src
+        credentials_src
+      ]
+      name: cards
+      options:
+      {
+        sql:
+          '''
+            SELECT  cards_src.business_id,
+                    collect_set(concat(issuer, '_', card_type)) AS issuer,
+                    collect_set(name) AS card_names
+            FROM    cards_src
+            JOIN    credentials_src
+            ON      cards_src.credential_id = credentials_src.id
+            WHERE   credentials_src.status != 2
+            GROUP BY cards_src.business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        users
+        phones
+        businesses_src
+      ]
+      name: owner
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  businesses_src.id AS business_id,
+                  u.name AS owner_name,
+                  u.phone_number
+          FROM (
+                SELECT    users.id AS user_id,
+                          users.name AS name,
+                          phones.number AS phone_number
+                FROM      users
+                FULL OUTER JOIN   phones
+                ON        users.id = phones.user_id
+          ) AS u
+          JOIN businesses_src
+          ON u.user_id = businesses_src.owner_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        businesses
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=businesses
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        iamport_customers
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=iamport_customers
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        credentials
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=credentials
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        subscriptions
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=subscriptions
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        cards
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=cards
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        owner
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=owner
+      }
+      type: file
+    }
+  ]
+}

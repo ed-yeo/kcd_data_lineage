@@ -1,0 +1,353 @@
+{
+  name: build_bok_weekly_stats
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: transactions_stat_with_meta
+      options:
+      {
+        format: parquet
+        paths: "${TRANSACTIONS_STAT_WITH_META_PATH}"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: delivery_orders
+      options:
+      {
+        format: parquet
+        paths: "${DELIVERY_ORDERS_PATH}"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: "${SNOWDON_DB_SNAPSHOT_PATH}/businesses"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: places
+      options:
+      {
+        format: parquet
+        paths: "${SNOWDON_DB_SNAPSHOT_PATH}/places"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: delivery_apps
+      options:
+      {
+        format: parquet
+        paths: "${SNOWDON_DB_SNAPSHOT_PATH}/delivery_apps"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_comments
+      options:
+      {
+        format: parquet
+        paths: "${SNOWDON_DB_INCREMENTAL_PATH}/place_comments"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        transactions_stat_with_meta
+        businesses
+      ]
+      name: card_and_delivery_sales_weekly_stats
+      options:
+      {
+        sql:
+          '''
+          SELECT  a.*,
+                  date_trunc('week', b.created_at) AS business_created_at_week
+          FROM (
+                SELECT  business_id,
+                        date_trunc('week', time) AS transacted_at_week,
+                        CASE
+                            WHEN MAX(classification.depth_2_code) = 'D01' THEN '한식'
+                            WHEN MAX(classification.depth_2_code) = 'D02' THEN '양식'
+                            WHEN MAX(classification.depth_2_code) = 'D03' THEN '중식, 일식 및 동남 아시아음식'
+                            WHEN MAX(classification.depth_2_code) IN ('D10', 'D11', 'D12') THEN '베이커리/카페/디저트 전문점'
+                            ELSE '술집, 분식, 치킨, 패스트푸드, 패밀리레스토랑, 뷔페 등 기타'
+                        END AS classification,
+                        MAX(location.sido) AS sido,
+                        CASE
+                            WHEN MAX(location.sido) = '세종특별자치시' THEN null
+                            ELSE MAX(split(location.sigungu, ' ')[0])
+                        END AS sigungu,
+                        SUM(card_sales_amount) AS card_sales_amount,
+                        SUM(returning_count) / SUM(card_sales_count) AS revisit_rate,
+                        SUM(card_sales_amount) / SUM(card_sales_count) AS card_sales_amount_per_sales_count,
+                        SUM(delivery.amount_sum) AS delivery_sales_amount,
+                        SUM(delivery.online_amount_sum) AS delivery_online_sales_amount,
+                        SUM(delivery.order_count) AS delivery_sales_count
+                FROM    transactions_stat_with_meta
+                WHERE   time_unit = 'week'
+                AND     classification.depth_1_name = '외식업'
+                AND     location.sido IS NOT NULL
+                GROUP BY 1, 2
+          ) a JOIN businesses b ON a.business_id = b.id
+          WHERE   transacted_at_week >= '2019-01-01'
+          AND     transacted_at_week < '2020-09-01'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        card_and_delivery_sales_weekly_stats
+      ]
+      name: businesses_id_mapping
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  sido,
+                  sigungu,
+                  classification,
+                  row_number() OVER (ORDER BY business_id) AS bok_business_id
+          FROM    (
+                  SELECT DISTINCT business_id, sido, sigungu, classification
+                  FROM card_and_delivery_sales_weekly_stats
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        places
+        place_comments
+      ]
+      name: place_comments_weekly_stats
+      options:
+      {
+        sql:
+          '''
+          SELECT  p.business_id,
+                  p.type,
+                  date_trunc('week', c.authored_at) AS authored_at_week,
+                  COUNT(c.id) AS comments_count,
+                  SUM(c.rating) AS comments_sum_rating
+          FROM    place_comments c, places p
+          WHERE   c.source_id = p.id
+          AND     c.source_type = 'Place'
+          GROUP BY 1, 2, 3
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        delivery_apps
+        place_comments
+      ]
+      name: delivery_comments_weekly_stats
+      options:
+      {
+        sql:
+          '''
+          SELECT  d.business_id,
+                  d.type,
+                  date_trunc('week', c.authored_at) AS authored_at_week,
+                  COUNT(c.id) AS comments_count,
+                  SUM(c.rating) AS comments_sum_rating
+          FROM    place_comments c, delivery_apps d
+          WHERE   c.source_id = d.id
+          AND     c.source_type = 'DeliveryApp'
+          GROUP BY 1, 2, 3
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        place_comments_weekly_stats
+        delivery_comments_weekly_stats
+      ]
+      name: comments_weekly_stats
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  authored_at_week,
+                  SUM(IF (type = 'Places::Daum', comments_count, null)) AS kakao_comments_count,
+                  SUM(IF (type = 'Places::Naver', comments_count, null)) AS naver_comments_count,
+                  SUM(IF (type = 'DeliveryApps::Baemin', comments_count, null)) AS baemin_comments_count,
+                  SUM(IF (type = 'DeliveryApps::Yogiyo', comments_count, null)) AS yogiyo_comments_count,
+                  SUM(IF (type = 'DeliveryApps::Baedaltong', comments_count, null)) AS baedaltong_comments_count,
+                  SUM(IF (type = 'Places::Daum', comments_sum_rating, 0)) / SUM(IF (type = 'Places::Daum', comments_count, 0)) AS kakao_comments_rating,
+                  SUM(IF (type = 'Places::Naver', comments_sum_rating, 0)) / SUM(IF (type = 'Places::Naver', comments_count, 0)) AS naver_comments_rating,
+                  SUM(IF (type = 'DeliveryApps::Baemin', comments_sum_rating, 0)) / SUM(IF (type = 'DeliveryApps::Baemin', comments_count, 0)) AS baemin_comments_rating,
+                  SUM(IF (type = 'DeliveryApps::Yogiyo', comments_sum_rating, 0)) / SUM(IF (type = 'DeliveryApps::Yogiyo', comments_count, 0)) AS yogiyo_comments_rating,
+                  SUM(IF (type = 'DeliveryApps::Baedaltong', comments_sum_rating, 0)) / SUM(IF (type = 'DeliveryApps::Baedaltong', comments_count, 0)) AS baedaltong_comments_rating
+          FROM (
+                SELECT *
+                FROM   place_comments_weekly_stats
+
+                UNION ALL
+
+                SELECT *
+                FROM   delivery_comments_weekly_stats
+          )
+          GROUP BY 1, 2
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        card_and_delivery_sales_weekly_stats
+        businesses_id_mapping
+        comments_weekly_stats
+      ]
+      name: bok_weekly_stats
+      options:
+      {
+        sql:
+          '''
+          SELECT  bok_business_id AS business_id,
+                  date_format(transacted_at_week, 'yyyy-MM-dd') AS week,
+                  s.classification,
+                  s.sido,
+                  s.sigungu,
+                  date_format(business_created_at_week, 'yyyy-MM-dd') AS business_created_at_week,
+                  card_sales_amount,
+                  revisit_rate,
+                  card_sales_amount_per_sales_count,
+                  delivery_sales_amount,
+                  delivery_online_sales_amount,
+                  delivery_sales_count,
+                  kakao_comments_count,
+                  naver_comments_count,
+                  baemin_comments_count,
+                  yogiyo_comments_count,
+                  baedaltong_comments_count,
+                  kakao_comments_rating,
+                  naver_comments_rating,
+                  baemin_comments_rating,
+                  yogiyo_comments_rating,
+                  baedaltong_comments_rating
+          FROM    card_and_delivery_sales_weekly_stats s JOIN businesses_id_mapping b ON s.business_id = b.business_id
+          LEFT OUTER JOIN comments_weekly_stats c
+          ON      s.business_id = c.business_id
+          AND     s.transacted_at_week = c.authored_at_week
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        delivery_orders
+      ]
+      name: yogiyo_cash_sales_ratio
+      options:
+      {
+        sql:
+          '''
+          SELECT  date_trunc('year', ordered_at) AS ordered_at_week,
+                  SUM(order_amount) AS yogiyo_sales_amount,
+                  SUM(cash_amount) AS yogiyo_cash_sales_amount
+          FROM (
+                SELECT  business_id,
+                        order_number,
+                        status,
+                        MAX(ordered_at) AS ordered_at,
+                        MAX(order_amount) AS order_amount,
+                        SUM(IF(payment_method = '현금', order_amount, 0)) AS cash_amount
+                FROM    delivery_orders
+                WHERE   closed
+                AND     app_name = 'yogiyo'
+                AND     ordered_at >= '2019-01-01'
+                AND     ordered_at < '2020-09-01'
+                GROUP BY 1, 2, 3
+          )
+          GROUP BY 1
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        businesses_id_mapping
+      ]
+      name: file_sink
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sinks.CSVSink
+        format: csv
+        mode: overwrite
+        path: "${OUTPUT_PATH}/bok_businesses"
+        header: "true"
+        numPartitions: "1"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        bok_weekly_stats
+      ]
+      name: file_sink
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sinks.CSVSink
+        format: csv
+        mode: overwrite
+        path: "${OUTPUT_PATH}/bok_weekly_stats"
+        header: "true"
+        numPartitions: "1"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        yogiyo_cash_sales_ratio
+      ]
+      name: file_sink
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sinks.CSVSink
+        format: csv
+        mode: overwrite
+        path: "${OUTPUT_PATH}/yogiyo_cash_sales_ratio"
+        header: "true"
+        numPartitions: "1"
+      }
+      type: custom
+    }
+  ]
+}

@@ -1,0 +1,162 @@
+{
+  name: orders_to_graph
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: delivery_app_orders
+      options:
+      {
+        format: parquet
+        paths: ${DELIVERY_APP_ORDERS_PATH}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: delivery_app_orders_stat
+      options:
+      {
+        format: parquet
+        paths: ${DELIVERY_APP_ORDERS_STAT_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        delivery_app_orders
+      ]
+      name: delivery_app_orders_graph_format
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id AS from,
+                    CONCAT_WS('_', app_name, shop_id, order_number, status) AS to,
+                    'delivery_app_orders' AS label,
+                    CAST(ordered_at AS long) AS timestamp,
+                    'insertBulk' AS operation,
+                    'edge' AS elem,
+                    'out' AS direction,
+                    to_json(struct(*)) AS props
+          FROM      (
+            SELECT   business_id,
+                     app_name,
+                     CAST(accepted_at AS long) AS accepted_at,
+                     amount,
+                     CAST(arrived_at AS long) AS arrived_at,
+                     CAST(created_at AS long) AS created_at,
+                     delivery_addesss,
+                     delivery_tip,
+                     delivery_type,
+                     discount,
+                     fee_rate,
+                     franchise_discount,
+                     order_method,
+                     order_number,
+                     CAST(ordered_at AS long) AS ordered_at,
+                     payment,
+                     payment_method,
+                     reserved,
+                     service_type,
+                     shop_category,
+                     shop_discount,
+                     shop_id,
+                     shop_name,
+                     shop_number,
+                     status,
+                     takeout_discount,
+                     CAST(updated_at AS long) AS updated_at,
+                     order_amount,
+                     paid_online,
+                     paid_offline,
+                     vat_returnable,
+                     closed,
+                     canceled
+            FROM     delivery_app_orders
+            WHERE    created_at_date >= '${MIN_DATE}'
+            AND      created_at_date < '${MAX_DATE}'
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        delivery_app_orders_stat
+      ]
+      name: delivery_app_orders_stat_graph_format
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id AS from,
+                    CONCAT_WS('_', time_unit, time) AS to,
+                    'delivery_app_orders_stat' AS label,
+                    CAST(unix_timestamp() * 1000 AS long) AS timestamp,
+                    to_json(struct(
+                       time_unit,
+                       time,
+                       amount_sum,
+                       baemin_amount_sum,
+                       baedaltong_amount_sum,
+                       yogiyo_amount_sum,
+                       online_amount_sum,
+                       baemin_online_amount_sum,
+                       baedaltong_online_amount_sum,
+                       yogiyo_online_amount_sum,
+                       offline_amount_sum,
+                       baemin_offline_amount_sum,
+                       baedaltong_offline_amount_sum,
+                       yogiyo_offline_amount_sum
+                    )) AS props
+          FROM      delivery_app_orders_stat
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        delivery_app_orders_graph_format
+      ]
+      name: delivery_app_orders_graph_format_sink
+      options:
+      {
+        mode: overwritePartitions
+        path: ${OUTPUT_BASE_PATH}/delivery_app_orders_graph_format
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: "created_at_date"
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        delivery_app_orders_stat_graph_format
+      ]
+      name: file_sink
+      options:
+      {
+        mode: overwrite
+        path: ${OUTPUT_BASE_PATH}/delivery_app_orders_stat_graph_format
+        format: parquet
+      }
+      type: file
+    }
+  ]
+}

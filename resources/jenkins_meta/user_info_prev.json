@@ -1,0 +1,109 @@
+{
+  "name": "user_info_prev",
+  "udfs": [
+    {
+      "name": "filterJsonTrue",
+      "class": "com.kcd.thrush.dmp.spark.udfs.JsonFilter",
+      "params": {}
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "target_users",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-data/message/target_users"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "dmp_message_result_stat",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-data-staging/raw/catalog_v2/raw/tb=dmp_message_result_stat"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "dmp_message_result_stat"
+      ],
+      "name": "result_log",
+      "options": {
+        "sql": "  SELECT  date_format(created_at_date, 'yyyy-MM-dd') AS date_id,\n          meta_user_id AS user_id,\n          meta_business_id AS business_id,\n          meta_ad_group_id AS ad_group_id,\n          meta_campaign_id AS campaign_id,\n          meta_type AS message_type\n  FROM    dmp_message_result_stat\n  WHERE   meta_user_id IS NOT NULL\n  AND     status = true\n  AND     created_at_date >= '2020-01-15'\n  AND     created_at_date <= '2020-08-01'"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "target_users"
+      ],
+      "name": "extract_log",
+      "options": {
+        "sql": "  SELECT  CAST(date_id AS STRING) AS date_id,\n          meta.user_id,\n          meta.business_id,\n          CAST(meta.ad_group_id AS STRING) AS ad_group_id,\n          CAST(meta.campaign_id AS STRING) AS campaign_id,\n          meta.type AS message_type\n  FROM    target_users\n  WHERE   date_id >= '2020-01-15'\n  AND     date_id <= '2020-08-01'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "result_log"
+      ],
+      "name": "message_type",
+      "options": {
+        "sql": "  SELECT\n          user_id, business_id,\n          collect_list(struct(value, date_id, cnt)) AS message_type\n  FROM (\n      SELECT  user_id, business_id, date_id, message_type AS value, count(1) AS cnt\n      FROM    result_log\n      GROUP BY user_id, business_id, date_id, message_type\n  )\n  GROUP BY user_id, business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "result_log"
+      ],
+      "name": "campaign_id",
+      "options": {
+        "sql": "  SELECT\n          user_id, business_id,\n          collect_list(struct(value, date_id, cnt)) AS campaign_id\n  FROM (\n      SELECT  user_id, business_id, date_id, campaign_id AS value, count(1) AS cnt\n      FROM    result_log\n      GROUP BY user_id, business_id, date_id, campaign_id\n  )\n  GROUP BY user_id, business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "extract_log"
+      ],
+      "name": "ad_group_id",
+      "options": {
+        "sql": "  SELECT\n          user_id, business_id,\n          collect_list(struct(value, date_id, cnt)) AS ad_group_id\n  FROM (\n      SELECT\n              user_id, business_id, date_id, ad_group_id AS value, count(1) AS cnt\n      FROM (\n          SELECT  user_id, business_id, date_id, ad_group_id\n          FROM    extract_log\n          WHERE   campaign_id = 2\n\n          UNION ALL\n\n          SELECT  user_id, business_id, date_id, ad_group_id\n          FROM    result_log\n          WHERE   campaign_id != 2\n      )\n      GROUP BY user_id, business_id, date_id, ad_group_id\n  )\n  GROUP BY user_id, business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "message_type",
+        "campaign_id",
+        "ad_group_id"
+      ],
+      "name": "user_message_history",
+      "options": {
+        "sql": "SELECT\n          IF(m.user_id IS NOT NULL, m.user_id, ad_group_id.user_id) AS user_id,\n          IF(m.business_id IS NOT NULL, m.business_id, ad_group_id.business_id) AS business_id,\n          m.message_type,\n          m.campaign_id,\n          ad_group_id.ad_group_id\nFROM (\n        SELECT\n                  IF(message_type.user_id IS NOT NULL, message_type.user_id, campaign_id.user_id) AS user_id,\n                  IF(message_type.business_id IS NOT NULL, message_type.business_id, campaign_id.business_id) AS business_id,\n                  message_type.message_type,\n                  campaign_id.campaign_id\n        FROM      message_type\n        FULL OUTER JOIN campaign_id\n        ON    message_type.user_id = campaign_id.user_id\n        AND   message_type.business_id = campaign_id.business_id\n) AS m\nFULL OUTER JOIN ad_group_id\nON    m.user_id = ad_group_id.user_id\nAND   m.business_id = ad_group_id.business_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "user_message_history"
+      ],
+      "name": "user_message_history_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-data/message/user_info/date_id=2020-08-01"
+      },
+      "type": "file"
+    }
+  ]
+}

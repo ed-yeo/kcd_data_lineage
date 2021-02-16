@@ -1,0 +1,438 @@
+{
+  name: delivery_app_orders_stat
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: delivery_apps
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_SNAPSHOT_DB_PATH}/delivery_apps
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: baemin_orders_raw
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/baemin_orders
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: yogiyo_orders_raw
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/yogiyo_orders
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: baedaltong_orders_raw
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/baedaltong_orders
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        delivery_apps
+        baedaltong_orders_raw
+      ]
+      name: baedaltong_orders
+      options:
+      {
+        sql:
+          '''
+          SELECT    a.business_id,
+                    o.*
+          FROM      (
+            SELECT    *,
+                      amount AS order_amount,
+                      payment_method not in (
+                        '배달원에게 현금결제',
+                        '배달원에게 현금결제(결제완료)',
+                        '배달원에게 신용카드결제',
+                        '배달원에게 신용카드결제(결제완료)'
+                      ) AS paid_online,
+                      payment_method in (
+                        '배달원에게 현금결제',
+                        '배달원에게 현금결제(결제완료)',
+                        '배달원에게 신용카드결제',
+                        '배달원에게 신용카드결제(결제완료)'
+                      ) AS paid_offline,
+                      payment_method not in (
+                        '배달원에게 신용카드결제',
+                        '배달원에게 신용카드결제(결제완료)'
+                      ) AS vat_returnable,
+                      status = '결제' AS closed,
+                      status = '취소' AS canceled
+            FROM      baedaltong_orders_raw
+            WHERE     ordered_at between '${MIN_DATE}' and '${MAX_DATE}'
+          ) o, delivery_apps a
+          WHERE     o.shop_id = a.id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        delivery_apps
+        baemin_orders_raw
+      ]
+      name: baemin_orders
+      options:
+      {
+        sql:
+          '''
+            SELECT  a.business_id,
+                    o.*
+            FROM    (
+                SELECT    *,
+                          amount + delivery_tip AS order_amount,
+                          payment_method in ('BARO', 'RIDER') AS paid_online,
+                          payment_method in ('MEET') AS paid_offline,
+                          status = 'CLOSED' AS closed,
+                          status = 'CANCELLED' AS canceled
+                FROM      baemin_orders_raw
+                WHERE     ordered_at between '${MIN_DATE}' and '${MAX_DATE}'
+            ) o, delivery_apps a
+            WHERE   o.shop_id = a.id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        delivery_apps
+        yogiyo_orders_raw
+      ]
+      name: yogiyo_orders
+      options:
+      {
+        sql:
+          '''
+            SELECT  a.business_id,
+                    o.*
+            FROM    (
+                SELECT    *,
+                          amount + delivery_tip AS order_amount,
+                          payment_method in ('온라인 결제') AS paid_online,
+                          payment_method in ('현금', '신용카드') AS paid_offline,
+                          status = '성공' AS closed,
+                          status = '취소' AS canceled
+                FROM      yogiyo_orders_raw
+                WHERE     ordered_at between '${MIN_DATE}' and '${MAX_DATE}'
+            ) o, delivery_apps a
+            WHERE   o.shop_id = a.id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        baemin_orders
+      ]
+      name: valid_baemin_orders
+      options:
+      {
+        sql:
+          '''
+            SELECT  *
+            FROM    (
+                SELECT *
+                FROM   baemin_orders
+                WHERE  closed = true
+            ) closed LEFT ANTI JOIN (
+                SELECT *
+                FROM   baemin_orders
+                WHERE  canceled = true
+            ) cancelled ON (
+              closed.shop_id = cancelled.shop_id AND
+              closed.order_number = cancelled.order_number
+            )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        baedaltong_orders
+      ]
+      name: valid_baedaltong_orders
+      options:
+      {
+        sql:
+          '''
+            SELECT  *
+            FROM    (
+                SELECT *
+                FROM   baedaltong_orders
+                WHERE  closed = true
+            ) closed LEFT ANTI JOIN (
+                SELECT *
+                FROM   baedaltong_orders
+                WHERE  canceled = true
+            ) cancelled ON (
+              closed.shop_id = cancelled.shop_id AND
+              closed.order_number = cancelled.order_number
+            )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        yogiyo_orders
+      ]
+      name: valid_yogiyo_orders
+      options:
+      {
+        sql:
+          '''
+            SELECT  *
+            FROM    (
+                SELECT *
+                FROM   yogiyo_orders
+                WHERE  closed = true
+            ) closed LEFT ANTI JOIN (
+                SELECT *
+                FROM   yogiyo_orders
+                WHERE  canceled = true
+            ) cancelled ON (
+              closed.shop_id = cancelled.shop_id AND
+              closed.order_number = cancelled.order_number
+            )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        valid_baemin_orders
+        valid_baedaltong_orders
+        valid_yogiyo_orders
+      ]
+      name: hourly_delivery_apps_order_stats
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd-HH') AS time_key
+          FROM      (
+              SELECT    business_id,
+                        date_trunc('hour', ordered_at) AS time,
+                        'day_hour' AS time_unit,
+                        SUM(order_amount) AS amount_sum,
+                        SUM(IF (app_name = 'baemin', order_amount, 0)) AS baemin_amount_sum,
+                        SUM(IF (app_name = 'baedaltong', order_amount, 0)) AS baedaltong_amount_sum,
+                        SUM(IF (app_name = 'yogiyo', order_amount, 0)) AS yogiyo_amount_sum,
+                        SUM(IF (paid_online, order_amount, 0)) AS online_amount_sum,
+                        SUM(IF (paid_online and app_name = 'baemin', order_amount, 0)) AS baemin_online_amount_sum,
+                        SUM(IF (paid_online and app_name = 'baedaltong', order_amount, 0)) AS baedaltong_online_amount_sum,
+                        SUM(IF (paid_online and app_name = 'yogiyo', order_amount, 0)) AS yogiyo_online_amount_sum,
+                        SUM(IF (paid_offline, order_amount, 0)) AS offline_amount_sum,
+                        SUM(IF (paid_offline and app_name = 'baemin', order_amount, 0)) AS baemin_offline_amount_sum,
+                        SUM(IF (paid_offline and app_name = 'baedaltong', order_amount, 0)) AS baedaltong_offline_amount_sum,
+                        SUM(IF (paid_offline and app_name = 'yogiyo', order_amount, 0)) AS yogiyo_offline_amount_sum
+              FROM      (
+                  SELECT    business_id, ordered_at, order_amount, paid_online, paid_offline,
+                            'baemin' AS app_name
+                  FROM      valid_baemin_orders
+
+                  UNION ALL
+
+                  SELECT    business_id, ordered_at, order_amount, paid_online, paid_offline,
+                            'baedaltong' AS app_name
+                  FROM      valid_baedaltong_orders
+
+                  UNION ALL
+
+                  SELECT    business_id, ordered_at, order_amount, paid_online, paid_offline,
+                            'yogiyo' AS app_name
+                  FROM      valid_yogiyo_orders
+              )
+              GROUP BY 1, 2
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hourly_delivery_apps_order_stats
+      ]
+      name: daily_delivery_apps_order_stats
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd') AS time_key
+          FROM      (
+              SELECT    business_id,
+                        date_trunc('day', time) AS time,
+                        'day' AS time_unit,
+                        SUM(amount_sum) AS amount_sum,
+                        SUM(baemin_amount_sum) AS baemin_amount_sum,
+                        SUM(baedaltong_amount_sum) AS baedaltong_amount_sum,
+                        SUM(yogiyo_amount_sum) AS yogiyo_amount_sum,
+                        SUM(online_amount_sum) AS online_amount_sum,
+                        SUM(baemin_online_amount_sum) AS baemin_online_amount_sum,
+                        SUM(baedaltong_online_amount_sum) AS baedaltong_online_amount_sum,
+                        SUM(yogiyo_online_amount_sum) AS yogiyo_online_amount_sum,
+                        SUM(offline_amount_sum) AS offline_amount_sum,
+                        SUM(baemin_offline_amount_sum) AS baemin_offline_amount_sum,
+                        SUM(baedaltong_offline_amount_sum) AS baedaltong_offline_amount_sum,
+                        SUM(yogiyo_offline_amount_sum) AS yogiyo_offline_amount_sum
+              FROM      hourly_delivery_apps_order_stats
+              GROUP BY 1, 2
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        daily_delivery_apps_order_stats
+      ]
+      name: monthly_delivery_apps_order_stats
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd') AS time_key
+          FROM      (
+              SELECT    d.business_id,
+                        date_trunc('month', d.time) AS time,
+                        'month' AS time_unit,
+                        MAX(d.amount_sum) AS amount_sum,
+                        MAX(d.baemin_amount_sum) AS baemin_amount_sum,
+                        MAX(d.baedaltong_amount_sum) AS baedaltong_amount_sum,
+                        MAX(d.yogiyo_amount_sum) AS yogiyo_amount_sum,
+                        MAX(d.online_amount_sum) AS online_amount_sum,
+                        MAX(d.baemin_online_amount_sum) AS baemin_online_amount_sum,
+                        MAX(d.baedaltong_online_amount_sum) AS baedaltong_online_amount_sum,
+                        MAX(d.yogiyo_online_amount_sum) AS yogiyo_online_amount_sum,
+                        MAX(d.offline_amount_sum) AS offline_amount_sum,
+                        MAX(d.baemin_offline_amount_sum) AS baemin_offline_amount_sum,
+                        MAX(d.baedaltong_offline_amount_sum) AS baedaltong_offline_amount_sum,
+                        MAX(d.yogiyo_offline_amount_sum) AS yogiyo_offline_amount_sum
+              FROM      daily_delivery_apps_order_stats d
+              GROUP BY 1, 2
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hourly_delivery_apps_order_stats
+        daily_delivery_apps_order_stats
+        monthly_delivery_apps_order_stats
+      ]
+      name: delivery_app_orders_stat
+      options:
+      {
+        sql:
+          '''
+          SELECT * FROM hourly_delivery_apps_order_stats
+          UNION ALL
+          SELECT * FROM daily_delivery_apps_order_stats
+          UNION ALL
+          SELECT * FROM monthly_delivery_apps_order_stats
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        delivery_app_orders_stat
+      ]
+      name: file_sink
+      options:
+      {
+        mode: overwritePartitions
+        path: "${OUTPUT_BASE_PATH}/delivery_app_orders_stat"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: time_unit,time_key
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        baemin_orders
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${OUTPUT_BASE_PATH}/baemin_orders
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        baedaltong_orders
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${OUTPUT_BASE_PATH}/baedaltong_orders
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        yogiyo_orders
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${OUTPUT_BASE_PATH}/yogiyo_orders
+      }
+      type: file
+    }
+  ]
+}

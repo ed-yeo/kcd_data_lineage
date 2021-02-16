@@ -1,0 +1,134 @@
+{
+  "name": "pos_preferred_menus_by_visit_type",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "pos_menus_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/pos/pos_menus",
+        "partition_keys": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "pos_payments_visited_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/pos/pos_payments_with_visited",
+        "partition_keys": "created_at_date"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "pos_menus_raw"
+      ],
+      "name": "pos_menus",
+      "options": {
+        "sql": "    SELECT\n        *\n    FROM\n        pos_menus_raw\n    WHERE\n        created_at_date >= '2020-06-01'\n    AND business_id IS NOT NULL\n    AND name IS NOT NULL\n    AND name != ''\n    AND name != 'null'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_payments_visited_raw"
+      ],
+      "name": "pos_payments_visited",
+      "options": {
+        "sql": "    SELECT\n        *\n    FROM\n        pos_payments_visited_raw\n    WHERE\n        created_at_date >= '2020-06-01'\n    AND business_id IS NOT NULL\n    AND card_number IS NOT NULL\n    AND card_number != '******'\n    AND card_number != ''"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_menus",
+        "pos_payments_visited"
+      ],
+      "name": "pos_menus_with_payment",
+      "options": {
+        "sql": "SELECT\n    *,\n    CASE\n        WHEN order_hour between 0 and 5 then '새벽'\n        WHEN order_hour between 6 and 10 then '아침'\n        WHEN order_hour between 11 and 13 then '점심'\n        WHEN order_hour between 14 and 16 then '오후'\n        ELSE '저녁'\n    END AS time_bucket,\n    CASE\n        WHEN visit_order is NOT NULL and visit_order > 1 then '재방문'\n        ELSE '신규'\n    END as visit_type\nFROM\n    (\n     SELECT\n         pos_menus.*,\n         pos_payments_visited.visit_order,\n         pos_payments_visited.card_number,\n         pos_payments_visited.issuer_name\n     FROM\n         pos_menus\n     LEFT OUTER JOIN\n         pos_payments_visited\n     ON\n         pos_payments_visited.bill_key = pos_menus.bill_key\n    )"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_menus_with_payment"
+      ],
+      "name": "pos_menu_with_payment_with_group_with_rank_times",
+      "options": {
+        "sql": "   SELECT\n       business_id,\n       order_month,\n       visit_type,\n       collect_list(struct(rank, time_bucket, total_count)) AS times\n   FROM\n       (\n       SELECT\n           *,\n           row_number() OVER (PARTITION BY business_id, order_month, visit_type ORDER BY total_count DESC) AS rank\n       FROM\n         (\n          SELECT\n              business_id,\n              order_month,\n              visit_type,\n              time_bucket,\n              count(*) as total_count\n          FROM\n              pos_menus_with_payment\n          GROUP BY\n              business_id,\n              order_month,\n              visit_type,\n              time_bucket\n          )\n       )\n   GROUP BY\n       business_id,\n       order_month,\n       visit_type"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_menus_with_payment"
+      ],
+      "name": "pos_menu_with_payment_with_group_with_rank",
+      "options": {
+        "sql": "SELECT\n    business_id,\n    order_month,\n    visit_type,\n    collect_list(struct(rank, name, total_amount, total_count)) AS menus\nFROM\n   (\n   SELECT\n       *,\n       row_number() OVER (PARTITION BY business_id, order_month, visit_type ORDER BY total_amount DESC) AS rank\n   FROM\n      (\n       SELECT\n           business_id,\n           order_month,\n           name,\n           collect_list(order_time) as order_times,\n           visit_type,\n           sum(price * `count`) as total_amount,\n           sum(`count`) as total_count\n       FROM\n           pos_menus_with_payment\n       GROUP BY\n           business_id,\n           order_month,\n           visit_type,\n           name\n       )\n   )\nGROUP BY\n    business_id,\n    order_month,\n    visit_type"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_menu_with_payment_with_group_with_rank_times",
+        "pos_menu_with_payment_with_group_with_rank"
+      ],
+      "name": "pos_menu_with_payment_with_group_with_rank_joined",
+      "options": {
+        "sql": "   SELECT\n       menus.*,\n       times.times\n   FROM\n       pos_menu_with_payment_with_group_with_rank_times times\n   INNER JOIN\n       pos_menu_with_payment_with_group_with_rank menus\n   ON  menus.business_id = times.business_id\n   AND menus.order_month = times.order_month\n   AND menus.visit_type = times.visit_type"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_menu_with_payment_with_group_with_rank_joined"
+      ],
+      "name": "pos_menu_with_payment_jdbc",
+      "options": {
+        "sql": "   SELECT\n       business_id,\n       order_month,\n       visit_type,\n       to_json(times) AS times,\n       to_json(menus) AS menus\n   FROM\n       pos_menu_with_payment_with_group_with_rank_joined"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "pos_menu_with_payment_jdbc"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/etl/pos/pos_preferred_menus",
+        "format": "parquet",
+        "partitions": "order_month",
+        "numPartitions": "10"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "pos_menu_with_payment_jdbc"
+      ],
+      "name": "jdbc_sink",
+      "options": {
+        "driver": "org.postgresql.Driver",
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "operation": "upsert",
+        "dbtable": "pos_preferred_menus",
+        "conflictColumns": "business_id,order_month,visit_type",
+        "updateColumns": "menus,times",
+        "typeCastColumns": "menus:jsonb,times:jsonb"
+      },
+      "type": "jdbc"
+    }
+  ]
+}

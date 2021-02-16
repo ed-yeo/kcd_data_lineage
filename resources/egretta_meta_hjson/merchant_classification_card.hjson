@@ -1,0 +1,199 @@
+{
+  name: merchant_classification_card
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: merchant_info
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=merchant_number/subject=merchant/name=info
+      }
+      type: file
+      cache: true
+    }
+    {
+      inputs: []
+      name: shinhancard_businesses
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/shinhancard_businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: shinhancard_classification
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}"
+        paths: ${LOOKUP_DIR}/subject=classification_v2/shinhancard_classification.tsv
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: bccard_classification
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}"
+        paths: ${LOOKUP_DIR}/subject=classification_v2/bccard_classification.tsv
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        merchant_info
+        shinhancard_classification
+        shinhancard_businesses
+      ]
+      name: shinhancard_business_classification
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM (
+                  SELECT
+                            nvl(snowdon.registration_number, goose.registration_number) AS registration_number,
+                            nvl(snowdon.merchant_number, goose.merchant_number) AS merchant_number,
+                            'shinhan' AS card_issuer,
+                            nvl(snowdon.classification_code, goose.classification_code) AS classification_code,
+                            nvl(snowdon.classification_name, goose.classification_name) AS classification_name
+                  FROM (
+                          SELECT
+                                    card_classification.registration_number,
+                                    card_classification.card_issuer,
+                                    card_classification.merchant_number,
+                                    card_classification.classification_code,
+                                    shinhancard_classification.classification_name
+                          FROM  (
+                                    SELECT  *
+                                    FROM    merchant_info
+                                    WHERE   card_issuer = 'shinhan'
+                          ) card_classification
+                          LEFT OUTER JOIN   shinhancard_classification
+                          ON    card_classification.classification_code = shinhancard_classification.classification_code
+                  ) goose
+                  FULL OUTER JOIN (
+                    SELECT  *
+                    FROM (
+                          SELECT    registration_number, merchant_number,
+                                    classification_code, classification_name,
+                                    row_number() OVER (PARTITION BY registration_number, merchant_number ORDER BY updated_at DESC) AS rank
+                          FROM      shinhancard_businesses
+                    )
+                    WHERE rank = 1
+                  ) snowdon
+                  ON    goose.registration_number = snowdon.registration_number
+                  AND   goose.merchant_number = snowdon.merchant_number
+          )
+          WHERE     classification_code IS NOT NULL
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        merchant_info
+        bccard_classification
+      ]
+      name: bccard_business_classification
+      options:
+      {
+        sql:
+          '''
+            SELECT  *
+            FROM (
+                    SELECT  *
+                    FROM (
+                            SELECT  registration_number, card_issuer, merchant_number,
+                                    merchant_code_name AS classification_name
+                            FROM    merchant_info
+                            WHERE   card_issuer = 'bc'
+                    ) card_classification
+                    LEFT OUTER JOIN   bccard_classification
+                    ON    card_classification.classification_name = bccard_classification.depth_3_name
+           )
+           WHERE    depth_1_code IS NOT NULL
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        merchant_info
+      ]
+      name: hyundaicard_business_classification
+      options:
+      {
+        sql:
+          '''
+          SELECT  registration_number, card_issuer, merchant_number,
+                  classification_code, merchant_code_name AS classification_name
+          FROM    merchant_info
+          WHERE   card_issuer = 'hyundai'
+
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        shinhancard_business_classification
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=shinhancard
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        bccard_business_classification
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=bccard
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        hyundaicard_business_classification
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=hyundaicard
+      }
+      type: file
+    }
+  ]
+}

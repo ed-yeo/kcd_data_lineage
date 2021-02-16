@@ -1,0 +1,52 @@
+{
+  "name": "snapshot_business_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "visit_with_duration",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/market_area/analysis/visit_with_duration"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "visits",
+      "inputs": [
+        "visit_with_duration"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *,\n        CASE\n          WHEN visit_order = 1 THEN '1회'\n          WHEN visit_order = 2 THEN '2회'\n          WHEN visit_order >= 3 AND visit_order < 10 THEN '3~9회'\n          ELSE '10회이상'\n        END AS visit_count\nFROM    visit_with_duration"
+      }
+    },
+    {
+      "name": "snapshots",
+      "inputs": [
+        "visits"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id, visit_count, month,\n        'month' AS type,\n        SUM(amount) AS total_amount,\n        COUNT(distinct encrypted_card_number) AS total_card_numbers,\n        COUNT(1) AS total_transaction_count\nFROM    (\n  SELECT  *, transacted_at_month AS month\n  FROM    visits\n)\nGROUP BY business_id, visit_count, month\n\nUNION ALL\n\nSELECT  business_id, visit_count, min(month) AS month,\n        '3_month' AS type,\n        SUM(amount) AS total_amount,\n        COUNT(distinct encrypted_card_number) AS total_card_numbers,\n        COUNT(1) AS total_transaction_count\nFROM    (\n  SELECT  *, transacted_at_month AS month\n  FROM    visits\n)\nWHERE   within_3_month = true\nGROUP BY business_id, visit_count\n\nUNION ALL\n\nSELECT  business_id, visit_count, min(month) AS month,\n        '6_month' AS type,\n        SUM(amount) AS total_amount,\n        COUNT(distinct encrypted_card_number) AS total_card_numbers,\n        COUNT(1) AS total_transaction_count\nFROM    (\n  SELECT  *, transacted_at_month AS month\n  FROM    visits\n)\nWHERE   within_6_month = true\nGROUP BY business_id, visit_count\n\nUNION ALL\n\nSELECT  business_id, visit_count, min(month) AS month,\n        '9_month' AS type,\n        SUM(amount) AS total_amount,\n        COUNT(distinct encrypted_card_number) AS total_card_numbers,\n        COUNT(1) AS total_transaction_count\nFROM    (\n  SELECT  *, transacted_at_month AS month\n  FROM    visits\n)\nWHERE   within_9_month = true\nGROUP BY business_id, visit_count\n\nUNION ALL\n\nSELECT  business_id, visit_count, min(month) AS month,\n        '12_month' AS type,\n        SUM(amount) AS total_amount,\n        COUNT(distinct encrypted_card_number) AS total_card_numbers,\n        COUNT(1) AS total_transaction_count\nFROM    (\n  SELECT  *, transacted_at_month AS month\n  FROM    visits\n)\nWHERE   within_12_month = true\nGROUP BY business_id, visit_count"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "name": "file_sink",
+      "inputs": [
+        "snapshots"
+      ],
+      "type": "file",
+      "options": {
+        "path": "s3://kcd-de-production/service/market_area/analysis/snapshot_business_stat",
+        "format": "parquet",
+        "mode": "overwrite",
+        "partitions": "type"
+      }
+    }
+  ]
+}

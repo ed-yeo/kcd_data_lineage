@@ -1,0 +1,73 @@
+{
+  "name": "market_area_classification",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "kcd_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=kcd"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "market_area_classification",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/market_area_classification_20200916.tsv"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "market_area_kcd_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/market_area_kcd_mapping_20200916.tsv"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "market_area_classification",
+        "market_area_kcd_mapping"
+      ],
+      "name": "mapping",
+      "options": {
+        "sql": "SELECT\n      c.*,\n      nvl(m.kcd_depth_1_code, c.depth_1_code) AS kcd_depth_1_code,\n      nvl(m.kcd_depth_2_code, c.depth_2_code) AS kcd_depth_2_code,\n      nvl(m.kcd_depth_3_code, c.depth_3_code) AS kcd_depth_3_code\nFROM market_area_classification AS c\nLEFT OUTER JOIN market_area_kcd_mapping AS m\nON m.depth_1_code = c.depth_1_code\nAND m.depth_2_code = c.depth_2_code\nAND nvl(m.depth_3_code, 'empty') = nvl(c.depth_3_code, 'empty')"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "mapping",
+        "kcd_classification"
+      ],
+      "name": "business_classification",
+      "options": {
+        "sql": "SELECT\n      business_id,\n      mapping.depth_1_code,\n      mapping.depth_1_name,\n      mapping.depth_2_code,\n      mapping.depth_2_name,\n      mapping.depth_3_code,\n      mapping.depth_3_name\nFROM kcd_classification AS kcd\nJOIN mapping\nON kcd.depth_1_code = mapping.kcd_depth_1_code\nAND kcd.depth_2_code = mapping.kcd_depth_2_code\nAND kcd.depth_3_code = nvl(mapping.kcd_depth_3_code, 'X99X99')"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "business_classification"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=market_area"
+      },
+      "type": "file"
+    }
+  ]
+}

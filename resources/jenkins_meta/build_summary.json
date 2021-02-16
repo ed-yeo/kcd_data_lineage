@@ -1,0 +1,72 @@
+{
+  "name": "build_summary",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "monthly",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/table/card_sales_revisit/created_at_date=2021-01-27/monthly"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "weekly",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/table/card_sales_revisit/created_at_date=2021-01-27/weekly"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "monthly_summary",
+      "inputs": [
+        "monthly"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id, time,\n        CAST(revisit_amount AS DOUBLE) / CAST(total_amount AS DOUBLE) AS amount_ratio\nFROM    (\n  SELECT  business_id, time,\n          SUM(total_amount) AS total_amount,\n          SUM(IF (visit_count > 1, total_amount, 0)) AS revisit_amount\n  FROM    monthly\n  GROUP BY 1, 2\n)"
+      }
+    },
+    {
+      "name": "weekly_summary",
+      "inputs": [
+        "weekly"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id, time,\n        CAST(revisit_amount AS DOUBLE) / CAST(total_amount AS DOUBLE) AS amount_ratio\nFROM    (\n  SELECT  business_id, time,\n          SUM(total_amount) AS total_amount,\n          SUM(IF (visit_count > 1, total_amount, 0)) AS revisit_amount\n  FROM    weekly\n  GROUP BY 1, 2\n)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "name": "file_sink",
+      "inputs": [
+        "monthly_summary"
+      ],
+      "type": "file",
+      "options": {
+        "path": "s3://kcd-de-production/table/card_sales_revisit/created_at_date=2021-01-27/monthly_summary",
+        "format": "parquet",
+        "mode": "overwrite"
+      }
+    },
+    {
+      "name": "file_sink",
+      "inputs": [
+        "weekly_summary"
+      ],
+      "type": "file",
+      "options": {
+        "path": "s3://kcd-de-production/table/card_sales_revisit/created_at_date=2021-01-27/weekly_summary",
+        "format": "parquet",
+        "mode": "overwrite"
+      }
+    }
+  ]
+}

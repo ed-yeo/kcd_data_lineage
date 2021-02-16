@@ -1,0 +1,159 @@
+{
+  // PARAMS: TEMP_PATH, TARGET_PATH
+  name: bccard_classification
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: business_classifications
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\"}"
+        paths: ${LOOKUP_DIR}/subject=bccard/business_classifications
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: bccard_classifications
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}"
+        paths: ${LOOKUP_DIR}/subject=bccard/bccard_classifications.tsv
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        business_classifications
+      ]
+      name: merged_dedup
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  *,
+                  CONCAT(
+                              trim(depth_1_name),'-',
+                              trim(depth_2_name), '-',
+                              trim(depth_3_name)
+                  ) AS full_category
+          FROM (
+              SELECT    distinct *
+              FROM (
+                      SELECT  `가맹점(광역시도)` AS sido,
+                              `가맹점(시군구)` AS sigungu,
+                              `가맹점(행정동)` AS h_dong,
+                              `가맹점(PNU)` AS pnu,
+                              `업종코드` AS classification_code,
+                              `업종대` AS depth_1_name,
+                              `업종중` AS depth_2_name,
+                              `업종소` AS depth_3_name,
+                              `사업자번호` AS registration_number,
+                              `가맹점명` AS business_name
+                      FROM      business_classifications
+              )
+          )
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        merged_dedup
+      ]
+      name: grouped
+      options:
+      {
+        sql:
+          '''
+          SELECT    valid_info.*,
+                    merchant_size
+          FROM (
+              SELECT
+                      SUM(cnt) AS merchant_size,
+                      filter(collect_list(struct(*)), x -> x.rank == 1)[0] AS valid_info
+              FROM (
+                  SELECT
+                          registration_number, full_category, cnt, business_names[0] AS business_name,
+                          rank() OVER (PARTITION BY registration_number ORDER BY cnt DESC) AS rank
+
+                  FROM (
+                      SELECT registration_number, full_category, count(1) AS cnt, collect_set(business_name) AS business_names
+                      FROM  merged_dedup
+                      GROUP BY registration_number, full_category
+                  )
+              )
+              GROUP BY registration_number
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        grouped
+        bccard_classifications
+      ]
+      name: bccard_business_classification
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    grouped.registration_number,
+                    grouped.business_name,
+                    grouped.full_category,
+                    grouped.merchant_size,
+                    c.bc_depth_1_code AS depth_1_code,
+                    c.bc_depth_1_name AS depth_1_name,
+                    c.bc_depth_2_code AS depth_2_code,
+                    c.bc_depth_2_name AS depth_2_name,
+                    c.bc_depth_3_code AS depth_3_code,
+                    c.bc_depth_3_name AS depth_3_name
+          FROM  grouped
+          LEFT OUTER JOIN (
+              SELECT    *,
+                        CONCAT(
+                              trim(bc_depth_1_name),'-',
+                              trim(bc_depth_2_name), '-',
+                              trim(bc_depth_3_name)
+                        ) AS full_category
+              FROM      bccard_classifications
+          ) AS c
+          ON grouped.full_category = c.full_category
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        bccard_business_classification
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=bccard_new
+      }
+      type: file
+    }
+  ]
+}

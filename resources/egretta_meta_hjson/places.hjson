@@ -1,0 +1,136 @@
+{
+  name: registration_number_places
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: places
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/snapshot/latest/places
+      }
+      type: file
+      cache: true
+    }
+    {
+      inputs: []
+      name: place_reviews
+      options:
+      {
+        format: parquet
+        paths: s3://kcd-data/place_table/latest/place_reviews
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        places
+      ]
+      name: place_name
+      options:
+      {
+        sql:
+          '''
+          SELECT    registration_number, merchant_name
+          FROM (
+                  SELECT    registration_number, name AS merchant_name,
+                            row_number() OVER (PARTITION BY registration_number ORDER BY updated_at DESC) AS rank
+                  FROM      places
+          )
+          WHERE rank = 1
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        places
+        place_reviews
+      ]
+      name: reviews_stat
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  registration_number,
+                  count(distinct(place_uid)) AS place_cnt,
+                  count(distinct(review_type)) AS review_type_cnt,
+                  SUM(review_cnt) AS total_review_cnt,
+                  AVG(avg_rating) AS total_avg_rating,
+                  collect_list(
+                      struct(place_uid, review_type, review_cnt,avg_rating)
+                  ) AS ls
+          FROM (
+                  SELECT
+                          registration_number,
+                          place_uid,
+                          review_type,
+                          count(1) AS review_cnt,
+                          avg(rating) AS avg_rating
+                  FROM (
+                          SELECT
+                                  places.registration_number,
+                                  reviews.*
+                          FROM (
+                                  SELECT
+                                          place_uid,
+                                          review_type,
+                                          rating
+                                  FROM (
+                                      SELECT *, to_date(written_at) AS written_date
+                                      FROM place_reviews
+                                  )
+                                  WHERE   written_date between '${from_date_id}' AND '${to_date_id}'
+                          ) AS reviews
+                          JOIN places
+                          ON reviews.place_uid = places.uid
+                  )
+                  GROUP BY registration_number, place_uid, review_type
+          )
+          GROUP BY registration_number
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        place_name
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=places
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        reviews_stat
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=reviews
+      }
+      type: file
+    }
+  ]
+}

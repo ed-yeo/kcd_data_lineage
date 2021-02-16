@@ -1,0 +1,208 @@
+{
+  "name": "businesses",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "iamport_customers_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/iamport_customers"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "credentials_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/credentials"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "subscriptions_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/subscriptions"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "cards_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/cards"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "users",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/users"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "phones",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/phones"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "businesses_src"
+      ],
+      "name": "businesses",
+      "options": {
+        "sql": "SELECT\n          *,\n          CASE\n              WHEN business_check_number BETWEEN 1 AND 79 THEN '개인과세사업자'\n              WHEN business_check_number >= 90 THEN '개인면세사업자'\n              ELSE '법인사업자'\n          END business_type\nFROM (\n      SELECT\n              id AS business_id,\n              owner_id,\n              name AS business_name,\n              registration_number,\n              public_id,\n              created_at,\n              opened_at,\n              closed_at,\n              tax_agent_id,\n              operation_status,\n              taxation_type,\n              vat_withheld,\n              card_merchant_signed_up_at,\n              crefia_owner_birthday,\n              crefia_size_code,\n              CAST(substr(registration_number, 4, 2) AS INT) AS business_check_number\n      FROM    businesses_src\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "iamport_customers_src"
+      ],
+      "name": "iamport_customers",
+      "options": {
+        "sql": "  SELECT\n          business_id,\n          status,\n          card_name,\n          created_at\n  FROM    iamport_customers_src"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "credentials_src"
+      ],
+      "name": "credentials",
+      "options": {
+        "sql": "  SELECT\n          business_id,\n          collect_set(name)  AS types\n  FROM (\n          SELECT\n                  business_id,\n                  created_at,\n                  replace(type, 'Credentials::', '') AS name\n          FROM    credentials_src\n          WHERE   status != 2\n  )\n  GROUP BY business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "subscriptions_src"
+      ],
+      "name": "subscriptions",
+      "options": {
+        "sql": "  SELECT\n          business_id,\n          plan_id,\n          paid,\n          auto_renew,\n          started_at,\n          created_at,\n          canceled_at,\n          status\n  FROM    subscriptions_src\n  WHERE   status = 0"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "cards_src",
+        "credentials_src"
+      ],
+      "name": "cards",
+      "options": {
+        "sql": "  SELECT  cards_src.business_id,\n          collect_set(concat(issuer, '_', card_type)) AS issuer,\n          collect_set(name) AS card_names\n  FROM    cards_src\n  JOIN    credentials_src\n  ON      cards_src.credential_id = credentials_src.id\n  WHERE   credentials_src.status != 2\n  GROUP BY cards_src.business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "users",
+        "phones",
+        "businesses_src"
+      ],
+      "name": "owner",
+      "options": {
+        "sql": "SELECT\n        businesses_src.id AS business_id,\n        u.name AS owner_name,\n        u.phone_number\nFROM (\n      SELECT    users.id AS user_id,\n                users.name AS name,\n                phones.number AS phone_number\n      FROM      users\n      FULL OUTER JOIN   phones\n      ON        users.id = phones.user_id\n) AS u\nJOIN businesses_src\nON u.user_id = businesses_src.owner_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "businesses"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=businesses/name=businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "iamport_customers"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=businesses/name=iamport_customers"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "credentials"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=businesses/name=credentials"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "subscriptions"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=businesses/name=subscriptions"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "cards"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=businesses/name=cards"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "owner"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=businesses/name=owner"
+      },
+      "type": "file"
+    }
+  ]
+}

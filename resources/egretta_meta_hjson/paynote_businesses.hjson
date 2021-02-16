@@ -1,0 +1,86 @@
+{
+  name: paynote_businesses
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: cashnote_businesses
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: card_payments
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/incremental/card_payments
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        card_payments
+      ]
+      name: paynote_businesses
+      options:
+      {
+        sql:
+          '''
+            SELECT  DISTINCT registration_number
+            FROM    card_payments
+            WHERE   approved_at between '${from_date_id}' AND '${to_date_id}'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        paynote_businesses
+        cashnote_businesses
+      ]
+      name: joined
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    cashnote_businesses.id AS business_id,
+                    true AS is_paynote_business
+            FROM    cashnote_businesses
+            JOIN paynote_businesses
+            ON  cashnote_businesses.registration_number = paynote_businesses.registration_number
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        joined
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=paynote
+      }
+      type: file
+    }
+  ]
+}

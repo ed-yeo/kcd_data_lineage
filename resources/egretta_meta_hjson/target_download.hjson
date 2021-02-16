@@ -1,0 +1,158 @@
+{
+  name: target_download
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: ad_group
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "ad_group"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        ad_group
+      ]
+      name: ad_group_filter
+      options:
+      {
+        sql:
+          '''
+            SELECT  *
+            FROM    ad_group
+            WHERE   status = 'DOWNLOADING'
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        ad_group_filter
+      ]
+      name: targets
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.TargetSearchProcess
+        adGroupName: ad_group_filter
+        es.nodes: "${ES_HOST}"
+        es.port: "443",
+        es.nodes.wan.only: "true",
+        es.scroll.size: "10000",
+        es.read.field.as.array.include:"credentials.credential_types,memberships.phonenums,memberships.notifications,hometax_card_purchases.vendor_business_names,hometax_card_purchases.vendor_business_categories,hometax_card_purchases.vendor_business_classification_codes,hometax_card_purchases.vendor_registration_numbers,hometax_card_purchases.vendor_taxation_types,hometax_purchases_cash_receipts.vendor_registration_numbers,hometax_purchases_cash_receipts.vendor_business_names,hometax_purchases_cash_receipts.vendor_business_codes,hometax_purchases_invoices.notes,hometax_purchases_invoices.vendor_registration_numbers,hometax_purchases_invoices.vendor_business_names,hometax_purchases_invoices.vendor_business_classifications,hometax_purchases_invoices.vendor_business_categories,hometax_purchases_invoices.item_names,hometax_purchases_invoices.item_notes,hometax_sales_invoices.customer_registration_numbers,hometax_sales_invoices.customer_business_names,hometax_sales_invoices.customer_business_classifications,hometax_sales_invoices.customer_business_categories,hometax_sales_invoices.item_names,hometax_sales_invoices.item_notes,naver_menu.menus,naver_menu.prices,kakao_menu.menus,kakao_menu.prices,market.targets"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        targets
+      ]
+      name: cast_targets
+      options:
+      {
+        sql:
+          '''
+            SELECT  ad_group_id, CAST(target_id AS String) AS target_id
+            FROM    targets
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        cast_targets
+        ad_group_filter
+      ]
+      name: update_ad_group
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    ad_group_filter.id,
+                    ad_group_filter.campaign_id,
+                    ad_group_filter.name,
+                    ad_group_filter.description,
+                    ad_group_filter.type,
+                    ad_group_filter.target,
+                    ad_group_filter.target_type,
+                    IF(stat.ad_group_id IS NULL, 'FAILED', 'READY') AS status,
+                    IF(stat.ad_group_id IS NULL, null,
+                         CONCAT('${BASE_DIR}/targets/date_id=${TARGET_DATE}/ts=${TARGET_TS}/ad_group_id=',  stat.ad_group_id)
+                    ) AS path,
+                    IF(stat.ad_group_id IS NULL, 0, stat.population) AS population,
+                    ad_group_filter.frequency_cap,
+                    ad_group_filter.enabled,
+                    ad_group_filter.created_at,
+                    current_timestamp() AS updated_at,
+                    ad_group_filter.use_today_data,
+                    ad_group_filter.report_name,
+                    ad_group_filter.extract_path,
+                    ad_group_filter.target_count
+            FROM    ad_group_filter
+            LEFT OUTER JOIN (
+                    SELECT  ad_group_id, count(1) AS population
+                    FROM    cast_targets
+                    GROUP BY ad_group_id
+            ) AS stat
+            ON      ad_group_filter.id = stat.ad_group_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        cast_targets
+      ]
+      name: target_sink
+      options:
+      {
+        format: text
+        mode: overwrite
+        path: "${BASE_DIR}/targets/date_id=${TARGET_DATE}/ts=${TARGET_TS}"
+        partitions: ad_group_id
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        update_ad_group
+      ]
+      name: update_ad_group_db_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        dbtable: ad_group
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        operation: upsert
+        conflictColumns: id
+        updateColumns: status,path,population,updated_at
+      }
+      type: jdbc
+    }
+  ]
+}

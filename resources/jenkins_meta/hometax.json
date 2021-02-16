@@ -1,0 +1,41 @@
+{
+  "name": "hometax",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "hometax_businesses_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/hometax_businesses"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "hometax_businesses_src"
+      ],
+      "name": "hometax_business",
+      "options": {
+        "sql": "SELECT\n          business_id,\n          name,\n          phone_number,\n          to_date(opened_at, 'yyyyMMdd') AS opend_at,\n          operation_status,\n          taxation_type,\n          created_at\nFROM      hometax_businesses_src"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "hometax_business"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=hometax/name=hometax"
+      },
+      "type": "file"
+    }
+  ]
+}

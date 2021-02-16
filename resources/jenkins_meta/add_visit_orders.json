@@ -1,0 +1,106 @@
+{
+  "name": "add_visit_orders",
+  "udfs": [
+    {
+      "name": "append_visit_count",
+      "class": "com.kcd.thrush.cardsales.spark.udfs.AppendVisitCount",
+      "params": {
+        "windowDays": "365"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "transactions_raw",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/transactions",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "current_txs_approved",
+      "inputs": [
+        "transactions_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    transactions_raw\nWHERE   created_at_date >= '2020-12-29'\nAND     (\n          (purchased_at is not null AND purchase_canceled_at is null) OR\n          (purchased_at is null AND approval_canceled_at is null)\n        )"
+      }
+    },
+    {
+      "name": "current_txs_cancelled",
+      "inputs": [
+        "transactions_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    transactions_raw\nWHERE   created_at_date >= '2020-12-29'\nAND     NOT (\n          (purchased_at is not null AND purchase_canceled_at is null) OR\n          (purchased_at is null AND approval_canceled_at is null)\n        )"
+      }
+    },
+    {
+      "name": "prev_approved_txs",
+      "inputs": [
+        "transactions_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    transactions_raw\nWHERE   created_at_date >= '2019-12-30'\nAND     created_at_date < '2020-12-29'\nAND     transacted_at >= '2019-12-30'\nAND     transacted_at < '2020-12-29'\nAND     (\n          (purchased_at is not null AND purchase_canceled_at is null) OR\n          (purchased_at is null AND approval_canceled_at is null)\n        )"
+      }
+    },
+    {
+      "name": "visits_approved",
+      "inputs": [
+        "prev_approved_txs",
+        "current_txs_approved"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  tx.acquirer_name,\n        tx.amount,\n        tx.approval_canceled_at,\n        tx.approval_seq,\n        tx.authorization_number,\n        tx.base_fee,\n        tx.business_id,\n        tx.card_number,\n        tx.card_type,\n        tx.credential_key,\n        tx.encrypted_card_number,\n        tx.estimated_paid_at,\n        tx.etc_fee,\n        tx.fee,\n        tx.installment,\n        tx.issuer_name,\n        tx.masked_card_number,\n        tx.merchant_number,\n        tx.paid_at,\n        tx.payment,\n        tx.point_fee,\n        tx.purchase_cancel_seq,\n        tx.purchase_canceled_at,\n        tx.purchase_delayed,\n        tx.purchase_seq,\n        tx.purchased_at,\n        tx.scraping_type,\n        tx.status,\n        tx.transacted_at,\n        tx.vat_fee,\n        tx.visit_order,\n        tx.created_at,\n        tx.updated_at,\n        tx.created_at_date\nFROM    (\n  SELECT  explode(append_visit_count(histories)) AS tx\n  FROM    (\n    SELECT  key,\n            business_id,\n            credential_key,\n            collect_list(struct(*)) AS histories\n    FROM    (\n       SELECT acquirer_name,\n              amount,\n              approval_canceled_at,\n              approval_seq,\n              authorization_number,\n              base_fee,\n              business_id,\n              card_number,\n              card_type,\n              credential_key,\n              encrypted_card_number,\n              estimated_paid_at,\n              etc_fee,\n              fee,\n              installment,\n              issuer_name,\n              masked_card_number,\n              merchant_number,\n              paid_at,\n              payment,\n              point_fee,\n              purchase_cancel_seq,\n              purchase_canceled_at,\n              purchase_delayed,\n              purchase_seq,\n              purchased_at,\n              scraping_type,\n              status,\n              transacted_at,\n              vat_fee,\n              created_at,\n              updated_at,\n              date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n              COALESCE(encrypted_card_number, CONCAT_WS('_', issuer_name, card_number)) AS key\n       FROM   prev_approved_txs\n\n       UNION ALL\n\n       SELECT acquirer_name,\n              amount,\n              approval_canceled_at,\n              approval_seq,\n              authorization_number,\n              base_fee,\n              business_id,\n              card_number,\n              card_type,\n              credential_key,\n              encrypted_card_number,\n              estimated_paid_at,\n              etc_fee,\n              fee,\n              installment,\n              issuer_name,\n              masked_card_number,\n              merchant_number,\n              paid_at,\n              payment,\n              point_fee,\n              purchase_cancel_seq,\n              purchase_canceled_at,\n              purchase_delayed,\n              purchase_seq,\n              purchased_at,\n              scraping_type,\n              status,\n              transacted_at,\n              vat_fee,\n              created_at,\n              updated_at,\n              date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n              COALESCE(encrypted_card_number, CONCAT_WS('_', issuer_name, card_number)) AS key\n       FROM   current_txs_approved\n    )\n    GROUP BY key, business_id, credential_key\n  )\n)\nWHERE   tx.created_at_date >= '2020-12-29'"
+      }
+    },
+    {
+      "name": "visits_cancelled",
+      "inputs": [
+        "current_txs_cancelled"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  acquirer_name,\n        amount,\n        approval_canceled_at,\n        approval_seq,\n        authorization_number,\n        base_fee,\n        business_id,\n        card_number,\n        card_type,\n        credential_key,\n        encrypted_card_number,\n        estimated_paid_at,\n        etc_fee,\n        fee,\n        installment,\n        issuer_name,\n        masked_card_number,\n        merchant_number,\n        paid_at,\n        payment,\n        point_fee,\n        purchase_cancel_seq,\n        purchase_canceled_at,\n        purchase_delayed,\n        purchase_seq,\n        purchased_at,\n        scraping_type,\n        status,\n        transacted_at,\n        vat_fee,\n        CAST(null AS integer) AS visit_order,\n        created_at,\n        updated_at,\n        date_format(created_at, 'yyyy-MM-dd') AS created_at_date\nFROM    current_txs_cancelled"
+      }
+    },
+    {
+      "name": "visits",
+      "inputs": [
+        "visits_approved",
+        "visits_cancelled"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    visits_approved\n\nUNION ALL\n\nSELECT  *\nFROM    visits_cancelled"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "visits"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/raw/etl/snowdon/card_sales/visits",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

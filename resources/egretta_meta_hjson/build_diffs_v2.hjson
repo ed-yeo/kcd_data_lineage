@@ -1,0 +1,121 @@
+{
+  //parameter: db_file_path, output_path
+  name: build_diffs_v2
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: traders
+      options:
+      {
+        format: parquet
+        paths: ${db_file_path}/traders
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: prev_vendor_transactions_raw
+      options:
+      {
+        format: parquet
+        paths: ${db_file_path}/vendor_transactions
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: current_vendor_transactions_raw
+      options:
+      {
+        format: parquet
+        paths: ${output_path}/etl/date_id=${date_id}/vendor_transactions
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        prev_vendor_transactions_raw
+      ]
+      name: prev_vendor_transactions
+      options:
+      {
+        sql:
+          '''
+          SELECT vendor_id,
+                 bank_transaction_id,
+                 month,
+                 COALESCE(matched, false) AS matched,
+                 COALESCE(similarity_score, 0.0) AS similarity_score,
+                 created_at,
+                 updated_at
+          FROM   prev_vendor_transactions_raw
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        current_vendor_transactions_raw
+      ]
+      name: current_vendor_transactions
+      options:
+      {
+        sql:
+          '''
+          SELECT vendor_id,
+                 bank_transaction_id,
+                 month,
+                 COALESCE(matched, false) AS matched,
+                 COALESCE(similarity_score, 0.0) AS similarity_score,
+                 created_at,
+                 updated_at
+          FROM   current_vendor_transactions_raw
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        prev_vendor_transactions
+        current_vendor_transactions
+      ]
+      name: vendor_transactions
+      options:
+      {
+        prev: prev_vendor_transactions
+        current: current_vendor_transactions
+        class: com.kcd.thrush.jobs.tasks.processes.GenerateDiff
+        conflictColumns: bank_transaction_id
+        updateColumns: vendor_id,month,matched,similarity_score
+      }
+      type: custom
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        vendor_transactions
+      ]
+      name: vendor_transactions_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${output_path}/etl/date_id=${date_id}/diff/vendor_transactions
+        partitions: operation
+      }
+      type: file
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  //OUTPUT_BASE_PATH
+  name: match_to_purchases
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: purchase_candidates
+      options:
+      {
+        paths: "${OUTPUT_BASE_PATH}/candidates/purchases_current"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: purchases_without_cancel
+      inputs:
+      [
+        purchase_candidates
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    purchased.*,
+                    CAST(null AS TIMESTAMP) AS purchase_canceled_at,
+                    'purchased' AS type
+          FROM      purchase_candidates
+          WHERE     canceled.business_id is null
+          '''
+      }
+    }
+    {
+      name: purchases_with_cancel
+      inputs:
+      [
+        purchase_candidates
+      ]
+      type: sql
+      options:
+      {
+       sql:
+         '''
+         SELECT    purchased.*,
+                   canceled.purchased_at AS purchase_canceled_at,
+                   'purchase_cancel' AS type
+         FROM      purchase_candidates
+         WHERE     purchased.business_id is not null AND canceled.business_id is not null
+         '''
+      }
+    }
+    {
+      name: merged_purchases
+      inputs:
+      [
+        purchases_without_cancel
+        purchases_with_cancel
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  * FROM purchases_without_cancel
+          UNION ALL
+          SELECT  * FROM purchases_with_cancel
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        merged_purchases
+      ]
+      name: file_sink
+      options: {
+          mode: overwrite
+          path: "${OUTPUT_BASE_PATH}/merged/purchases_current"
+          format: parquet
+      }
+      type: file
+    }
+  ]
+}

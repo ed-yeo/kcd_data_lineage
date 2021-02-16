@@ -1,0 +1,45 @@
+{
+  "name": "registration_number_meta_es_sink",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "registration_number_meta",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_cubes/dimension/name=registration_number_meta"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "registration_number_meta"
+      ],
+      "name": "add_timestamp",
+      "options": {
+        "sql": "  SELECT\n            to_timestamp('2021-01-29', 'yyyy-MM-dd') AS timestamp,\n            *\n  FROM      registration_number_meta\n  WHERE     registration_number IS NOT NULL AND registration_number != ''"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "add_timestamp"
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "registration_number_cube-2021-01-29",
+        "es.nodes": "https://vpc-dmp-es-prod-tw5nccwbgynfhq5ivdolhmaxsq.ap-northeast-2.es.amazonaws.com",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+        "es.mapping.id": "registration_number"
+      },
+      "type": "es"
+    }
+  ]
+}

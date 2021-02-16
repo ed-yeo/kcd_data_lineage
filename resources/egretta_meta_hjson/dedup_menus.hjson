@@ -1,0 +1,94 @@
+{
+  name: dedup_menus
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: pos_menus_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: json
+        paths: "${INPUT_PATH}"
+        partition_keys: 'created_at_date,created_at_hour'
+        mergeSchema: 'true'
+      }
+      type: custom
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        pos_menus_raw
+      ]
+      name: pos_menus_distinct
+      options:
+      {
+        sql:
+          '''
+          SELECT
+            _event_id,
+            bill_key,
+            business_id,
+            CAST(count as integer) AS count,
+            index,
+            label_name,
+            menu_key,
+            name,
+            order_time,
+            service_name,
+            timestamp,
+            CAST(total_price as integer) AS total_price,
+            CAST(created_at_date as string) AS created_at_date,
+            created_at_hour,
+            CAST(price as integer) AS price,
+            date_format(ordered_at_timestamp, "yyyy-MM-dd") AS order_date,
+            date_format(ordered_at_timestamp, "yyyy-MM") AS order_month,
+            CAST(date_format(ordered_at_timestamp, "HH") AS integer) AS order_hour
+          FROM (
+            SELECT
+              *,
+              COALESCE(
+                to_timestamp(order_time, "yyyy-MM-dd HH:mm:ss"),
+                to_timestamp(order_time, "yyyy-MM-dd'T'HH:mm:ss"),
+                to_timestamp(order_time, "yyyy-MM-dd HH:mm:ss.SSS")
+              ) AS ordered_at_timestamp,
+              row_number() OVER (PARTITION BY menu_key ORDER BY timestamp DESC) AS rank
+            FROM
+              pos_menus_raw
+            WHERE
+              created_at_date >= '${MIN_DATE}' AND created_at_date < '${MAX_DATE}'
+            AND NOT((business_id = 633186 AND created_at_date < '2020-10-15')) -- POS_CS: DE-713
+          )
+          WHERE rank = 1
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        pos_menus_distinct
+      ]
+      name: file_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: created_at_date
+          evenPartitions: "true"
+          numOfRecordPerFile: "4000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

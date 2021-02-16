@@ -1,0 +1,42 @@
+{
+  "name": "snapshot_user_history",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "visit_with_duration",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/market_area/analysis/visit_with_duration"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "visit_with_duration"
+      ],
+      "name": "snapshots",
+      "options": {
+        "sql": "SELECT    encrypted_card_number,\n          min(transacted_at_month) AS month,\n          '3_month' AS type,\n          collect_set(business_id) AS business_ids\nFROM      visit_with_duration\nWHERE     within_3_month = true\nGROUP BY  1\n\nUNION ALL\n\nSELECT    encrypted_card_number,\n          min(transacted_at_month) AS month,\n          '6_month' AS type,\n          collect_set(business_id) AS business_ids\nFROM      visit_with_duration\nWHERE     within_6_month = true\nGROUP BY  1\n\nUNION ALL\n\nSELECT    encrypted_card_number,\n          min(transacted_at_month) AS month,\n          '9_month' AS type,\n          collect_set(business_id) AS business_ids\nFROM      visit_with_duration\nWHERE     within_9_month = true\nGROUP BY  1\n\nUNION ALL\n\nSELECT    encrypted_card_number,\n          min(transacted_at_month) AS month,\n          '12_month' AS type,\n          collect_set(business_id) AS business_ids\nFROM      visit_with_duration\nWHERE     within_12_month = true\nGROUP BY  1\n\nUNION ALL\n\nSELECT    encrypted_card_number,\n          transacted_at_month AS month,\n          'month' AS type,\n          collect_set(business_id) AS business_ids\nFROM      visit_with_duration\nGROUP BY  1, 2"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "snapshots"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/market_area/analysis/snapshot_user_history",
+        "partitions": "type"
+      },
+      "type": "file"
+    }
+  ]
+}

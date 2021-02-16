@@ -1,0 +1,47 @@
+{
+  "name": "conv_log_to_es",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "conv_log",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/logs/conv_log",
+        "partition_keys": "created_at_date",
+        "log_leaf_file": "true"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "conv_log"
+      ],
+      "name": "formatted_conv",
+      "options": {
+        "sql": "    SELECT\n            'conversion' AS type,\n            cast(timestamp/1000 as timestamp) AS timestamp,\n            _event_id,\n            click_timestamp,\n            event_type,\n            campaign_id,\n            ad_group_id,\n            creative_id,\n            user_id,\n            sdk_name AS sdk_type,\n            conv_duration_millis,\n            diff_days,\n            true AS status\n    FROM    conv_log"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "formatted_conv"
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "message_history-2020-10",
+        "es.nodes": "https://vpc-dmp-es-prod-tw5nccwbgynfhq5ivdolhmaxsq.ap-northeast-2.es.amazonaws.com",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+        "es.mapping.id": "_event_id"
+      },
+      "type": "es"
+    }
+  ]
+}

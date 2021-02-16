@@ -1,0 +1,45 @@
+{
+  "name": "store_info_sink",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "store_info",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/market_area/store_info"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "store_info"
+      ],
+      "name": "store_info_with_ts",
+      "options": {
+        "sql": "  SELECT\n            to_timestamp('2021-01-24', 'yyyy-MM-dd') AS timestamp,\n            *\n  FROM      store_info"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "store_info_with_ts"
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "store_info-2021-01-24",
+        "es.nodes": "https://vpc-dmp-es-prod-tw5nccwbgynfhq5ivdolhmaxsq.ap-northeast-2.es.amazonaws.com",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+        "es.mapping.id": "public_id"
+      },
+      "type": "es"
+    }
+  ]
+}

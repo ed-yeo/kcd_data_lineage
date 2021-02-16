@@ -1,0 +1,78 @@
+{
+  "name": "bank_transactions",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "bank_accounts",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/bank_accounts"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "bank_transactions",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/bank_transactions"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "bank_accounts",
+        "bank_transactions"
+      ],
+      "name": "bank_withdraw",
+      "options": {
+        "sql": "SELECT\n      timestamp,\n      business_id,\n      date_format(timestamp, 'yyyy-MM-dd') AS date_id,\n      SUM(withdrawal) AS amount_sum,\n      COUNT(1) AS tx_count,\n      collect_set(content) AS contents,\n      collect_set(account_number) AS account_numbers\nFROM (\n\n      SELECT\n              bank_accounts.business_id,\n              bank_accounts.account_number,\n              bank_tx_withdrawal.*\n      FROM bank_accounts\n      JOIN (\n          SELECT\n                  bank_account_id,\n                  date_trunc('MONTH', transacted_at) AS timestamp,\n                  withdrawal,\n                  content\n          FROM    bank_transactions\n          WHERE   withdrawal != 0\n          AND     transacted_at between '2017-01-01' AND '2021-01-24'\n      ) bank_tx_withdrawal\n      ON bank_accounts.id = bank_tx_withdrawal.bank_account_id\n      WHERE   business_id IS NOT NULL\n)\nGROUP BY business_id, timestamp"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "bank_accounts",
+        "bank_transactions"
+      ],
+      "name": "bank_deposit",
+      "options": {
+        "sql": "SELECT\n      timestamp,\n      business_id,\n      date_format(timestamp, 'yyyy-MM-dd') AS date_id,\n      SUM(deposit) AS amount_sum,\n      COUNT(1) AS tx_count,\n      collect_set(content) AS contents,\n      collect_set(account_number) AS account_numbers\nFROM (\n\n      SELECT\n              bank_accounts.business_id,\n              bank_accounts.account_number,\n              bank_tx_deposit.*\n      FROM bank_accounts\n      JOIN (\n          SELECT\n                  bank_account_id,\n                  date_trunc('MONTH', transacted_at) AS timestamp,\n                  deposit,\n                  content\n          FROM    bank_transactions\n          WHERE   deposit != 0\n          AND     transacted_at between '2017-01-01' AND '2021-01-24'\n      ) bank_tx_deposit\n      ON bank_accounts.id = bank_tx_deposit.bank_account_id\n      WHERE   business_id IS NOT NULL\n)\nGROUP BY business_id, timestamp"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "bank_withdraw"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=bank/name=withdraw",
+        "evenPartitions": "true",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "bank_deposit"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=bank/name=deposit",
+        "evenPartitions": "true",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    }
+  ]
+}

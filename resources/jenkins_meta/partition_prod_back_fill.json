@@ -1,0 +1,93 @@
+{
+  "name": "partition_prod_back_fill",
+  "udfs": [
+    {
+      "name": "row_to_json",
+      "class": "com.kcd.thrush.catalog.spark.udfs.RowToJsonUDF",
+      "params": {
+        "flattenNestedJson": "true",
+        "keysDelimiter": "_",
+        "explodeArray": "false",
+        "replaceDotInKey": "true",
+        "parseFields": "content",
+        "explodeArrayLimit": "10",
+        "withSchema": "true",
+        "removeParseFieldPrefix": "true",
+        "caseInsensitive": "true"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "plover_src",
+      "options": {
+        "paths": "s3://kcd-data/raw/firehose/plover/year=2020/month=12/day=31,s3://kcd-data/raw/firehose/plover/year=2020/month=12/day=30,s3://kcd-data/raw/firehose/plover/year=2020/month=12/day=29,s3://kcd-data/raw/firehose/plover/year=2020/month=12/day=28,s3://kcd-data/raw/firehose/plover/year=2020/month=12/day=27,s3://kcd-data/raw/firehose/plover/year=2020/month=12/day=26,s3://kcd-data/raw/firehose/plover/year=2020/month=12/day=25",
+        "format": "json",
+        "read": "{\"basePath\":\"s3://kcd-de-production/raw/firehose/plover_compact\"}"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "pos_src",
+      "options": {
+        "paths": "s3://kcd-pos-data/dev/year=2020/month=12/day=31,s3://kcd-pos-data/dev/year=2020/month=12/day=30,s3://kcd-pos-data/dev/year=2020/month=12/day=29,s3://kcd-pos-data/dev/year=2020/month=12/day=28,s3://kcd-pos-data/dev/year=2020/month=12/day=27,s3://kcd-pos-data/dev/year=2020/month=12/day=26,s3://kcd-pos-data/dev/year=2020/month=12/day=25",
+        "format": "json",
+        "read": "{\"basePath\":\"s3://kcd-pos-data/dev\"}"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "plover",
+      "inputs": [
+        "plover_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT\n  table_name,\n  text_dvs,\n  from_unixtime((timestamp + (60 * 60 * 9 * 1000)) / 1000) AS ts,\n  year,\n  month,\n  day\nFROM    (\n  SELECT  timestamp,\n          CONCAT(service_name, '_', label_name) AS table_name,\n          row_to_json(struct(*)) AS text_dvs,\n          year,\n          month,\n          day\n  FROM\n          plover_src\n  WHERE\n          content IS NOT NULL\n)"
+      }
+    },
+    {
+      "name": "pos",
+      "inputs": [
+        "pos_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT\n  table_name,\n  text_dvs,\n  from_unixtime(((unix_timestamp() * 1000) + (60 * 60 * 9 * 1000)) / 1000) AS ts,\n  year(from_unixtime(unix_timestamp(), 'yyyy-MM-dd')) as year,\n  month(from_unixtime(unix_timestamp(), 'yyyy-MM-dd')) as month,\n  day(from_unixtime(unix_timestamp(), 'yyyy-MM-dd')) as day\nFROM    (\n  SELECT  CONCAT(service_name, '_', label_name) AS table_name,\n          row_to_json(struct(*)) AS text_dvs\n  FROM    (\n    SELECT  source AS label_name,\n            'pos' AS service_name,\n            to_json(struct(*)) AS content\n    FROM\n            pos_src\n  )\n)"
+      }
+    },
+    {
+      "name": "union_v3",
+      "inputs": [
+        "plover",
+        "pos"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT\n  lower(table_name) AS tb,\n  concat_ws('-',\n    format_string('%04d', year),\n    format_string('%02d', month),\n    format_string('%02d', day)\n  ) AS created_at_date,\n  text_dvs.text AS value\nFROM (\n  SELECT * FROM plover\n\n  UNION ALL\n\n  SELECT * FROM pos\n)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "union_v3"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "format": "text",
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/raw/catalog_v3",
+        "partitions": "tb,created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "100000"
+      },
+      "type": "custom"
+    }
+  ]
+}

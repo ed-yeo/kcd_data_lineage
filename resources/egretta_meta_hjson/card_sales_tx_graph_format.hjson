@@ -1,0 +1,115 @@
+{
+  name: card_sales_tx_graph_format
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: card_sales_tx
+      options:
+      {
+        format: parquet
+        paths: "${INPUT_PATH}",
+        partition_keys: 'created_at_date'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+          card_sales_tx
+      ]
+      name: card_sales_tx_select
+      options:
+      {
+        sql:
+          '''
+          SELECT
+            acquirer_name,
+            amount,
+            approval_seq,
+            CAST(approval_canceled_at AS long) AS approval_canceled_at,
+            authorization_number,
+            base_fee,
+            business_id,
+            card_number,
+            NVL(card_type, -1) AS card_type,
+            encrypted_card_number,
+            credential_key,
+            CAST(estimated_paid_at AS long) AS estimated_paid_at,
+            etc_fee,
+            installment,
+            issuer_name,
+            merchant_number,
+            -- masked_card_number,
+            CAST(paid_at AS long) AS paid_at,
+            payment,
+            point_fee,
+            purchase_cancel_seq,
+            CAST(purchase_canceled_at AS long) AS purchase_canceled_at,
+            CAST(purchased_at AS long) AS purchased_at,
+            purchase_delayed,
+            purchase_seq,
+            NVL(status, -1) as status,
+            CAST(transacted_at AS long) AS transacted_at,
+            -- scraping_type,
+            vat_fee,
+            CAST(created_at AS long) AS created_at,
+            CAST(updated_at AS long) AS updated_at,
+            fee
+            -- string(date_format(created_at, "yyyy-MM-dd")) AS created_at_date
+          FROM
+            card_sales_tx
+          WHERE
+            business_id is not null AND
+            credential_key is not null
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+          card_sales_tx_select
+      ]
+      name: card_sales_tx_graph_format
+      options:
+      {
+        sql:
+          '''
+               SELECT
+                   CAST(created_at AS long) as timestamp,
+                   business_id AS from,
+                   COALESCE(encrypted_card_number, concat_ws('', issuer_name, card_number)) AS to,
+                   'card_sales_transactions' AS label,
+                   to_json(struct(*)) AS props
+               FROM
+                   card_sales_tx_select
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        card_sales_tx_graph_format
+      ]
+      name: card_sales_graph_format_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}"
+        partition_keys: 'created_at_date'
+      }
+      type: file
+    }
+  ]
+}

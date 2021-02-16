@@ -1,0 +1,54 @@
+{
+  "name": "target_rest_sink",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "ad_group",
+      "options": {
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "ad_group",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "ad_group"
+      ],
+      "name": "filtered_target_users",
+      "options": {
+        "sql": "SELECT    *\nFROM      ad_group\nWHERE     enabled = true\nAND       status = 'SENDING'"
+      },
+      "type": "sql",
+      "cache": true
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "filtered_target_users"
+      ],
+      "name": "rest_sink",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.TargetMessageRestSink",
+        "url": "https://event.kcd.partners/api/publish/dmp_message",
+        "token": "eyJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE1OTQyNjM4NTMsImV4cCI6MzY4NTI3MDAwMDAwMCwic2VydmljZV9uYW1lIjoiZG1wX21lc3NhZ2UifQ.tQ_j30oLXpykDiieEGAuVQZoBObgj7g3LAAzP_23wm8",
+        "proxyApi": "https://event.kcd.partners/rdt/clk",
+        "changeUrl": "true",
+        "batchSize": "1",
+        "delayTimeMillis": "18",
+        "outputPath": "s3://kcd-de-production/service/message/rest_sink/date_id=2021-01-11/ts=09_56",
+        "connectTimeout": "1000",
+        "readTimeout": "5000",
+        "partitionKey": "meta.user_id"
+      },
+      "type": "custom"
+    }
+  ]
+}

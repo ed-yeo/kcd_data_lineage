@@ -1,0 +1,48 @@
+{
+  "name": "dedup_payments",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "pos_payments_raw",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource",
+        "format": "json",
+        "paths": "s3://kcd-data/raw/catalog_v2/raw/tb=posetl_payments/created_at_date=2020-09-22,s3://kcd-data/raw/catalog_v2/raw/tb=posetl_payments/created_at_date=2020-09-21,s3://kcd-data/raw/catalog_v2/raw/tb=posetl_payments/created_at_date=2020-09-20",
+        "partition_keys": "created_at_date,created_at_hour"
+      },
+      "type": "custom"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "pos_payments_raw"
+      ],
+      "name": "pos_payments_distinct",
+      "options": {
+        "sql": "SELECT\n  _event_id,\n  `type`,\n  amount,\n  authorization_number,\n  bill_key,\n  bill_no,\n  business_id,\n  card_number,\n  client_id,\n  index,\n  issuer_name,\n  label_name,\n  merchant_number,\n  order_status,\n  paid_at,\n  payment_key,\n  pos_no,\n  pos_type,\n  service_name,\n  shop_code,\n  store_key,\n  timestamp,\n  CAST(null AS int) AS visit_order,\n  created_at_date,\n  CAST(unix_timestamp(paid_at, \"yyyy-MM-dd HH:mm:ss.SSS\") AS timestamp) AS transacted_at,\n  CAST(to_date(CAST(unix_timestamp(paid_at, \"yyyy-MM-dd\") AS timestamp), 'yyyy-MM-dd') as string) AS transacted_at_date\nFROM    (\n  SELECT\n    *,\n    row_number() OVER (PARTITION BY payment_key ORDER BY timestamp DESC) AS rank\n  FROM\n    pos_payments_raw\n  WHERE\n    created_at_date >= '2019-09-23' AND created_at_date < '2020-09-23'\n)\nWHERE rank = 1"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "pos_payments_distinct"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-data/raw/etl/pos/pos_payments",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

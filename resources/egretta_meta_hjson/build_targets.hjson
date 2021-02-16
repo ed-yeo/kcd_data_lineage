@@ -1,0 +1,60 @@
+{
+  name: build_targets
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: weekly_aggr
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_PATH}/weekly_aggr
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        weekly_aggr
+      ]
+      name: targets
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id, count(distinct transacted_at_month) AS transacted_at_month_count
+          FROM    (
+              SELECT  business_id, date_trunc('month', transacted_at_week) AS transacted_at_month
+              FROM    weekly_aggr
+              WHERE   transacted_at_week >= '2019-03-01'
+              AND     transacted_at_week < '2020-04-01'
+          )
+          GROUP BY business_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        targets
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/targets
+      }
+      type: file
+    }
+  ]
+}

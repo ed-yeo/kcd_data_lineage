@@ -1,0 +1,633 @@
+{
+  name: data_voucher_market_analysis
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: business_meta
+      options:
+      {
+        format: parquet
+        paths: ${DATA_CUBE_DIR}/dimension/name=business_meta
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: transactions
+      options:
+      {
+        format: parquet
+        paths: ${CARD_SALES_TRANSACTION_PATH}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: shinhancard_customer_statistics
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/incremental/shinhancard_customer_statistics
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: visitPair
+      options:
+      {
+        format: parquet
+        paths: ${VISIT_PAIR_PATH}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: visits
+      options:
+      {
+        format: parquet
+        paths: ${VISIT_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        business_meta
+      ]
+      name: meta
+      options:
+      {
+        sql:
+          '''
+          SELECT *
+          FROM (
+                  SELECT
+                          business_id,
+                          CONCAT(ftc_cate2_cd, '_', emd_cd) AS agg_code,
+                          struct(
+                              ftc_cate2_cd,
+                              ftc_cate2,
+                              sido_cd,
+                              sido_nm,
+                              sig_cd,
+                              sig_nm,
+                              emd_cd,
+                              emd_nm
+                          ) AS meta
+                  FROM (
+                          SELECT
+                                  business_id,
+                                  classification.kcd.depth_2_code AS ftc_cate2_cd,
+                                  classification.kcd.depth_2_name AS ftc_cate2,
+                                  location.common.sido_code AS sido_cd,
+                                  location.common.sido AS sido_nm,
+                                  location.common.sigungu_code AS sig_cd,
+                                  location.common.sigungu AS sig_nm,
+                                  location.common.b_code AS emd_cd,
+                                  location.common.dong AS emd_nm
+                          FROM  business_meta
+                  )
+          )
+          WHERE agg_code is not null
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        transactions
+      ]
+      name: transactions_raw
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  business_id,
+                  date_trunc('DAY', transacted_at) AS day,
+                  amount,
+                  dayofweek,
+                  CASE
+                      WHEN dayofweek in (1, 7) THEN 'weekend'
+                      ELSE 'weekday'
+                  END AS day_type,
+                  CASE
+                      WHEN hour between 0 AND 5   THEN '0_5'
+                      WHEN hour between 6 AND 10  THEN '6_10'
+                      WHEN hour between 11 AND 13 THEN '11_13'
+                      WHEN hour between 14 AND 17 THEN '14_17'
+                      WHEN hour between 18 AND 20 THEN '18_20'
+                      WHEN hour between 21 AND 23 THEN '21_23'
+                      ELSE 'none'
+                  END AS hour_type
+          FROM (
+              SELECT  *,
+                      dayofweek(transacted_at) AS dayofweek,
+                      hour(transacted_at) AS hour
+              FROM    transactions
+              WHERE   business_id IS NOT NULL
+              AND     approval_canceled_at IS NULL AND purchase_canceled_at IS NULL
+              AND     transacted_at between '${START_DATE}' AND '${END_DATE}'
+          )
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        transactions_raw
+        shinhancard_customer_statistics
+      ]
+      name: transactions_daily
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  agg.*,
+                  ROUND(agg.tx_count * st.percentage_male / 100) AS gender_male_tx_count,
+                  ROUND(agg.tx_count * st.percentage_female / 100) AS gender_female_tx_count,
+                  ROUND(agg.tx_count * st.percentage_under_20 / 100) AS age_under_20_tx_count,
+                  ROUND(agg.tx_count * st.percentage_20 / 100) AS age_20_tx_count,
+                  ROUND(agg.tx_count * st.percentage_30 / 100) AS age_30_tx_count,
+                  ROUND(agg.tx_count * st.percentage_40 / 100) AS age_40_tx_count,
+                  ROUND(agg.tx_count * st.percentage_50 / 100) AS age_50_tx_count,
+                  ROUND(agg.tx_count * st.percentage_over_60 / 100) AS age_over_60_tx_count
+          FROM (
+              SELECT
+                      business_id, day, day_type, dayofweek,
+                      SUM(amount) AS amount_sum,
+                      COUNT(1) AS tx_count
+              FROM  transactions_raw
+              GROUP BY business_id, day, day_type, dayofweek
+          ) AS agg
+          LEFT OUTER JOIN shinhancard_customer_statistics AS st
+          ON agg.business_id = st.business_id
+          AND agg.day = st.date
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        transactions_raw
+      ]
+      name: hour_type_all
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  business_id,
+                  map_from_entries(ls) AS hour_type
+          FROM (
+              SELECT
+                      business_id,
+                      collect_list(struct(hour_type, stat)) AS ls
+              FROM (
+                  SELECT  business_id,
+                          hour_type,
+                          named_struct(
+                              'tx_count', count(1),
+                              'amount_sum', SUM(amount)
+                          ) AS stat
+                  FROM  transactions_raw
+                  GROUP BY business_id, hour_type
+              )
+              GROUP BY business_id
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        transactions_daily
+      ]
+      name: day_type_all
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  business_id,
+                  map_from_entries(ls) AS day_type
+          FROM (
+              SELECT
+                      business_id,
+                      collect_list(struct(day_type, stat)) AS ls
+              FROM (
+                  SELECT  business_id,
+                          day_type,
+                          named_struct(
+                              'tx_count', SUM(tx_count),
+                              'amount_sum', SUM(amount_sum)
+                          ) AS stat
+                  FROM  transactions_daily
+                  GROUP BY business_id, day_type
+              )
+              GROUP BY business_id
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        transactions_daily
+      ]
+      name: dayofweek_all
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  business_id,
+                  map_from_entries(ls) AS dayofweek
+          FROM (
+              SELECT
+                      business_id,
+                      collect_list(struct(dayofweek, stat)) AS ls
+              FROM (
+                  SELECT  business_id,
+                          dayofweek,
+                          named_struct(
+                              'tx_count', SUM(tx_count),
+                              'amount_sum', SUM(amount_sum)
+                          ) AS stat
+                  FROM  transactions_daily
+                  GROUP BY business_id, dayofweek
+              )
+              GROUP BY business_id
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        transactions_daily
+      ]
+      name: daily_all
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  ROUND(amount_sum / tx_count_sum) AS unit_price
+          FROM (
+                  SELECT  business_id,
+                          SUM(tx_count) AS tx_count_sum,
+                          SUM(amount_sum) AS amount_sum,
+                          AVG(tx_count) AS tx_count_avg_daily,
+                          SUM(gender_male_tx_count) AS gender_male_tx_count_sum,
+                          SUM(gender_female_tx_count) AS gender_female_tx_count_sum,
+                          AVG(gender_male_tx_count) AS gender_male_tx_count_avg,
+                          AVG(gender_female_tx_count) AS gender_female_tx_count_avg,
+                          SUM(age_under_20_tx_count) AS age_under_20_tx_count_sum,
+                          SUM(age_20_tx_count) AS age_20_tx_count_sum,
+                          SUM(age_30_tx_count) AS age_30_tx_count_sum,
+                          SUM(age_40_tx_count) AS age_40_tx_count_sum,
+                          SUM(age_50_tx_count) AS age_50_tx_count_sum,
+                          SUM(age_over_60_tx_count) AS age_over_60_tx_count_sum
+                  FROM   transactions_daily
+                  GROUP BY business_id
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        visitPair
+      ]
+      name: revisit_duration_all
+      options:
+      {
+        sql:
+          '''
+          SELECT business_id, avg(diff) AS revisit_duration_avg
+          FROM  (
+              SELECT  *,
+                      datediff(end_date, start_date) AS diff
+              FROM visitPair
+              WHERE end_date between '${START_DATE}' AND '${END_DATE}'
+          )
+          GROUP BY business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        visits
+      ]
+      name: revisit_raw
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  amount,
+                  (visit_order - 1) AS revisit_cnt,
+                  CASE
+                      WHEN visit_order = 1 THEN 'revisit_0'
+                      WHEN visit_order = 2 THEN 'revisit_1'
+                      WHEN visit_order = 3 THEN 'revisit_2'
+                      WHEN visit_order = 4 THEN 'revisit_3'
+                      WHEN visit_order = 5 THEN 'revisit_4'
+                      WHEN visit_order = 6 THEN 'revisit_5'
+                      WHEN visit_order >= 7 THEN 'revisit_6_over'
+                  END AS revisit_type,
+                  IF(visit_order > 1, 1, 0) AS revisit
+          FROM    visits
+          WHERE   business_id IS NOT NULL
+          AND     approval_canceled_at IS NULL AND purchase_canceled_at IS NULL
+          AND     transacted_at between '${START_DATE}' AND '${END_DATE}'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        revisit_raw
+      ]
+      name: revisit_type_all
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  business_id,
+                  revisit_tx_cnt,
+                  (revisit_sum / tx_cnt_sum) AS revisit_avg,
+                  map_from_entries(ls) AS revisit_type
+          FROM (
+              SELECT
+                      business_id,
+                      SUM(revisit_tx_cnt) AS revisit_tx_cnt,
+                      SUM(revisit_sum) AS revisit_sum,
+                      SUM(tx_cnt) AS tx_cnt_sum,
+                      collect_list(struct(revisit_type, stat)) AS ls
+              FROM (
+                  SELECT
+                          business_id, revisit_type,
+                          SUM(revisit) AS revisit_tx_cnt,
+                          SUM(revisit_cnt) AS revisit_sum,
+                          COUNT(1) AS tx_cnt,
+                          named_struct(
+                              'tx_count', count(1),
+                              'amount_sum', SUM(amount)
+                          ) AS stat
+                  FROM   revisit_raw
+                  GROUP BY business_id, revisit_type
+              )
+              GROUP BY business_id
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        meta
+        hour_type_all
+        day_type_all
+        dayofweek_all
+        daily_all
+        revisit_type_all
+        revisit_duration_all
+      ]
+      name: merged
+      options:
+      {
+        sql:
+          '''
+          SELECT  stat.*,
+                  meta.agg_code,
+                  meta.meta
+          FROM    meta
+          JOIN (
+                  SELECT
+                          daily_all.*,
+                          day_type_all.day_type,
+                          hour_type_all.hour_type,
+                          dayofweek_all.dayofweek,
+                          revisit_type_all.revisit_tx_cnt,
+                          revisit_type_all.revisit_type,
+                          revisit_type_all.revisit_avg,
+                          revisit_duration_all.revisit_duration_avg
+                  FROM    hour_type_all, day_type_all, dayofweek_all, daily_all, revisit_type_all, revisit_duration_all
+                  WHERE   hour_type_all.business_id   = daily_all.business_id
+                  AND     day_type_all.business_id    = daily_all.business_id
+                  AND     dayofweek_all.business_id   = daily_all.business_id
+                  AND     revisit_type_all.business_id = daily_all.business_id
+                  AND     revisit_duration_all.business_id = daily_all.business_id
+          ) AS stat
+          ON meta.business_id = stat.business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        merged
+      ]
+      name: result
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  '${TARGET_MONTH}' AS etl_ym,
+                  meta.*,
+                  amount_sum,
+                  tx_count_sum,
+                  ROUND(amount_sum / business_cnt) AS avg_sales,
+                  ROUND(unit_price) AS sales_per_customer,
+                  ROUND(daily_avg_transaction_per_store) AS daily_avg_transaction_per_store,
+                  ROUND(gender_male_tx_count_sum / tx_count_sum * 100) AS share_of_transaction_male,
+                  ROUND(gender_female_tx_count_sum / tx_count_sum * 100) AS share_of_transaction_female,
+                  ROUND(gender_male_tx_count_avg) AS male_daily_avg_transaction_per_store,
+                  ROUND(gender_female_tx_count_avg) AS female_daily_avg_transaction_per_store,
+
+                  ROUND(age_under_20_tx_count_sum / tx_count_sum * 100) AS share_of_transaction_10s,
+                  ROUND(age_20_tx_count_sum / tx_count_sum * 100) AS share_of_transaction_20s,
+                  ROUND(age_30_tx_count_sum / tx_count_sum * 100) AS share_of_transaction_30s,
+                  ROUND(age_40_tx_count_sum / tx_count_sum * 100) AS share_of_transaction_40s,
+                  ROUND(age_50_tx_count_sum / tx_count_sum * 100) AS share_of_transaction_50s,
+                  ROUND(age_over_60_tx_count_sum / tx_count_sum * 100) AS share_of_transaction_60s,
+
+                  ROUND(monday_amount_sum / amount_sum * 100) AS mon_sales,
+                  ROUND(tuesday_amount_sum / amount_sum * 100) AS tue_sales,
+                  ROUND(wednesday_amount_sum / amount_sum * 100) AS wed_sales,
+                  ROUND(thursday_amount_sum / amount_sum * 100) AS thu_sales,
+                  ROUND(friday_amount_sum / amount_sum * 100) AS fri_sales,
+                  ROUND(saturday_amount_sum / amount_sum * 100) AS sat_sales,
+                  ROUND(sunday_amount_sum / amount_sum * 100) AS sun_sales,
+
+                  ROUND(weekday_amount_sum / amount_sum * 100) AS weekday_sales,
+                  ROUND(weekend_amount_sum / amount_sum * 100) AS weekend_sales,
+
+                  ROUND(hour_0_5_amount_sum / amount_sum * 100) AS 00_05timesales_a01,
+                  ROUND(hour_6_10_amount_sum / amount_sum * 100) AS 06_10timesales_a01,
+                  ROUND(hour_11_13_amount_sum / amount_sum * 100) AS 11_13timesales_a01,
+                  ROUND(hour_14_17_amount_sum / amount_sum * 100) AS 14_17timesales_a01,
+                  ROUND(hour_18_20_amount_sum / amount_sum * 100) AS 18_20timesales_a01,
+                  ROUND(hour_21_23_amount_sum / amount_sum * 100) AS 21_23timesales_a01,
+
+                  ROUND(avg_visits) AS avg_visits,
+                  ROUND(revisit_tx_cnt_sum / tx_count_sum * 100) AS retention_rate,
+
+                  ROUND(revisit_0_amount_sum / amount_sum * 100) AS share_of_sales_0_revisit,
+                  ROUND(revisit_1_amount_sum / amount_sum * 100) AS share_of_sales_1_revisit,
+                  ROUND(revisit_2_amount_sum / amount_sum * 100) AS share_of_sales_2_revisit,
+                  ROUND(revisit_3_amount_sum / amount_sum * 100) AS share_of_sales_3_revisit,
+                  ROUND(revisit_4_amount_sum / amount_sum * 100) AS share_of_sales_4_revisit,
+                  ROUND(revisit_5_amount_sum / amount_sum * 100) AS share_of_sales_5_revisit,
+                  ROUND(revisit_6_over_amount_sum / amount_sum * 100) AS share_of_sales_6_revisit,
+
+                  ROUND(avg_sales_per_0_revisit) AS avg_sales_per_0_revisit,
+                  ROUND(avg_sales_per_1_revisit) AS avg_sales_per_1_revisit,
+                  ROUND(avg_sales_per_2_revisit) AS avg_sales_per_2_revisit,
+                  ROUND(avg_sales_per_3_revisit) AS avg_sales_per_3_revisit,
+                  ROUND(avg_sales_per_4_revisit) AS avg_sales_per_4_revisit,
+                  ROUND(avg_sales_per_5_revisit) AS avg_sales_per_5_revisit,
+                  ROUND(avg_sales_per_6_over_revisit) AS avg_sales_per_6_revisit,
+
+                  ROUND(visit_terms) AS visit_terms
+          FROM (
+                  SELECT
+                          meta,
+                          count(1) AS business_cnt,
+                          SUM(amount_sum) AS amount_sum,
+                          SUM(tx_count_sum) AS tx_count_sum,
+
+                          AVG(tx_count_avg_daily) AS daily_avg_transaction_per_store,
+                          AVG(unit_price) AS unit_price,
+                          SUM(gender_male_tx_count_sum) AS gender_male_tx_count_sum,
+                          SUM(gender_female_tx_count_sum) AS gender_female_tx_count_sum,
+                          AVG(gender_male_tx_count_avg) AS gender_male_tx_count_avg,
+                          AVG(gender_female_tx_count_avg) AS gender_female_tx_count_avg,
+                          SUM(age_under_20_tx_count_sum) AS age_under_20_tx_count_sum,
+                          SUM(age_20_tx_count_sum) AS age_20_tx_count_sum,
+                          SUM(age_30_tx_count_sum) AS age_30_tx_count_sum,
+                          SUM(age_40_tx_count_sum) AS age_40_tx_count_sum,
+                          SUM(age_50_tx_count_sum) AS age_50_tx_count_sum,
+                          SUM(age_over_60_tx_count_sum) AS age_over_60_tx_count_sum,
+
+                          SUM(element_at(dayofweek, 1).amount_sum) AS sunday_amount_sum,
+                          SUM(element_at(dayofweek, 2).amount_sum) AS monday_amount_sum,
+                          SUM(element_at(dayofweek, 3).amount_sum) AS tuesday_amount_sum,
+                          SUM(element_at(dayofweek, 4).amount_sum) AS wednesday_amount_sum,
+                          SUM(element_at(dayofweek, 5).amount_sum) AS thursday_amount_sum,
+                          SUM(element_at(dayofweek, 6).amount_sum) AS friday_amount_sum,
+                          SUM(element_at(dayofweek, 7).amount_sum) AS saturday_amount_sum,
+
+                          SUM(element_at(day_type, 'weekday').amount_sum) AS weekday_amount_sum,
+                          SUM(element_at(day_type, 'weekend').amount_sum) AS weekend_amount_sum,
+
+                          SUM(element_at(hour_type, '0_5').amount_sum) AS hour_0_5_amount_sum,
+                          SUM(element_at(hour_type, '6_10').amount_sum) AS hour_6_10_amount_sum,
+                          SUM(element_at(hour_type, '11_13').amount_sum) AS hour_11_13_amount_sum,
+                          SUM(element_at(hour_type, '14_17').amount_sum) AS hour_14_17_amount_sum,
+                          SUM(element_at(hour_type, '18_20').amount_sum) AS hour_18_20_amount_sum,
+                          SUM(element_at(hour_type, '21_23').amount_sum) AS hour_21_23_amount_sum,
+
+
+                          AVG(revisit_avg) AS avg_visits,
+                          SUM(revisit_tx_cnt) AS revisit_tx_cnt_sum,
+
+                          SUM(element_at(revisit_type, 'revisit_0').amount_sum) AS revisit_0_amount_sum,
+                          SUM(element_at(revisit_type, 'revisit_1').amount_sum) AS revisit_1_amount_sum,
+                          SUM(element_at(revisit_type, 'revisit_2').amount_sum) AS revisit_2_amount_sum,
+                          SUM(element_at(revisit_type, 'revisit_3').amount_sum) AS revisit_3_amount_sum,
+                          SUM(element_at(revisit_type, 'revisit_4').amount_sum) AS revisit_4_amount_sum,
+                          SUM(element_at(revisit_type, 'revisit_5').amount_sum) AS revisit_5_amount_sum,
+                          SUM(element_at(revisit_type, 'revisit_6_over').amount_sum) AS revisit_6_over_amount_sum,
+
+                          AVG(element_at(revisit_type, 'revisit_0').amount_sum) AS avg_sales_per_0_revisit,
+                          AVG(element_at(revisit_type, 'revisit_1').amount_sum) AS avg_sales_per_1_revisit,
+                          AVG(element_at(revisit_type, 'revisit_2').amount_sum) AS avg_sales_per_2_revisit,
+                          AVG(element_at(revisit_type, 'revisit_3').amount_sum) AS avg_sales_per_3_revisit,
+                          AVG(element_at(revisit_type, 'revisit_4').amount_sum) AS avg_sales_per_4_revisit,
+                          AVG(element_at(revisit_type, 'revisit_5').amount_sum) AS avg_sales_per_5_revisit,
+                          AVG(element_at(revisit_type, 'revisit_6_over').amount_sum) AS avg_sales_per_6_over_revisit,
+
+                          AVG(revisit_duration_avg) AS visit_terms
+                  FROM   merged
+                  GROUP BY meta
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        result
+      ]
+      name: formatted
+      options:
+      {
+        sql:
+          '''
+          SELECT *
+          FROM (
+              SELECT  result.*,
+                      ROUND(result.amount_sum / area_stat.area_amount_sum * 100) AS share_of_sales_by_industry,
+                      ROUND(result.tx_count_sum / area_stat.area_tx_count_sum * 100) AS share_of_transaction_by_biz_type
+              FROM    result
+              JOIN    (
+                      SELECT  emd_cd,
+                              SUM(amount_sum) AS area_amount_sum,
+                              SUM(tx_count_sum) AS area_tx_count_sum
+                      FROM result
+                      GROUP BY emd_cd
+              ) AS area_stat
+              ON   result.emd_cd = area_stat.emd_cd
+          )
+          ORDER BY sido_cd, sig_cd, emd_cd
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        formatted
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${OUTPUT_DIR}/date_id=${START_DATE}
+      }
+      type: file
+    }
+  ]
+}

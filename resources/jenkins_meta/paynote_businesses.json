@@ -1,0 +1,61 @@
+{
+  "name": "paynote_businesses",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "cashnote_businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_payments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/incremental/card_payments"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "card_payments"
+      ],
+      "name": "paynote_businesses",
+      "options": {
+        "sql": "  SELECT  DISTINCT registration_number\n  FROM    card_payments\n  WHERE   approved_at between '2019-01-01' AND '2021-01-28'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "paynote_businesses",
+        "cashnote_businesses"
+      ],
+      "name": "joined",
+      "options": {
+        "sql": "  SELECT\n          cashnote_businesses.id AS business_id,\n          true AS is_paynote_business\n  FROM    cashnote_businesses\n  JOIN paynote_businesses\n  ON  cashnote_businesses.registration_number = paynote_businesses.registration_number"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "joined"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=businesses/name=paynote"
+      },
+      "type": "file"
+    }
+  ]
+}

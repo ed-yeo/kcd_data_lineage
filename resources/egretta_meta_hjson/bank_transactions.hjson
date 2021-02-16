@@ -1,0 +1,150 @@
+{
+  name: bank_transactions
+  udfs: [
+  ]
+  source:
+  [
+   {
+      inputs: []
+      name: bank_accounts
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/bank_accounts
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: bank_transactions
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/incremental/bank_transactions
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        bank_accounts
+        bank_transactions
+      ]
+      name: bank_withdraw
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                timestamp,
+                business_id,
+                date_format(timestamp, 'yyyy-MM-dd') AS date_id,
+                SUM(withdrawal) AS amount_sum,
+                COUNT(1) AS tx_count,
+                collect_set(content) AS contents
+          FROM (
+
+                SELECT
+                        bank_accounts.business_id,
+                        bank_tx_withdrawal.*
+                FROM bank_accounts
+                JOIN (
+                    SELECT
+                            bank_account_id,
+                            date_trunc('${TIME_UNIT}', transacted_at) AS timestamp,
+                            withdrawal,
+                            content
+                    FROM    bank_transactions
+                    WHERE   withdrawal != 0
+                    AND     transacted_at between '${from_date_id}' AND '${to_date_id}'
+                ) bank_tx_withdrawal
+                ON bank_accounts.id = bank_tx_withdrawal.bank_account_id
+                WHERE   business_id IS NOT NULL
+          )
+          GROUP BY business_id, timestamp
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        bank_accounts
+        bank_transactions
+      ]
+      name: bank_deposit
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                timestamp,
+                business_id,
+                date_format(timestamp, 'yyyy-MM-dd') AS date_id,
+                SUM(deposit) AS amount_sum,
+                COUNT(1) AS tx_count,
+                collect_set(content) AS contents
+          FROM (
+
+                SELECT
+                        bank_accounts.business_id,
+                        bank_tx_deposit.*
+                FROM bank_accounts
+                JOIN (
+                    SELECT
+                            bank_account_id,
+                            date_trunc('${TIME_UNIT}', transacted_at) AS timestamp,
+                            deposit,
+                            content
+                    FROM    bank_transactions
+                    WHERE   deposit != 0
+                    AND     transacted_at between '${from_date_id}' AND '${to_date_id}'
+                ) bank_tx_deposit
+                ON bank_accounts.id = bank_tx_deposit.bank_account_id
+                WHERE   business_id IS NOT NULL
+          )
+          GROUP BY business_id, timestamp
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        bank_withdraw
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${FACT_DIR}/time_unit=${TIME_UNIT}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=withdraw
+        evenPartitions: "true"
+        partitions: date_id
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        bank_deposit
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${FACT_DIR}/time_unit=${TIME_UNIT}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=deposit
+        evenPartitions: "true"
+        partitions: date_id
+      }
+      type: file
+    }
+  ]
+}

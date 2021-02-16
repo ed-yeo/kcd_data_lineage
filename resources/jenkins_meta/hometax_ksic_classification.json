@@ -1,0 +1,76 @@
+{
+  "name": "hometax_ksic_classification",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_ksic_map",
+      "options": {
+        "format": "csv",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/hometax_ksic_mapping.csv",
+        "columns": "id,hometax_classification_code,hometax_classification_code_1_depth,hometax_classification_name_1_depth,hometax_classification_code_2_depth,hometax_classification_name_2_depth,hometax_classification_code_3_depth,hometax_classification_name_3_depth,hometax_classification_code_4_depth,hometax_classification_name_4_depth,hometax_classification_name_5_depth,standard_classification_code,standard_classification_code_1_depth,standard_classification_name_1_depth,standard_classification_code_2_depth,standard_classification_name_2_depth,standard_classification_code_3_depth,standard_classification_name_3_depth,standard_classification_code_4_depth,standard_classification_name_4_depth,standard_classification_name_5_depth"
+      },
+      "type": "file",
+      "cache": true
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "businesses",
+        "hometax_ksic_map"
+      ],
+      "name": "hometax_classification",
+      "options": {
+        "sql": "SELECT\n        businesses.id AS business_id,\n        businesses.registration_number,\n        hometax_classification_code AS code,\n        hometax_classification_code_1_depth AS depth_1_code,\n        hometax_classification_name_1_depth AS depth_1_name,\n        hometax_classification_code_2_depth AS depth_2_code,\n        hometax_classification_name_2_depth AS depth_2_name,\n        hometax_classification_code_3_depth AS depth_3_code,\n        hometax_classification_name_3_depth AS depth_3_name,\n        hometax_classification_code_4_depth AS depth_4_code,\n        hometax_classification_name_4_depth AS depth_4_name,\n        hometax_classification_name_5_depth AS depth_5_name\nFROM businesses\nJOIN (\n        SELECT *\n        FROM (\n                SELECT    *,\n                          row_number() OVER (PARTITION BY hometax_classification_code ORDER BY id) AS code_rank\n                FROM      hometax_ksic_map\n        )\n        WHERE code_rank = 1\n) AS dedup_map\nON businesses.hometax_business_classification_code = dedup_map.hometax_classification_code"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "businesses",
+        "hometax_ksic_map"
+      ],
+      "name": "ksic_classification",
+      "options": {
+        "sql": "SELECT\n          businesses.id AS business_id,\n          businesses.registration_number,\n          code,\n          depth_1_code,\n          depth_1_name,\n          depth_2_code,\n          depth_2_name,\n          depth_3_code,\n          depth_3_name,\n          depth_4_code,\n          depth_4_name,\n          depth_5_name,\n          depth_all,\n          depth_1_2_code\nFROM      businesses\nJOIN (\n      SELECT\n              hometax_classification_code,\n              collect_set(standard_classification_code) AS code,\n              collect_set(standard_classification_code_1_depth) AS depth_1_code,\n              collect_set(standard_classification_name_1_depth) AS depth_1_name,\n              collect_set(standard_classification_code_2_depth) AS depth_2_code,\n              collect_set(standard_classification_name_2_depth) AS depth_2_name,\n              collect_set(standard_classification_code_3_depth) AS depth_3_code,\n              collect_set(standard_classification_name_3_depth) AS depth_3_name,\n              collect_set(standard_classification_code_4_depth) AS depth_4_code,\n              collect_set(standard_classification_name_4_depth) AS depth_4_name,\n              collect_set(standard_classification_name_5_depth) AS depth_5_name,\n              to_json(\n                  collect_set(\n                      named_struct(\n                          'depth_1_code', standard_classification_code_1_depth,\n                          'depth_1_name', standard_classification_name_1_depth,\n                          'depth_2_code', standard_classification_code_2_depth,\n                          'depth_2_name', standard_classification_name_2_depth,\n                          'depth_3_code', standard_classification_code_3_depth,\n                          'depth_3_name', standard_classification_name_3_depth,\n                          'depth_4_code', standard_classification_code_4_depth,\n                          'depth_4_name', standard_classification_name_4_depth,\n                          'depth_5_name', standard_classification_name_5_depth\n                      )\n                  )\n              ) AS depth_all,\n              collect_set(concat(standard_classification_code_1_depth,standard_classification_code_2_depth)) AS depth_1_2_code\n      FROM    hometax_ksic_map\n      GROUP BY hometax_classification_code\n) AS ksic\nON businesses.hometax_business_classification_code = ksic.hometax_classification_code"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "hometax_classification"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=hometax_old"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "ksic_classification"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=ksic"
+      },
+      "type": "file"
+    }
+  ]
+}

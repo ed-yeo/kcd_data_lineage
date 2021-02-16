@@ -1,0 +1,102 @@
+{
+  name: user_message_history_migrate
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: ad_group
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "ad_group"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+      inputs: []
+      name: user_message_history
+      options:
+      {
+        format: parquet
+        paths: ${USER_MESSAGE_HISTORY}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        user_message_history
+      ]
+      name: ad_group_history
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    user_id, business_id, value AS ad_group_id
+            FROM (
+                SELECT
+                        distinct user_id, business_id, value
+                FROM (
+                    SELECT  user_id, business_id, vdc.*
+                    FROM (
+                        SELECT
+                                user_id, business_id,
+                                explode(ad_group_id) AS vdc
+                        FROM    user_message_history
+                    )
+                )
+            )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        ad_group_history
+        ad_group
+      ]
+      name: filter_only_corona
+      options:
+      {
+        sql:
+          '''
+          SELECT    ad_group_history.*,
+                    'cashnote' AS user_type
+          FROM      ad_group_history
+          JOIN      ad_group
+          ON        ad_group_history.ad_group_id = ad_group.id
+          WHERE     ad_group.campaign_id = 2
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        filter_only_corona
+      ]
+      name: target_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_DIR}
+      }
+      type: file
+    }
+  ]
+}

@@ -1,0 +1,128 @@
+{
+  name: build_bank_transactions
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: bank_accounts
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_SNAPSHOT_DB_PATH}/bank_accounts
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: bank_transactions_src
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/bank_transactions
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: bank_transactions
+      inputs:
+      [
+        bank_transactions_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    (
+            SELECT  CAST(id AS int) AS id,
+                    CAST(bank_account_id AS int) AS bank_account_id,
+                    CAST(withdrawal AS bigint) AS withdrawal,
+                    CAST(deposit AS bigint) AS deposit,
+                    CAST(balance AS bigint) AS balance,
+                    CAST(note AS string) AS note,
+                    CAST(content AS string) AS content,
+                    CAST(processing_branch AS string) AS processing_branch,
+                    transacted_at,
+                    created_at,
+                    updated_at,
+                    date_format(created_at, 'yyyy-MM-dd') AS created_at_date
+            FROM    bank_transactions_src
+          )
+          WHERE   created_at_date >= '${MIN_DATE}'
+          AND     created_at_date < '${MAX_DATE}'
+          '''
+      }
+    }
+    {
+      name: merged_bank_transactions
+      inputs:
+      [
+        bank_accounts
+        bank_transactions
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  row_number() OVER (
+                      PARTITION BY bank_account_id, CAST(transacted_at AS DATE)
+                      ORDER BY transacted_at DESC
+                  ) AS seq,
+                  date_format(created_at, 'yyyy-MM-dd') AS created_at_date
+          FROM    (
+            SELECT  t.bank_account_id,
+                    t.withdrawal,
+                    t.deposit,
+                    t.balance,
+                    t.note,
+                    t.content,
+                    t.processing_branch,
+                    t.transacted_at,
+                    t.created_at,
+                    t.updated_at,
+                    a.business_id,
+                    a.bank_name,
+                    a.account_type,
+                    a.account_number,
+                    a.created_at AS account_created_at,
+                    a.updated_at AS account_updated_at,
+                    a.credential_id,
+                    a.name,
+                    a.uuid,
+                    a.holder_name
+            FROM    bank_transactions t LEFT OUTER JOIN bank_accounts a
+            ON      t.bank_account_id = a.id
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        merged_bank_transactions
+      ]
+      name: file_sink
+      options: {
+        mode: overwritePartitions
+        path: "${OUTPUT_PATH}"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: created_at_date
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

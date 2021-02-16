@@ -1,0 +1,124 @@
+{
+  "name": "dump_db_goose_incremental",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "card_payments",
+      "options": {
+        "url": "jdbc:postgresql://goose-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/goose_production",
+        "dbtable": "card_payments",
+        "user": "shon_ro",
+        "password": "Rht49bKsJrm3zvGP",
+        "lowerBound": "54966963",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "access_logs",
+      "options": {
+        "url": "jdbc:postgresql://goose-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/goose_production",
+        "dbtable": "access_logs",
+        "user": "shon_ro",
+        "password": "Rht49bKsJrm3zvGP",
+        "lowerBound": "312348",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "user_events",
+      "options": {
+        "url": "jdbc:postgresql://goose-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/goose_production",
+        "dbtable": "user_events",
+        "user": "shon_ro",
+        "password": "Rht49bKsJrm3zvGP",
+        "lowerBound": "87976",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "card_payments"
+      ],
+      "name": "card_payments_date",
+      "options": {
+        "sql": "  SELECT\n          date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n          *\n  FROM    card_payments\n  WHERE   id > 54966963"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "access_logs"
+      ],
+      "name": "access_logs_date",
+      "options": {
+        "sql": "  SELECT\n          date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n          *\n  FROM    access_logs\n  WHERE   id > 312348"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "user_events"
+      ],
+      "name": "user_events_date",
+      "options": {
+        "sql": "  SELECT\n          date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n          *\n  FROM    user_events\n  WHERE   id > 87976"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "card_payments_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/goose/incremental/card_payments",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "access_logs_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/goose/incremental/access_logs",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "user_events_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "append",
+        "path": "s3://kcd-de-production/raw/db/goose/incremental/user_events",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    }
+  ]
+}

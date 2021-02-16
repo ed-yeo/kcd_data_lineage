@@ -1,0 +1,161 @@
+{
+  name: cashnote_user_meta
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: business_meta
+        options:
+        {
+            format: parquet
+            paths: ${DATACUBE_DIR}/dimension/name=business_meta
+        }
+        type: file
+    }
+    {
+        inputs: []
+        name: users
+        options:
+        {
+          class: com.kcd.thrush.dmp.spark.MergeSchemaSource
+          format: parquet
+          basePath: '${DIMENSION_DIR}/id_type=cashnote_user_id/subject=users'
+          partitionName: name
+          joinType: full_outer
+          joinColumns: user_id
+        }
+        type: custom
+    }
+    {
+        inputs: []
+        name: custom_set
+        options:
+        {
+            format: parquet
+            paths: ${CUSTOM_SET_PATH}
+        }
+        type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        business_meta
+        users
+      ]
+      name: user_with_business
+      options:
+      {
+        sql:
+          '''
+          SELECT    u.*,
+                    business_meta.*
+          FROM      business_meta
+          JOIN  (
+                  SELECT  *, explode(memberships.memberships) AS membership
+                  FROM  users
+          ) u
+          ON    business_meta.business_id = u.membership.business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        user_with_business
+      ]
+      name: formatted
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    array(
+                      classification.depth_1_name,
+                      CONCAT(classification.depth_1_name, '>', classification.depth_2_name),
+                      CONCAT(classification.depth_1_name, '>', classification.depth_2_name, '>', classification.depth_3_name)
+                    ) AS classification_names,
+                    array(
+                      location.sido,
+                      CONCAT(location.sido, '>', location.sigungu),
+                      CONCAT(location.sido, '>', location.sigungu, '>', location.dong)
+                    ) AS location_names
+          FROM (
+                  SELECT    CONCAT(user_id, '_', business_id) AS target_id,
+                            user_id,
+                            business_id,
+                            devices.device_type,
+                            demography.age_band,
+                            classification.kcd AS classification,
+                            businesses.businesses.opened_at,
+                            businesses.businesses.business_type,
+                            businesses.businesses.business_name,
+                            businesses.businesses.public_id,
+                            businesses.acceptance_templates,
+                            businesses.owner.owner_name,
+                            businesses.owner.phone_number AS owner_phone_number,
+                            location.common AS location,
+                            location.place_classification AS place_classification,
+                            businesses.credentials.types AS credential_types,
+                            IF(businesses.subscriptions IS NOT NULL, true, false) AS is_advanced_user,
+                            IF(businesses.subscriptions IS NOT NULL AND businesses.subscriptions.paid = true, true, false) AS is_paid_user,
+                            businesses.paynote.is_paynote_business,
+                            membership.role,
+                            membership.notifications,
+                            phones.blocked,
+                            hometax.business_label.regular_employees_count,
+                            hometax.business_label.size_category,
+                            hometax.employee.employ_avg,
+                            bank.bank_accounts.bank_names,
+                            bank.bank_transactions.contents AS bank_contents
+                  FROM      user_with_business
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        formatted
+        custom_set
+      ]
+      name: formatted_with_custom_set
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    formatted.*,
+                    custom_set.custom_set_ids
+          FROM      formatted
+          LEFT OUTER JOIN   custom_set
+          ON    formatted.target_id = custom_set.target_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        formatted_with_custom_set
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DATACUBE_DIR}/dimension/name=cashnote_user_meta
+      }
+      type: file
+    }
+  ]
+}

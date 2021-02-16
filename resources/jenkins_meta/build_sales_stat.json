@@ -1,0 +1,149 @@
+{
+  "name": "build_sales_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "regions_src",
+      "options": {
+        "format": "csv",
+        "paths": "s3://kcd-de-staging/misc/swallow_staging/regions.csv",
+        "read": "{\"header\":\"true\"}"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "classifications",
+      "options": {
+        "format": "csv",
+        "paths": "s3://kcd-de-staging/misc/swallow_staging/classifications.csv",
+        "read": "{\"header\":\"true\"}"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "targets_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://thrush/test/shon/corona/targets_20200331"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "tx_with_meta_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/card_sales/transactions_stat_with_meta"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "regions",
+      "inputs": [
+        "regions_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    regions_src\nWHERE   dong is null"
+      },
+      "cache": true
+    },
+    {
+      "name": "classification_tree",
+      "inputs": [
+        "classifications"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  id,\n        name AS classification_kcd_depth_1_name,\n        CAST(null AS string) AS classification_kcd_depth_2_name\nFROM    classifications\nWHERE   classification_type = 'KCDClassification'\nAND     parent_id is null\n\nUNION ALL\n\nSELECT  s.id,\n        f.name AS classification_kcd_depth_1_name,\n        s.name AS classification_kcd_depth_2_name\nFROM    classifications s, classifications f\nWHERE   s.classification_type = 'KCDClassification'\nAND     f.classification_type = 'KCDClassification'\nAND     f.parent_id is null\nAND     s.parent_id = f.id"
+      },
+      "cache": true
+    },
+    {
+      "name": "tx_with_meta",
+      "inputs": [
+        "targets_src",
+        "tx_with_meta_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  /*+ BROADCAST(t) */\n        src.*,\n        location.sido AS sido,\n        location.sigungu AS sigungu,\n        location.dong AS dong,\n        CASE\n          WHEN classification.depth_1_name = '금융/보헙업' THEN '금융/보험업'\n          ELSE classification.depth_1_name\n        END AS classification_kcd_depth_1_name,\n        CASE\n          WHEN classification.depth_2_name = '금융/보헙업' THEN '금융/보험업'\n          ELSE classification.depth_2_name\n        END AS classification_kcd_depth_2_name\nFROM    tx_with_meta_src src, (\n  SELECT  *\n  FROM    targets_src\n  WHERE   transacted_at_month_count = 13\n) t\nWHERE   src.business_id = t.business_id\nAND     classification.depth_1_name is not null\nAND    (\n   (\n     time_unit = 'week' AND\n     year(time) in (2019, 2020) AND\n     weekofyear(time) < weekofyear(current_date()) AND\n     weekofyear(time) >= weekofyear(current_date()) - 8\n   ) OR\n   (\n     time_unit = 'day' AND\n     time < current_date() AND\n     time >= DATE_SUB(current_date(), 7)\n   ) OR\n   (\n     time_unit = 'week' AND\n     time >= to_date('2020-01-01', 'yyyy-MM-dd') AND time <= to_date('2020-07-12')\n   ) OR\n   (\n     time_unit = 'day' AND\n     time >= to_date('2020-01-01', 'yyyy-MM-dd') AND time <= to_date('2020-07-12')\n   )\n )"
+      },
+      "cache": true
+    },
+    {
+      "inputs": [
+        "tx_with_meta"
+      ],
+      "name": "regions_stat",
+      "options": {
+        "sql": "SELECT  sido,\n        sigungu,\n        '전체업종' AS classification_kcd_depth_1_name,\n        CAST(null AS string) AS classification_kcd_depth_2_name,\n        time,\n        time_unit,\n        SUM(card_sales_amount) AS card_sales_amount,\n        SUM(card_sales_count) AS card_sales_count,\n        COUNT(DISTINCT business_id) business_count,\n        SUM(delivery.amount_sum) AS delivery_sales_amount,\n        COUNT(DISTINCT delivery.business_id) delivery_count\nFROM    tx_with_meta\nWHERE   sido is not null\nAND     sigungu is not null\nGROUP BY  sido, sigungu, time, time_unit\n\nUNION ALL\n\nSELECT  sido,\n        CAST(null AS string) AS sigungu,\n        '전체업종' AS classification_kcd_depth_1_name,\n        CAST(null AS string) AS classification_kcd_depth_2_name,\n        time,\n        time_unit,\n        SUM(card_sales_amount) AS card_sales_amount,\n        SUM(card_sales_count) AS card_sales_count,\n        COUNT(DISTINCT business_id) business_count,\n        SUM(delivery.amount_sum) AS delivery_sales_amount,\n        COUNT(DISTINCT delivery.business_id) delivery_count\nFROM    tx_with_meta\nWHERE   sido is not null\nGROUP BY  sido, time, time_unit"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "tx_with_meta"
+      ],
+      "name": "classifications_stat",
+      "options": {
+        "sql": "SELECT  '전국' AS sido,\n        CAST(null AS string) AS sigungu,\n        classification_kcd_depth_1_name,\n        classification_kcd_depth_2_name,\n        time,\n        time_unit,\n        SUM(card_sales_amount) AS card_sales_amount,\n        SUM(card_sales_count) AS card_sales_count,\n        COUNT(DISTINCT business_id) business_count,\n        SUM(delivery.amount_sum) AS delivery_sales_amount,\n        COUNT(DISTINCT delivery.business_id) delivery_count\nFROM    tx_with_meta\nWHERE   classification_kcd_depth_1_name is not null\nAND     classification_kcd_depth_2_name is not null\nGROUP BY  classification_kcd_depth_1_name, classification_kcd_depth_2_name, time, time_unit\n\nUNION ALL\n\nSELECT  '전국' AS sido,\n        CAST(null AS string) AS sigungu,\n        classification_kcd_depth_1_name,\n        CAST(null AS string) AS classification_kcd_depth_2_name,\n        time,\n        time_unit,\n        SUM(card_sales_amount) AS card_sales_amount,\n        SUM(card_sales_count) AS card_sales_count,\n        COUNT(DISTINCT business_id) business_count,\n        SUM(delivery.amount_sum) AS delivery_sales_amount,\n        COUNT(DISTINCT delivery.business_id) delivery_count\nFROM    tx_with_meta\nWHERE   classification_kcd_depth_1_name is not null\nGROUP BY  classification_kcd_depth_1_name, time, time_unit"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "tx_with_meta"
+      ],
+      "name": "multi_dimensions_stat",
+      "options": {
+        "sql": "SELECT  sido,\n        sigungu,\n        classification_kcd_depth_1_name,\n        classification_kcd_depth_2_name,\n        time,\n        time_unit,\n        SUM(card_sales_amount) AS card_sales_amount,\n        SUM(card_sales_count) AS card_sales_count,\n        COUNT(DISTINCT business_id) business_count,\n        SUM(delivery.amount_sum) AS delivery_sales_amount,\n        COUNT(DISTINCT delivery.business_id) delivery_count\nFROM    tx_with_meta\nWHERE   sido is not null\nAND     sigungu is not null\nAND     classification_kcd_depth_1_name is not null\nAND     classification_kcd_depth_2_name is not null\nGROUP BY  sido, sigungu, classification_kcd_depth_1_name, classification_kcd_depth_2_name, time, time_unit\n\nUNION ALL\n\nSELECT  sido,\n        sigungu,\n        classification_kcd_depth_1_name,\n        CAST(null AS string) AS classification_kcd_depth_2_name,\n        time,\n        time_unit,\n        SUM(card_sales_amount) AS card_sales_amount,\n        SUM(card_sales_count) AS card_sales_count,\n        COUNT(DISTINCT business_id) business_count,\n        SUM(delivery.amount_sum) AS delivery_sales_amount,\n        COUNT(DISTINCT delivery.business_id) delivery_count\nFROM    tx_with_meta\nWHERE   sido is not null\nAND     sigungu is not null\nAND     classification_kcd_depth_1_name is not null\nGROUP BY  sido, sigungu, classification_kcd_depth_1_name, time, time_unit\n\nUNION ALL\n\nSELECT  sido,\n        CAST(null AS string) AS sigungu,\n        classification_kcd_depth_1_name,\n        classification_kcd_depth_2_name,\n        time,\n        time_unit,\n        SUM(card_sales_amount) AS card_sales_amount,\n        SUM(card_sales_count) AS card_sales_count,\n        COUNT(DISTINCT business_id) business_count,\n        SUM(delivery.amount_sum) AS delivery_sales_amount,\n        COUNT(DISTINCT delivery.business_id) delivery_count\nFROM    tx_with_meta\nWHERE   sido is not null\nAND     classification_kcd_depth_1_name is not null\nAND     classification_kcd_depth_2_name is not null\nGROUP BY  sido, classification_kcd_depth_1_name, classification_kcd_depth_2_name, time, time_unit\n\nUNION ALL\n\nSELECT  sido,\n        CAST(null AS string) AS sigungu,\n        classification_kcd_depth_1_name,\n        CAST(null AS string) AS classification_kcd_depth_2_name,\n        time,\n        time_unit,\n        SUM(card_sales_amount) AS card_sales_amount,\n        SUM(card_sales_count) AS card_sales_count,\n        COUNT(DISTINCT business_id) business_count,\n        SUM(delivery.amount_sum) AS delivery_sales_amount,\n        COUNT(DISTINCT delivery.business_id) delivery_count\nFROM    tx_with_meta\nWHERE   sido is not null\nAND     classification_kcd_depth_1_name is not null\nGROUP BY  sido, classification_kcd_depth_1_name, time, time_unit"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "tx_with_meta"
+      ],
+      "name": "total_stat",
+      "options": {
+        "sql": "SELECT  '전국' AS sido,\n        CAST(null AS string) AS sigungu,\n        '전체업종' AS classification_kcd_depth_1_name,\n        CAST(null AS string) AS classification_kcd_depth_2_name,\n        time,\n        time_unit,\n        SUM(card_sales_amount) AS card_sales_amount,\n        SUM(card_sales_count) AS card_sales_count,\n        COUNT(DISTINCT business_id) business_count,\n        SUM(delivery.amount_sum) AS delivery_sales_amount,\n        COUNT(DISTINCT delivery.business_id) delivery_count\nFROM    tx_with_meta\nGROUP BY  time, time_unit"
+      },
+      "type": "sql"
+    },
+    {
+      "name": "sales_stat",
+      "inputs": [
+        "classification_tree",
+        "regions",
+        "regions_stat",
+        "classifications_stat",
+        "multi_dimensions_stat",
+        "total_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  /*+ BROADCAST(r, c) */\n        CAST(r.id AS bigint) AS region_id,\n        CAST(c.id AS bigint) AS classification_id,\n        a.sido,\n        a.sigungu,\n        a.classification_kcd_depth_1_name,\n        a.classification_kcd_depth_2_name,\n        a.time AS base_date,\n        a.time_unit AS date_unit,\n        a.business_count,\n        a.card_sales_amount,\n        a.card_sales_count,\n        a.delivery_sales_amount,\n        a.delivery_count,\n        current_timestamp() AS created_at,\n        current_timestamp() AS updated_at\nFROM    (\n  SELECT  *\n  FROM    regions_stat\n\n  UNION ALL\n\n  SELECT  *\n  FROM    classifications_stat\n\n  UNION ALL\n\n  SELECT  *\n  FROM    multi_dimensions_stat\n\n  UNION ALL\n\n  SELECT  *\n  FROM    total_stat\n) a LEFT OUTER JOIN regions r\nON (\n  a.sido = r.sido AND\n  COALESCE(a.sigungu, 'null') = COALESCE(r.sigungu, 'null')\n) LEFT OUTER JOIN classification_tree c\nON (\n  a.classification_kcd_depth_1_name = c.classification_kcd_depth_1_name AND\n  COALESCE(a.classification_kcd_depth_2_name, 'null') = COALESCE(c.classification_kcd_depth_2_name, 'null')\n)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "sales_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/stat/snowdon/dashboard/corona/sales_stat"
+      },
+      "type": "file"
+    }
+  ]
+}

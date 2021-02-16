@@ -1,0 +1,302 @@
+{
+  name: click_log_to_es
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: ad_group
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "ad_group"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+          skip_tx: "true"
+        }
+        type: jdbc
+        cache: true
+    }
+    {
+      inputs:
+      []
+      name: tb_kcd_cashnote_web
+      options:
+      {
+        format: json
+        paths: ${CATALOG_DIR}/raw/tb=kcd_cashnote_web
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+    {
+      inputs:
+      []
+      name: tb_kcd_redbird_web
+      options:
+      {
+        format: json
+        paths: ${CATALOG_DIR}/raw/tb=kcd_redbird_web
+        schema: "_event_id STRING, timestamp LONG, event STRING, `prop_$event_type` STRING, prop_user_id LONG, `prop_$current_url`STRING"
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+    {
+      inputs:
+      []
+      name: tb_kcd_bluebird_web
+      options:
+      {
+        format: json
+        paths: ${CATALOG_DIR}/raw/tb=kcd_bluebird_web
+        schema: "_event_id STRING, timestamp LONG, event STRING, `prop_$event_type` STRING, prop_cashnote_user_id LONG, prop_paynote_user_id LONG, `prop_$current_url`STRING"
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+        inputs:
+        [
+          tb_kcd_cashnote_web
+          ad_group
+        ]
+        name: cashnote_web_click
+        options:
+        {
+          sql:
+            '''
+                SELECT
+                        click_log.*,
+                        ad_group.user_type AS user_type,
+                        ad_group.type AS ad_group_type
+                FROM    (
+                            SELECT  *
+                            FROM (
+                                    SELECT
+                                            'click' AS type,
+                                            timestamp,
+                                            _event_id,
+                                            parse_url(current_url, 'QUERY', 'campaign_id') AS campaign_id,
+                                            parse_url(current_url, 'QUERY', 'ad_group_id') AS ad_group_id,
+                                            parse_url(current_url, 'QUERY', 'creative_id') AS creative_id,
+                                            user_id,
+                                            true AS status,
+                                            'cashnote_web' AS sdk_type
+                                    FROM (
+                                            SELECT  timestamp,
+                                                    _event_id,
+                                                    prop_user_id AS user_id,
+                                                    `prop_$current_url` AS current_url,
+                                                    row_number() OVER (PARTITION BY _event_id ORDER BY timestamp DESC) AS rank
+                                            FROM    tb_kcd_cashnote_web
+                                            WHERE   event = '$web_event'
+                                            AND     `prop_$event_type` = 'pageview'
+                                            AND     prop_user_id IS NOT NULL
+                                    )
+                                    WHERE rank = 1
+                            )
+                            WHERE   campaign_id IS NOT NULL
+                            AND     ad_group_id IS NOT NULL
+                            AND     creative_id IS NOT NULL
+                ) AS    click_log
+                JOIN    ad_group
+                ON      click_log.ad_group_id = ad_group.id
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+          tb_kcd_bluebird_web
+          ad_group
+        ]
+        name: bluebird_web_click
+        options:
+        {
+          sql:
+            '''
+                SELECT  *
+                FROM (
+                        SELECT  click_log.*,
+                                CASE
+                                    WHEN    ad_group.user_type = 'cashnote' THEN cashnote_user_id
+                                    WHEN    ad_group.user_type = 'paynote'  THEN paynote_user_id
+                                    ELSE    NULL
+                                END AS user_id,
+                                ad_group.user_type AS user_type,
+                                ad_group.type AS ad_group_type
+                        FROM    (
+                                    SELECT  *
+                                    FROM (
+                                            SELECT
+                                                    'click' AS type,
+                                                    timestamp,
+                                                    _event_id,
+                                                    parse_url(current_url, 'QUERY', 'campaign_id') AS campaign_id,
+                                                    parse_url(current_url, 'QUERY', 'ad_group_id') AS ad_group_id,
+                                                    parse_url(current_url, 'QUERY', 'creative_id') AS creative_id,
+                                                    cashnote_user_id,
+                                                    paynote_user_id,
+                                                    true AS status,
+                                                    'bluebird_web' AS sdk_type
+                                            FROM (
+                                                    SELECT  timestamp,
+                                                            _event_id,
+                                                            prop_cashnote_user_id AS cashnote_user_id,
+                                                            prop_paynote_user_id AS paynote_user_id,
+                                                            `prop_$current_url` AS current_url,
+                                                            row_number() OVER (PARTITION BY _event_id ORDER BY timestamp DESC) AS rank
+                                                    FROM    tb_kcd_bluebird_web
+                                                    WHERE   event = '$web_event'
+                                                    AND     `prop_$event_type` = 'pageview'
+                                                    AND     (prop_cashnote_user_id IS NOT NULL OR prop_paynote_user_id IS NOT NULL)
+                                            )
+                                            WHERE rank = 1
+                                    )
+                                    WHERE   campaign_id IS NOT NULL
+                                    AND     ad_group_id IS NOT NULL
+                                    AND     creative_id IS NOT NULL
+                        ) AS    click_log
+                        JOIN    ad_group
+                        ON      click_log.ad_group_id = ad_group.id
+                )
+                WHERE   user_id IS NOT NULL
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+          tb_kcd_redbird_web
+          ad_group
+        ]
+        name: redbird_web_click
+        options:
+        {
+          sql:
+            '''
+                SELECT  click_log.*,
+                        ad_group.user_type AS user_type,
+                        ad_group.type AS ad_group_type
+                FROM    (
+                            SELECT  *
+                            FROM (
+                                    SELECT
+                                            'click' AS type,
+                                            timestamp,
+                                            _event_id,
+                                            parse_url(current_url, 'QUERY', 'campaign_id') AS campaign_id,
+                                            parse_url(current_url, 'QUERY', 'ad_group_id') AS ad_group_id,
+                                            parse_url(current_url, 'QUERY', 'creative_id') AS creative_id,
+                                            user_id,
+                                            true AS status,
+                                            'redbird_web' AS sdk_type
+                                    FROM (
+                                            SELECT  timestamp,
+                                                    _event_id,
+                                                    prop_user_id AS user_id,
+                                                    `prop_$current_url` AS current_url,
+                                                    row_number() OVER (PARTITION BY _event_id ORDER BY timestamp DESC) AS rank
+                                            FROM    tb_kcd_redbird_web
+                                            WHERE   event = '$web_event'
+                                            AND     `prop_$event_type` = 'pageview'
+                                            AND     prop_user_id IS NOT NULL
+                                    )
+                                    WHERE rank = 1
+                            )
+                            WHERE   campaign_id IS NOT NULL
+                            AND     ad_group_id IS NOT NULL
+                            AND     creative_id IS NOT NULL
+                ) AS    click_log
+                JOIN    ad_group
+                ON      click_log.ad_group_id = ad_group.id
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+          cashnote_web_click
+          bluebird_web_click
+          redbird_web_click
+        ]
+        name: merged
+        options:
+        {
+          sql:
+            '''
+            SELECT  type, timestamp, _event_id, campaign_id, ad_group_id, creative_id, user_id, status, sdk_type, user_type, ad_group_type     FROM    cashnote_web_click
+            UNION   ALL
+            SELECT  type, timestamp, _event_id, campaign_id, ad_group_id, creative_id, user_id, status, sdk_type, user_type, ad_group_type     FROM    bluebird_web_click
+            UNION   ALL
+            SELECT  type, timestamp, _event_id, campaign_id, ad_group_id, creative_id, user_id, status, sdk_type, user_type, ad_group_type     FROM    redbird_web_click
+            '''
+        }
+        type: sql
+        cache: true
+    }
+    {
+        inputs:
+        [
+            merged
+        ]
+        name: merged_with_date
+        options:
+        {
+          sql:
+            '''
+            SELECT  from_unixtime(timestamp/1000, 'yyyy-MM-dd') AS created_at_date, *
+            FROM    merged
+            '''
+        }
+        type: sql
+    }
+  ]
+  sink:
+  [
+    {
+        "inputs": [
+          merged
+        ],
+        "name": "es_sink",
+        "options": {
+          "path": "${targetIndexName}",
+          "es.nodes": "${ES_HOST}"
+          "es.index.auto.create": "true",
+          "es.port": "443",
+          "es.batch.size.entries": "1000",
+          "es.nodes.wan.only": "true",
+          "es.mapping.id": "_event_id"
+        },
+        "type": "es"
+    }
+    {
+      inputs:
+      [
+        merged_with_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${BASE_LOG_DIR}/click_log
+        partitions: created_at_date
+      }
+      type: file
+    }
+  ]
+}

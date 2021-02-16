@@ -1,0 +1,157 @@
+{
+  "name": "payment_code_classification",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "shinhancard_business_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=classification/name=shinhancard"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "bccard_business_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=classification/name=bccard_new"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hyundaicard_business_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=classification/name=hyundaicard"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "bccard_to_payment_code_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/bccard_to_payment_code_20210127.tsv"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "shinhancard_to_payment_code_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/shinhancard_to_payment_code_20210118.tsv"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hyundaicard_to_payment_code_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/hyundaicard_to_payment_code_20210118.tsv"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "payment_code",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/payment_code_20210118.tsv"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "bccard_business_classification",
+        "bccard_to_payment_code_mapping"
+      ],
+      "name": "bccard",
+      "options": {
+        "sql": "  SELECT\n          registration_number,\n          card_issuer,\n          merchant_number,\n          payment_code\n  FROM    bccard_business_classification AS b\n  JOIN    bccard_to_payment_code_mapping AS m\n  ON      b.depth_3_code = m.classification_code"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "shinhancard_business_classification",
+        "shinhancard_to_payment_code_mapping"
+      ],
+      "name": "shinhancard",
+      "options": {
+        "sql": "  SELECT\n          registration_number,\n          card_issuer,\n          merchant_number,\n          payment_code\n  FROM    shinhancard_business_classification AS b\n  JOIN    shinhancard_to_payment_code_mapping AS m\n  ON      b.classification_code = m.classification_code"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hyundaicard_business_classification",
+        "hyundaicard_to_payment_code_mapping"
+      ],
+      "name": "hyundaicard",
+      "options": {
+        "sql": "  SELECT\n          registration_number,\n          card_issuer,\n          merchant_number,\n          payment_code\n  FROM    hyundaicard_business_classification AS b\n  JOIN    hyundaicard_to_payment_code_mapping AS m\n  ON      b.classification_code = m.classification_code"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "bccard",
+        "shinhancard",
+        "hyundaicard"
+      ],
+      "name": "merged",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinColumns": "merchant_number,card_issuer,registration_number",
+        "joinType": "full_outer"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "merged"
+      ],
+      "name": "merged_classification",
+      "options": {
+        "sql": "SELECT    registration_number, card_issuer, merchant_number, payment_code\nFROM (\n    SELECT    registration_number,\n              card_issuer,\n              merchant_number,\n              CASE\n                  WHEN   bccard IS NOT NULL THEN bccard.payment_code\n                  WHEN   shinhancard IS NOT NULL THEN shinhancard.payment_code\n                  WHEN   hyundaicard IS NOT NULL THEN hyundaicard.payment_code\n                  ELSE   null\n              END AS payment_code\n    FROM      merged\n)\nWHERE     payment_code is not null"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merged_classification",
+        "payment_code"
+      ],
+      "name": "payment_code_classification",
+      "options": {
+        "sql": "SELECT    registration_number, card_issuer, merchant_number, payment_code.*\nFROM      merged_classification\nJOIN      payment_code\nON        merged_classification.payment_code = payment_code.category_code\n"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "payment_code_classification"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=classification/name=payment_code"
+      },
+      "type": "file"
+    }
+  ]
+}

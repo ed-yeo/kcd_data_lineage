@@ -1,0 +1,204 @@
+{
+  name: delivery_receipt_stats
+  udfs: [
+    {
+      name: toH3Index
+      class: com.kcd.thrush.utils.spark.udfs.H3
+      params: {
+        method: geoToH3Address
+      }
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: receipts
+      options:
+      {
+        format: parquet
+        paths: ${RECEIPT_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        receipts
+      ]
+      name: add_h3
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id, h3.index AS h3_index, h3.resolution AS h3_resolution,
+                    order_amount,
+                    day, week, month
+          FROM (
+                  SELECT    *, explode(h3_arr) AS h3
+                  FROM (
+                          SELECT
+                                    business_id, app_name, total_amount, order_amount,
+                                    array(
+                                        named_struct('index', toH3Index(pos_x, pos_y, 9), 'resolution', 9),
+                                        named_struct('index', toH3Index(pos_x, pos_y, 10), 'resolution', 10)
+                                    ) AS h3_arr,
+                                    date_trunc('DAY',order_time) AS day,
+                                    date_trunc('WEEK', order_time) AS week,
+                                    date_trunc('MONTH', order_time) AS month
+                          FROM      receipts
+                          WHERE     app_name in ('baemin', 'yogiyo')
+                          AND       created_at_date between '${FROM_DATE}' AND '${TO_DATE}'
+                          AND       order_time is not null
+                  )
+          )
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        add_h3
+      ]
+      name: order_by_day
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    business_id, day AS target_date,
+                    'day' AS date_type,
+                    h3_index, h3_resolution,
+                    SUM(order_amount) AS order_amount_sum,
+                    COUNT(1) AS order_cnt
+          FROM  add_h3
+          GROUP BY business_id, day, h3_index, h3_resolution
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        add_h3
+      ]
+      name: order_by_week
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    business_id, week AS target_date,
+                    'week' AS date_type,
+                    h3_index, h3_resolution,
+                    SUM(order_amount) AS order_amount_sum,
+                    COUNT(1) AS order_cnt
+          FROM  add_h3
+          GROUP BY business_id, week, h3_index, h3_resolution
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        add_h3
+      ]
+      name: order_by_month
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    business_id, month AS target_date,
+                    'month' AS date_type,
+                    h3_index, h3_resolution,
+                    SUM(order_amount) AS order_amount_sum,
+                    COUNT(1) AS order_cnt
+          FROM  add_h3
+          GROUP BY business_id, month, h3_index, h3_resolution
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        order_by_day
+        order_by_week
+        order_by_month
+      ]
+      name: merged
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    business_id AS public_id, target_date, date_type, h3_index, h3_resolution,
+                    to_json(named_struct(
+                        'order_amount_sum', order_amount_sum,
+                        'order_cnt', order_cnt
+                    )) AS metric
+          FROM (
+                SELECT  business_id, target_date, date_type, h3_index, h3_resolution, order_amount_sum, order_cnt
+                FROM    order_by_day
+
+                UNION ALL
+
+                SELECT  business_id, target_date, date_type, h3_index, h3_resolution, order_amount_sum, order_cnt
+                FROM    order_by_week
+
+                UNION ALL
+
+                SELECT  business_id, target_date, date_type, h3_index, h3_resolution, order_amount_sum, order_cnt
+                FROM    order_by_month
+          )
+          '''
+      }
+      type: sql
+      cache: true
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        merged
+      ]
+      name: merged_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${OUTPUT_PATH}
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+          merged
+      ]
+      name: jdbc_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        operation: upsert
+        dbtable: ${DB_TABLE_NAME}
+        conflictColumns: public_id,target_date,date_type,h3_index,h3_resolution
+        updateColumns: metric
+        typeCastColumns: "metric:jsonb"
+      }
+      type: jdbc
+    }
+  ]
+}

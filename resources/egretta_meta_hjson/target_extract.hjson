@@ -1,0 +1,265 @@
+{
+  name: target_extract
+  udfs: [
+    {
+      name: filterJsonTrue
+      class: com.kcd.thrush.dmp.spark.udfs.JsonFilter
+      params: {}
+    }
+    {
+      name: user_filter
+      class: com.kcd.thrush.dmp.spark.udfs.TargetUserFilter
+      params: {}
+    }
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: ad_group
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DATABASE}"
+          dbtable: "ad_group"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: creative
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DATABASE}"
+          dbtable: "creative"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+      inputs: []
+      name: user_info
+      options:
+      {
+        format: parquet
+        paths: s3://kcd-data-stage/dmp/data/user_info
+      }
+      type: file
+    }
+    {
+        inputs: []
+        name: business_meta
+        options:
+        {
+          format: json
+          paths: s3://kcd-data-stage/dmp/message_data/latest
+        }
+        type: file
+     }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        ad_group
+        creative
+      ]
+      name: target_group
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    a.campaign_id,
+                    c.ad_group_id,
+                    c.id AS creative_id,
+                    a.type,
+                    a.target_type,
+                    a.path,
+                    a.frequency_cap,
+                    c.template,
+                    c.send_type,
+                    CAST(null as STRING) AS message,
+                    named_struct(
+                        'valid', true,
+                        'error', CAST(null as STRING)
+                    )AS status
+            FROM (
+                    SELECT  *
+                    FROM    ad_group
+                    WHERE   enabled = true
+                    AND     status = 'READY'
+            ) AS a
+            JOIN    (
+                    SELECT *
+                    FROM    creative
+                    WHERE   creative.type = 'MESSAGE_TEMPLATE'
+            ) AS c
+            ON      a.id = c.ad_group_id
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        target_group
+        business_meta
+      ]
+      name: targets
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.TargetExtractProcess
+        targetGroupName: target_group
+        businessMetaName: business_meta
+        uniqueIdColumn: merged_business_id
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        targets
+        user_info
+      ]
+      name: target_users
+      options:
+      {
+        sql:
+          '''
+              SELECT    targets.merged_business_id,
+                        user_filter(struct(user_info.*), targetGroup) AS targetGroup,
+                        struct(
+                            user_info.*
+                        ) AS user_info
+              FROM      targets
+              LEFT OUTER JOIN   user_info
+              ON        targets.merged_business_id = user_info.business_id
+              WHERE     targets.targetGroup.target_type = 'ALL'
+              OR        upper(targets.targetGroup.target_type) = upper(user_info.role)
+          '''
+        old_sql:
+          '''
+              SELECT    targets.*,
+                        struct(
+                            user_info.*
+                        ) AS user_info
+              FROM      targets
+              LEFT OUTER JOIN   user_info
+              ON        targets.merged_business_id = user_info.business_id
+              WHERE     targets.targetGroup.target_type = 'ALL'
+              OR        upper(targets.targetGroup.target_type) = upper(user_info.role)
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        target_users
+      ]
+      name: filtered_target_users
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    named_struct(
+                        'campaign_id', CAST(targetGroup.campaign_id AS STRING),
+                        'ad_group_id', CAST(targetGroup.ad_group_id AS STRING),
+                        'creative_id', CAST(targetGroup.creative_id AS STRING),
+                        'business_id', CAST(merged_business_id AS STRING),
+                        'user_id', CAST(user_info.user_id AS STRING),
+                        'type', targetGroup.`type`
+                    ) AS meta,
+                    targetGroup.status AS status,
+                    named_struct(
+                        'phone_number', user_info.phone_number,
+                        'message', targetGroup.message,
+                        'send_type', targetGroup.send_type
+                    ) AS message
+          FROM      target_users
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    /*
+    {
+      inputs:
+      [
+        filtered_target_users
+      ]
+      name: target_messages
+      options:
+      {
+        sql:
+          '''
+              SELECT    meta, message
+              FROM      filtered_target_users
+              WHERE     status.valid = true
+          '''
+      }
+      type: sql
+    }
+    */
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        target_group
+      ]
+      name: target_group_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://kcd-data-stage/dmp/target_messages/date_id=${TARGET_DATE}/ts=${TARGET_TS}/target_group
+        numPartitions: "1"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        filtered_target_users
+      ]
+      name: target_users_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://kcd-data-stage/dmp/target_messages/date_id=${TARGET_DATE}/ts=${TARGET_TS}/target_users
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        filtered_target_users
+      ]
+      name: rest_sink
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.TargetMessageRestSink
+        url: http://plover-staging-216719265.ap-northeast-2.elb.amazonaws.com/api/publish/dmp_message
+        token: eyJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE1ODQzNDI1MzcsImV4cCI6MzY4NTI3MDAwMDAwMCwic2VydmljZV9uYW1lIjoiZG1wX21lc3NhZ2UifQ.r5sJBz4OhjhED_I5gVJFblrLuDC5WjQkJGqwUjVzgdU
+        batchSize: "10"
+        outputPath: s3://kcd-data-stage/dmp/target_messages/date_id=${TARGET_DATE}/ts=${TARGET_TS}/rest_sink
+        connectTimeout: "1000"
+        readTimeout: "1000"
+      }
+      type: custom
+    }
+  ]
+}

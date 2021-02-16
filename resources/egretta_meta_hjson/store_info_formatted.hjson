@@ -1,0 +1,76 @@
+{
+  name: store_info_formatted
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: store_info
+      options:
+      {
+        format: parquet
+        paths: ${STORE_INFO_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        store_info
+      ]
+      name: formatted
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    *
+          FROM (
+                  SELECT
+                          unix_timestamp()* 1000 AS timestamp,
+                          CAST(public_id AS STRING)  AS `from`,
+                          CAST(public_id AS STRING)  AS to,
+                          '${LABEL}' AS label,
+                          to_json(named_struct(
+                              'name', name,
+                              'business_id', business_id,
+                              'classification.depth_1_name', classification.depth_1_name,
+                              'classification.depth_2_name', classification.depth_2_name,
+                              'classification.depth_3_name', classification.depth_3_name,
+                              'address.sido', address.sido,
+                              'address.sigungu', address.sigungu,
+                              'address.dong', address.dong,
+                              'tag_status', to_json(tag_status),
+                              'tag_trend', to_json(tag_trend)
+                          )) AS props
+                  FROM store_info
+          )
+          WHERE `from` IS NOT NULL
+          AND to IS NOT NULL
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        formatted
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${OUTPUT_PATH}
+      }
+      type: file
+    }
+  ]
+}

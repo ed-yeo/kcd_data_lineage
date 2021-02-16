@@ -1,0 +1,72 @@
+{
+  name: conv_log_to_es
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs:
+      []
+      name: conv_log
+      options:
+      {
+        format: parquet
+        paths: ${BASE_LOG_DIR}/conv_log
+        partition_keys: 'created_at_date'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+        inputs:
+        [
+          conv_log
+        ]
+        name: formatted_conv
+        options:
+        {
+          sql:
+            '''
+                SELECT
+                        'conversion' AS type,
+                        cast(timestamp/1000 as timestamp) AS timestamp,
+                        _event_id,
+                        click_timestamp,
+                        event_type,
+                        campaign_id,
+                        ad_group_id,
+                        creative_id,
+                        user_id,
+                        sdk_name AS sdk_type,
+                        conv_duration_millis,
+                        diff_days,
+                        true AS status
+                FROM    conv_log
+            '''
+        }
+        type: sql
+      }
+  ]
+  sink:
+  [
+    {
+      "inputs": [
+        formatted_conv
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "${targetIndexName}",
+        "es.nodes": "${ES_HOST}"
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+        "es.mapping.id": "_event_id"
+      },
+      "type": "es"
+    }
+  ]
+}

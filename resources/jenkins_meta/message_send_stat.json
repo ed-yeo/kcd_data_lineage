@@ -1,0 +1,62 @@
+{
+  "name": "message_send_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "send_log",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-data/raw/catalog_v2/raw/tb=dmp_message_result_stat"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "cashnote_user_meta",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_cubes/dimension/name=cashnote_user_meta"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "send_log"
+      ],
+      "name": "message_history",
+      "options": {
+        "sql": "SELECT\n        timestamp,\n        created_at_date AS date_id,\n        meta_campaign_id AS campaign_id,\n        meta_ad_group_id AS ad_group_id,\n        meta_creative_id AS creative_id,\n        meta_user_id AS user_id,\n        meta_business_id AS business_id,\n        meta_user_type AS user_type,\n        meta_type AS ad_group_type,\n        message_message_type AS message_type,\n        message_ad_flag AS ad_flag,\n        message_template_code AS template_code\nFROM (\n        SELECT  *,\n                row_number() OVER (PARTITION BY _event_id ORDER BY timestamp DESC) AS rank\n        FROM    send_log\n        WHERE   status = true\n        AND     meta_user_type = 'cashnote'\n        AND     nvl(meta_test_mode, false) = false\n        AND     nvl(meta_test_mode_skip_user, false) = false\n        AND     nvl(meta_test_mode_skip_frequency_cap, false) = false\n        AND     nvl(meta_test_mode_skip_ad_group, false) = false\n        AND     nvl(meta_test_mode_skip_send, false) = false\n)\nWHERE rank = 1"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "cashnote_user_meta",
+        "message_history"
+      ],
+      "name": "joined",
+      "options": {
+        "sql": "SELECT\n          message_history.*,\n          cashnote_user_meta.classification,\n          cashnote_user_meta.device_type,\n          age_band,\n          business_type,\n          location,\n          credential_types,\n          is_advanced_user,\n          is_paid_user,\n          regular_employees_count,\n          size_category\nFROM      message_history\nLEFT OUTER JOIN   cashnote_user_meta\nON        message_history.user_id = cashnote_user_meta.user_id\nAND       message_history.business_id = cashnote_user_meta.business_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "joined"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_cubes/fact/time_unit=DAY/name=message_send_stat",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    }
+  ]
+}

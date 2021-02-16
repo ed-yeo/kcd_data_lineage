@@ -1,0 +1,74 @@
+{
+  "name": "bccard_classification",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "business_classifications",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=bccard/business_classifications"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "bccard_classifications",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=bccard/bccard_classifications.tsv"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "business_classifications"
+      ],
+      "name": "merged_dedup",
+      "options": {
+        "sql": "SELECT\n        *,\n        CONCAT(\n                    trim(depth_1_name),'-',\n                    trim(depth_2_name), '-',\n                    trim(depth_3_name)\n        ) AS full_category\nFROM (\n    SELECT    distinct *\n    FROM (\n            SELECT  `가맹점(광역시도)` AS sido,\n                    `가맹점(시군구)` AS sigungu,\n                    `가맹점(행정동)` AS h_dong,\n                    `가맹점(PNU)` AS pnu,\n                    `업종코드` AS classification_code,\n                    `업종대` AS depth_1_name,\n                    `업종중` AS depth_2_name,\n                    `업종소` AS depth_3_name,\n                    `사업자번호` AS registration_number,\n                    `가맹점명` AS business_name\n            FROM      business_classifications\n    )\n)"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "merged_dedup"
+      ],
+      "name": "grouped",
+      "options": {
+        "sql": "SELECT    valid_info.*,\n          merchant_size\nFROM (\n    SELECT\n            SUM(cnt) AS merchant_size,\n            filter(collect_list(struct(*)), x -> x.rank == 1)[0] AS valid_info\n    FROM (\n        SELECT\n                registration_number, full_category, cnt, business_names[0] AS business_name,\n                rank() OVER (PARTITION BY registration_number ORDER BY cnt DESC) AS rank\n\n        FROM (\n            SELECT registration_number, full_category, count(1) AS cnt, collect_set(business_name) AS business_names\n            FROM  merged_dedup\n            GROUP BY registration_number, full_category\n        )\n    )\n    GROUP BY registration_number\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "grouped",
+        "bccard_classifications"
+      ],
+      "name": "bccard_business_classification",
+      "options": {
+        "sql": "SELECT\n          grouped.registration_number,\n          grouped.business_name,\n          grouped.full_category,\n          grouped.merchant_size,\n          c.bc_depth_1_code AS depth_1_code,\n          c.bc_depth_1_name AS depth_1_name,\n          c.bc_depth_2_code AS depth_2_code,\n          c.bc_depth_2_name AS depth_2_name,\n          c.bc_depth_3_code AS depth_3_code,\n          c.bc_depth_3_name AS depth_3_name\nFROM  grouped\nLEFT OUTER JOIN (\n    SELECT    *,\n              CONCAT(\n                    trim(bc_depth_1_name),'-',\n                    trim(bc_depth_2_name), '-',\n                    trim(bc_depth_3_name)\n              ) AS full_category\n    FROM      bccard_classifications\n) AS c\nON grouped.full_category = c.full_category"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "bccard_business_classification"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=registration_number/subject=classification/name=bccard_new"
+      },
+      "type": "file"
+    }
+  ]
+}

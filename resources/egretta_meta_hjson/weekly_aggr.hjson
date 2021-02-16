@@ -1,0 +1,101 @@
+{
+  // TARGET_PATH, START_DATE, END_DATE
+  name: weekly_aggr
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: approvals
+      options:
+      {
+        format: parquet
+        paths: '${APPROVALS_PATH}'
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: places
+      options:
+      {
+        format: parquet
+        paths: s3://kcd-data/dmp/sources/classification/kcd_places
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: targets_src
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/test/shon/corona/targets_20200331
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        approvals
+        places
+        targets_src
+      ]
+      name: tx_with_meta
+      options:
+      {
+        sql:
+          '''
+          SELECT  /*+BROADCAST(p, t) */
+                  tx.*,
+                  kcd_classification_1_depth,
+                  kcd_classification_2_depth,
+                  kcd_classification_3_depth,
+                  kcd_classification_4_depth,
+                  kcd_classification_5_depth,
+                  name,
+                  type,
+                  uid,
+                  latitude,
+                  longitude,
+                  lot_address,
+                  lot_address_1_depth,
+                  lot_address_2_depth,
+                  lot_address_3_depth
+          FROM    approvals tx, places p, (
+            SELECT  business_id
+            FROM    targets_src
+            WHERE   transacted_at_month_count = 13
+          ) t
+          WHERE   tx.business_id = p.business_id
+          AND     p.business_id = t.business_id
+          AND     tx.status = 0
+          AND     transacted_at >= '${START_DATE}' AND transacted_at < '${END_DATE}'
+          AND     created_at_date >= '${START_DATE}' AND created_at_date < '${END_DATE}'
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        tx_with_meta
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/tx_with_meta
+      }
+      type: file
+    }
+  ]
+}

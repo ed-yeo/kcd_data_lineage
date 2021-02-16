@@ -1,0 +1,172 @@
+{
+  name: build_raw_features
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: places_src
+      options:
+      {
+        format: parquet
+        paths: ${db_file_path}/places
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: ${db_file_path}/businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: transactions
+      options:
+      {
+        format: parquet
+        paths: s3://kcd-partners-openub/data/cards/transactions
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        businesses
+        places_src
+      ]
+      name: meta
+      options:
+      {
+        sql:
+          '''
+          SELECT  /*+BROADCAST(p) */
+                  b.id AS business_id,
+                  b.name,
+                  p.name AS place_name,
+                  p.classification AS place_classification,
+                  p.latitude AS place_latitude,
+                  p.longitude AS place_longitude,
+                  p.uid AS place_uid,
+                  p.type AS place_type
+          FROM    businesses b LEFT OUTER JOIN (
+            SELECT  business_id,
+                    first(name) AS name,
+                    first(classification) AS classification,
+                    first(latitude) AS latitude,
+                    first(longitude) AS longitude,
+                    first(uid) AS uid,
+                    first(type) AS type
+            FROM    places_src
+            GROUP BY business_id
+          ) p ON (b.id = p.business_id)
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        meta
+        transactions
+      ]
+      name: card_raw_features
+      options:
+      {
+        sql:
+          '''
+          SELECT  encrypted_card_number,
+                  collect_list(struct(*)) AS raw_features
+          FROM    (
+            SELECT  encrypted_card_number,
+                    place_classification,
+                    SUM(amount) AS amount_sum,
+                    COUNT(1) AS tx_count,
+                    COUNT(distinct business_id) AS business_count
+            FROM    (
+              SELECT  /*+BROADCAST(m) */
+                      tx.encrypted_card_number,
+                      tx.business_id,
+                      tx.amount,
+                      m.name,
+                      m.place_name,
+                      m.place_classification,
+                      m.place_latitude,
+                      m.place_longitude
+              FROM    transactions tx, meta m
+              WHERE   tx.business_id = m.business_id
+              AND     tx.encrypted_card_number is not null
+              AND     tx.transaction_canceled_at is null
+              AND     tx.purchase_canceled_at is null
+              AND     tx.transacted_at between '2019-01-01' AND '2020-01-01'
+            )
+            GROUP BY encrypted_card_number, place_classification
+          )
+          GROUP BY encrypted_card_number
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        transactions
+      ]
+      name: card_histories
+      options:
+      {
+        sql:
+          '''
+          SELECT  encrypted_card_number,
+                  collect_list(struct(*)) AS histories
+          FROM    transactions
+          WHERE   transacted_at between '2019-01-01' AND '2020-01-01'
+          AND     encrypted_card_number is not null
+          AND     transaction_canceled_at is null
+          AND     purchase_canceled_at is null
+          GROUP BY encrypted_card_number
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        card_raw_features
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${output_path}/card_raw_features"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        card_histories
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${output_path}/card_histories"
+      }
+      type: file
+    }
+  ]
+}

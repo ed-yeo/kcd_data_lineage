@@ -1,0 +1,296 @@
+{
+  name: preprocess
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: transactions
+      options:
+      {
+        format: parquet
+        paths: ${CARD_SALES_TRANSACTION_PATH}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: visits
+      options:
+      {
+        format: parquet
+        paths: ${REVISIT_TARGET_PATH}/visits
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        transactions
+      ]
+      name: filtered
+      options:
+      {
+        sql:
+          '''
+            SELECT    *
+            FROM      transactions
+            WHERE     encrypted_card_number is not null
+            AND       transaction_canceled_at is null
+            AND       purchase_canceled_at is null
+            AND       created_at_date >= '${START_DATE}'
+            AND       transacted_at >= '${START_DATE}'
+            AND       transacted_at < '${END_DATE}'
+          '''
+      }
+      type: sql
+    }
+    {
+      name: visits_filtered
+      inputs:
+      [
+        visits
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      visits
+          WHERE     encrypted_card_number is not null
+          AND       transaction_canceled_at is null
+          AND       purchase_canceled_at is null
+          AND       created_at_date >= '${START_DATE}'
+          AND       transacted_at >= '${START_DATE}'
+          AND       transacted_at < '${END_DATE}'
+          '''
+      }
+    }
+    {
+      inputs:
+      [
+        visits_filtered
+      ]
+      name: reformat
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    IF (add_months(current_month, -3) <= transacted_at_month and
+                        transacted_at_month < current_month, true, false) AS within_3_month,
+                    IF (add_months(current_month, -6) <= transacted_at_month and
+                        transacted_at_month < current_month, true, false) AS within_6_month,
+                    IF (add_months(current_month, -9) <= transacted_at_month and
+                        transacted_at_month < current_month, true, false) AS within_9_month,
+                    IF (add_months(current_month, -12) <= transacted_at_month and
+                        transacted_at_month < current_month, true, false) AS within_12_month
+          FROM      (
+              SELECT    *,
+                        date_trunc('month', transacted_at) AS transacted_at_month,
+                        date_trunc('month', current_timestamp()) AS current_month
+              FROM      visits_filtered
+          )
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        reformat
+      ]
+      name: monthly
+      options:
+      {
+        sql:
+          '''
+          SELECT    encrypted_card_number,
+                    transacted_at_month AS month,
+                    'month' AS type,
+                    collect_set(business_id) AS business_ids
+          FROM      reformat
+          GROUP BY  1, 2
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        reformat
+      ]
+      name: monthly_aggr_total
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id,
+                    transacted_at_month AS month,
+                    'month' AS type,
+                    'T' AS tag,
+                    count(distinct encrypted_card_number) AS visitors_count
+          FROM      reformat
+          GROUP BY  1, 2
+
+          UNION ALL
+
+          SELECT    business_id,
+                    min(transacted_at_month) AS month,
+                    '3_month' AS type,
+                    'T' AS tag,
+                    count(distinct encrypted_card_number) AS visitors_count
+          FROM      reformat
+          WHERE     within_3_month = true
+          GROUP BY  1
+
+          UNION ALL
+
+          SELECT    business_id,
+                    min(transacted_at_month) AS month,
+                    '6_month' AS type,
+                    'T' AS tag,
+                    count(distinct encrypted_card_number) AS visitors_count
+          FROM      reformat
+          WHERE     within_6_month = true
+          GROUP BY  1
+
+          UNION ALL
+
+          SELECT    business_id,
+                    min(transacted_at_month) AS month,
+                    '9_month' AS type,
+                    'T' AS tag,
+                    count(distinct encrypted_card_number) AS visitors_count
+          FROM      reformat
+          WHERE     within_9_month = true
+          GROUP BY  1
+
+          UNION ALL
+
+          SELECT    business_id,
+                    min(transacted_at_month) AS month,
+                    '12_month' AS type,
+                    'T' AS tag,
+                    count(distinct encrypted_card_number) AS visitors_count
+          FROM      reformat
+          WHERE     within_12_month = true
+          GROUP BY  1
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        reformat
+      ]
+      name: snapshots
+      options:
+      {
+        sql:
+          '''
+          SELECT    encrypted_card_number,
+                    min(transacted_at_month) AS month,
+                    '3_month' AS type,
+                    collect_set(business_id) AS business_ids
+          FROM      reformat
+          WHERE     within_3_month = true
+          GROUP BY  1
+
+          UNION ALL
+
+          SELECT    encrypted_card_number,
+                    min(transacted_at_month) AS month,
+                    '6_month' AS type,
+                    collect_set(business_id) AS business_ids
+          FROM      reformat
+          WHERE     within_6_month = true
+          GROUP BY  1
+
+          UNION ALL
+
+          SELECT    encrypted_card_number,
+                    min(transacted_at_month) AS month,
+                    '9_month' AS type,
+                    collect_set(business_id) AS business_ids
+          FROM      reformat
+          WHERE     within_9_month = true
+          GROUP BY  1
+
+          UNION ALL
+
+          SELECT    encrypted_card_number,
+                    min(transacted_at_month) AS month,
+                    '12_month' AS type,
+                    collect_set(business_id) AS business_ids
+          FROM      reformat
+          WHERE     within_12_month = true
+          GROUP BY  1
+
+          UNION ALL
+
+          SELECT    encrypted_card_number,
+                    transacted_at_month AS month,
+                    'month' AS type,
+                    collect_set(business_id) AS business_ids
+          FROM      reformat
+          GROUP BY  1, 2
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        monthly_aggr_total
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/monthly_aggr_total
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        snapshots
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/snapshots
+        partitions: type
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        reformat
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/reformat
+      }
+      type: file
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  name: result_stat
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs:
+      []
+      name: dmp_message_result_stat
+      options:
+      {
+        format: json
+        paths: ${TARGET_DIR}/tb=dmp_message_result_stat
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        dmp_message_result_stat
+      ]
+      name: eagle_log
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    'eagle' AS source,
+                    id AS message_id,
+                    cast((timestamp / 1000) AS timestamp) AS timestamp,
+                    to_timestamp(sent_at, 'yyyy-MM-dd HH:mm:ss') AS sent_at,
+                    IF(status = true, 'SUCCESS', 'FAIL') AS status,
+                    message,
+                    error_detail,
+                    raw_request_ad_flag AS ad_flag,
+                    raw_request_message_type AS message_type,
+                    raw_request_template_code AS template_code
+            FROM dmp_message_result_stat
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      "inputs": [
+        eagle_log
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "${targetIndexName}",
+        "es.nodes": "${ES_HOST}",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+      },
+      "type": "es"
+    }
+  ]
+}

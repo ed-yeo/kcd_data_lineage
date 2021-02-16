@@ -1,0 +1,170 @@
+{
+  "name": "message_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "send_log",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/logs/send_log"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "click_log",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/logs/click_log",
+        "schema": "type STRING, timestamp LONG, _event_id STRING, campaign_id STRING, ad_group_id STRING, creative_id STRING, user_id LONG, status BOOLEAN, sdk_type STRING, user_type STRING, ad_group_type STRING"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "prev_stat",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/message_stats/date_id=2021-01-28"
+      },
+      "type": "file",
+      "cache": true
+    },
+    {
+      "inputs": [],
+      "name": "campaign",
+      "options": {
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "campaign",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "ad_group",
+      "options": {
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "ad_group",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "creative",
+      "options": {
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "creative",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "campaign",
+        "ad_group",
+        "creative"
+      ],
+      "name": "meta",
+      "options": {
+        "sql": "SELECT 'campaign_id' AS id_type, id, name, CAST(null AS STRING) AS type, CAST(null AS INT) AS population FROM campaign\nUNION ALL\nSELECT 'ad_group_id' AS id_type, id, name, type, population FROM ad_group\nUNION ALL\nSELECT 'creative_id' AS id_type, id, name, message_type AS type, CAST(null AS INT) AS population FROM creative"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "send_log"
+      ],
+      "name": "send_log_by_status",
+      "options": {
+        "sql": "SELECT id_type, id, campaign_id, ad_group_id, creative_id, status,\n        min(timestamp) AS min_ts, max(timestamp) AS max_ts,\n        count(1) AS send_cnt,\n        count(distinct(user_id)) AS send_user_cnt\nFROM (\n    SELECT meta.*, status, user_id, timestamp\n    FROM (\n        SELECT  explode(meta_arr) AS meta, status, user_id, timestamp\n        FROM (\n                SELECT  array(\n                            named_struct('id_type', 'campaign_id', 'id', campaign_id, 'campaign_id', campaign_id, 'ad_group_id', 'n/a', 'creative_id', 'n/a'),\n                            named_struct('id_type', 'ad_group_id', 'id', ad_group_id, 'campaign_id', campaign_id, 'ad_group_id', ad_group_id, 'creative_id', 'n/a'),\n                            named_struct('id_type', 'creative_id', 'id', creative_id, 'campaign_id', campaign_id, 'ad_group_id', ad_group_id, 'creative_id', creative_id)\n                        ) AS meta_arr,\n                        status, user_id, timestamp,\n                        row_number() OVER (PARTITION BY _event_id ORDER BY timestamp DESC) AS rank\n                FROM send_log\n                WHERE created_at_date = '2021-01-29'\n        )\n        WHERE rank = 1\n    )\n)\nGROUP BY  id_type, id, campaign_id, ad_group_id, creative_id, status"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "send_log_by_status"
+      ],
+      "name": "send_log_aggr",
+      "options": {
+        "sql": "SELECT\n        id_type, id, campaign_id, ad_group_id, creative_id,\n        IF(success_min_ts < fail_min_ts, success_min_ts, fail_min_ts) AS min_ts,\n        IF(success_max_ts > fail_max_ts, success_max_ts, fail_max_ts) AS max_ts,\n        success_send_cnt, success_send_user_cnt, fail_send_cnt, fail_send_user_cnt\nFROM (\n    SELECT\n            nvl(success_log.id_type, fail_log.id_type) AS id_type,\n            nvl(success_log.id, fail_log.id) AS id,\n            nvl(success_log.campaign_id, fail_log.campaign_id) AS campaign_id,\n            nvl(success_log.ad_group_id, fail_log.ad_group_id) AS ad_group_id,\n            nvl(success_log.creative_id, fail_log.creative_id) AS creative_id,\n            nvl(fail_log.min_ts, unix_timestamp()* 1000) AS fail_min_ts,\n            nvl(success_log.min_ts, unix_timestamp()* 1000) AS success_min_ts,\n            nvl(fail_log.max_ts, 0L) AS fail_max_ts,\n            nvl(success_log.max_ts, 0L) AS success_max_ts,\n            nvl(success_log.send_cnt, 0L) AS success_send_cnt,\n            nvl(success_log.send_user_cnt, 0L) AS success_send_user_cnt,\n            nvl(fail_log.send_cnt, 0L) AS fail_send_cnt,\n            nvl(fail_log.send_user_cnt, 0L) AS fail_send_user_cnt\n    FROM (\n        SELECT *\n        FROM send_log_by_status\n        WHERE status = true\n    ) AS success_log\n    FULL OUTER JOIN\n    (\n        SELECT *\n        FROM send_log_by_status\n        WHERE status = false\n    ) AS fail_log\n    ON success_log.id_type = fail_log.id_type\n    AND success_log.id = fail_log.id\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "click_log"
+      ],
+      "name": "click_log_aggr",
+      "options": {
+        "sql": "SELECT  id_type, id,\n        count(1) AS click_cnt,\n        count(distinct(user_id)) AS click_user_cnt\nFROM (\n    SELECT meta.*, user_id\n    FROM (\n        SELECT  explode(meta_arr) AS meta, user_id\n        FROM (\n            SELECT  array(\n                        named_struct('id_type', 'campaign_id', 'id', campaign_id),\n                        named_struct('id_type', 'ad_group_id', 'id', ad_group_id),\n                        named_struct('id_type', 'creative_id', 'id', creative_id)\n                    ) AS meta_arr,\n                    user_id,\n                    row_number() OVER (PARTITION BY _event_id ORDER BY timestamp DESC) AS rank\n            FROM click_log\n            WHERE created_at_date = '2021-01-29'\n        )\n        WHERE rank = 1\n    )\n)\nGROUP BY  id_type, id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "send_log_aggr",
+        "click_log_aggr",
+        "meta"
+      ],
+      "name": "current_stat",
+      "options": {
+        "sql": "SELECT    stat.*, meta.name, meta.type, meta.population\nFROM (\n    SELECT\n            nvl(send_log_aggr.id_type, click_log_aggr.id_type) AS id_type,\n            nvl(send_log_aggr.id, click_log_aggr.id) AS id,\n            campaign_id,\n            ad_group_id,\n            creative_id,\n            min_ts, max_ts,\n            success_send_cnt, success_send_user_cnt, fail_send_cnt, fail_send_user_cnt,\n            nvl(click_log_aggr.click_cnt, 0) AS click_cnt,\n            nvl(click_log_aggr.click_user_cnt, 0) AS click_user_cnt\n    FROM send_log_aggr\n    FULL OUTER JOIN click_log_aggr\n    ON    send_log_aggr.id_type = click_log_aggr.id_type\n    AND   send_log_aggr.id = click_log_aggr.id\n) AS stat\nLEFT OUTER JOIN meta\nON stat.id_type = meta.id_type\nAND stat.id = CAST(meta.id AS STRING)"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "current_stat",
+        "prev_stat"
+      ],
+      "name": "merged_stat",
+      "options": {
+        "sql": "SELECT    current.id,\n          current.id_type,\n          nvl(current.campaign_id, prev.campaign_id) AS campaign_id,\n          nvl(current.ad_group_id, prev.ad_group_id) AS ad_group_id,\n          nvl(current.creative_id, prev.creative_id) AS creative_id,\n          nvl(prev.min_ts, current.min_ts) AS min_ts,\n          nvl(current.max_ts, prev.max_ts) AS max_ts,\n          (nvl(current.success_send_cnt, 0) + nvl(prev.success_send_cnt, 0)) AS success_send_cnt,\n          (nvl(current.success_send_user_cnt, 0) + nvl(prev.success_send_user_cnt, 0)) AS success_send_user_cnt,\n          (nvl(current.fail_send_cnt, 0) + nvl(prev.fail_send_cnt, 0)) AS fail_send_cnt,\n          (nvl(current.fail_send_user_cnt, 0) + nvl(prev.fail_send_user_cnt, 0)) AS fail_send_user_cnt,\n          (nvl(current.click_cnt, 0) + nvl(prev.click_cnt, 0)) AS click_cnt,\n          (nvl(current.click_user_cnt, 0) + nvl(prev.click_user_cnt, 0)) AS click_user_cnt,\n          current.name, current.type, current.population\nFROM      current_stat AS current\nLEFT OUTER JOIN  prev_stat AS prev\nON    current.id_type = prev.id_type\nAND   current.id = prev.id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merged_stat",
+        "current_stat",
+        "prev_stat"
+      ],
+      "name": "calc_stat",
+      "options": {
+        "sql": "SELECT\n           id_type, id, campaign_id, ad_group_id, creative_id, min_ts, max_ts,\n           success_send_cnt, success_send_user_cnt, fail_send_cnt, fail_send_user_cnt,\n           click_cnt, click_user_cnt,\n           start_time, end_time, diff_seconds,\n           send_fail_rate, click_count_rate,\n           hours, minutes, seconds,\n           name, type, population\nFROM (\n        SELECT  *,\n                floor(diff_seconds / 3600) AS hours,\n                floor((diff_seconds % 3600) / 60) AS minutes,\n                floor(diff_seconds % 60) AS seconds\n        FROM (\n            SELECT *,\n                    date_format(from_utc_timestamp(from_unixtime(min_ts / 1000), 'Asia/Seoul'), 'yyyy-MM-dd HH:mm:ss') AS start_time,\n                    date_format(from_utc_timestamp(from_unixtime(max_ts / 1000), 'Asia/Seoul'), 'yyyy-MM-dd HH:mm:ss') AS end_time,\n                    ((max_ts - min_ts) / 1000) AS diff_seconds,\n                    CAST(FORMAT_NUMBER(nvl(fail_send_cnt / success_send_cnt * 100, 0), '########.##') AS DOUBLE) AS send_fail_rate,\n                    CAST(FORMAT_NUMBER(nvl(click_cnt / success_send_cnt * 100, 0), '########.##') AS DOUBLE) AS click_count_rate,\n                    CAST(FORMAT_NUMBER(nvl(click_user_cnt / success_send_user_cnt * 100, 0), '########.##') AS DOUBLE) AS click_user_rate\n            FROM   merged_stat\n        )\n)\n\nUNION ALL\n\nSELECT\n           id_type, id, campaign_id, ad_group_id, creative_id, min_ts, max_ts,\n           success_send_cnt, success_send_user_cnt, fail_send_cnt, fail_send_user_cnt,\n           click_cnt, click_user_cnt,\n           start_time, end_time, diff_seconds,\n           send_fail_rate, click_count_rate,\n           hours, minutes, seconds,\n           name, type, population\nFROM (\n        SELECT\n                  prev.*\n        FROM prev_stat AS prev\n        LEFT OUTER JOIN   current_stat AS current\n        ON    current.id_type = prev.id_type\n        AND   current.id = prev.id\n        WHERE current.id is null\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "calc_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/message/message_stats/date_id=2021-01-29",
+        "partitions": "id_type"
+      },
+      "type": "file"
+    }
+  ]
+}

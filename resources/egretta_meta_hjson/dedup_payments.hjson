@@ -1,0 +1,103 @@
+{
+  name: dedup_payments
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: pos_payments_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: json
+        paths: "${INPUT_PATH}"
+        partition_keys: 'created_at_date,created_at_hour'
+        mergeSchema: 'true'
+      }
+      type: custom
+    }
+  ]
+  process:
+  [
+    // build current pos_payments/prev pos_payments
+    {
+      inputs:
+      [
+        pos_payments_raw
+      ]
+      name: pos_payments_distinct
+      options:
+      {
+        sql:
+          '''
+          SELECT
+            _event_id,
+            `type`,
+            amount,
+            authorization_number,
+            bill_key,
+            bill_no,
+            business_id,
+            card_number,
+            client_id,
+            index,
+            issuer_name,
+            label_name,
+            merchant_number,
+            order_status,
+            paid_at,
+            payment_key,
+            pos_no,
+            pos_type,
+            service_name,
+            shop_code,
+            store_key,
+            timestamp,
+            CAST(null AS int) AS visit_order,
+            CAST(created_at_date as string) AS created_at_date,
+            paid_at_timestamp AS transacted_at,
+            CAST(to_date(paid_at_timestamp, 'yyyy-MM-dd') AS string) AS transacted_at_date
+          FROM    (
+            SELECT
+              *,
+              COALESCE(
+                to_timestamp(paid_at, "yyyy-MM-dd HH:mm:ss"),
+                to_timestamp(paid_at, "yyyy-MM-dd'T'HH:mm:ss"),
+                to_timestamp(paid_at, "yyyy-MM-dd HH:mm:ss.SSS")
+              ) AS paid_at_timestamp,
+              row_number() OVER (PARTITION BY payment_key ORDER BY timestamp DESC) AS rank
+            FROM
+              pos_payments_raw
+            WHERE
+              created_at_date >= '${MIN_DATE}' AND created_at_date < '${MAX_DATE}'
+            AND NOT((business_id = 633186 AND created_at_date < '2020-10-15')) -- POS_CS: DE-713
+          )
+          WHERE rank = 1
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        pos_payments_distinct
+      ]
+      name: file_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: created_at_date
+          evenPartitions: "true"
+          numOfRecordPerFile: "4000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

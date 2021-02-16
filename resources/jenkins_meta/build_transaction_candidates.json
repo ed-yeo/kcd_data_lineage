@@ -1,0 +1,57 @@
+{
+  "name": "build_transaction_candidates",
+  "udfs": [
+    {
+      "name": "mask_card_number",
+      "class": "com.kcd.thrush.udfs.MarkCardNumberUDF",
+      "params": {}
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "merged_approvals",
+      "options": {
+        "paths": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/matches/merged/approvals_current",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "merged_purchases",
+      "options": {
+        "paths": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/matches/merged/purchases_current",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "transaction_candidates",
+      "inputs": [
+        "merged_approvals",
+        "merged_purchases"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    struct(a.*) as approval,\n          struct(p.*) as purchase,\n          COALESCE(a.created_at_date, p.created_at_date) AS created_at_date\nFROM      merged_approvals a FULL OUTER JOIN merged_purchases p\nON    (\n  a.business_id = p.business_id AND\n  a.credential_key = p.credential_key AND\n  a.authorization_number = p.authorization_number AND\n  CAST(a.transacted_at AS DATE) = CAST(p.transacted_at AS DATE) AND\n  a.issuer_name = p.issuer_name AND\n  a.amount = p.amount AND\n  (\n      p.issuer_name = '비씨'\n      OR (\n        mask_card_number(a.card_number) = mask_card_number(p.card_number) AND\n        a.approval_seq = p.purchase_seq\n      )\n  )\n)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "transaction_candidates"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/matches/candidates/transactions_current",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "name": "build_nice_monthly_variables",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses_monthly_stats",
+      "options": {
+        "paths": "s3://kcd-de-staging/work/ryan/nice_monthly/2021-01-01/businesses_monthly_stats",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "address_monthly_stats",
+      "options": {
+        "paths": "s3://kcd-de-staging/work/ryan/nice_monthly/2021-01-01/address_monthly_stats",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "classification_monthly_stats",
+      "options": {
+        "paths": "s3://kcd-de-staging/work/ryan/nice_monthly/2021-01-01/classification_monthly_stats",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_sales_monthly_stat",
+      "options": {
+        "paths": "s3://kcd-de-staging/work/ryan/nice_monthly/2021-01-01/hometax_sales_monthly_stat",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "businesses_monthly_stats",
+        "address_monthly_stats",
+        "classification_monthly_stats",
+        "hometax_sales_monthly_stat"
+      ],
+      "name": "businesses_with_nice_monthly_variables",
+      "options": {
+        "sql": "SELECT  stats.business_id,\n        stats.registration_number,\n        stats.registration_code,\n        stats.status_code,\n        date_format(date_sub('2021-01-01', 1), 'yyyyMMdd') as standard_date,\n        CAST(3_month_avg_card_sales_amount AS bigint) AS TR0102_M03,\n        3_month_sum_returning_count AS TR0251_M03,\n        CAST((1 - 3_month_sum_returning_count / 3_month_sum_card_sales_count) * 100 AS int) AS TR0260_M03,\n        CAST((3_month_sum_returning_count / 3_month_sum_card_sales_count) * 100 AS int) AS TR0261_M03,\n        6_month_sum_returning_count AS TR0251_M06,\n        CAST((1 - 6_month_sum_returning_count / 6_month_sum_card_sales_count) * 100 AS int) AS TR0260_M06,\n        CAST(12_month_avg_returning_count AS int) AS TR0256_M12,\n        CAST((3_month_sum_card_sales_amount / 6_month_sum_card_sales_amount) * 100 AS int) AS TR4101_M03,\n        CAST((3_month_avg_card_sales_amount / 6_month_avg_card_sales_amount) * 100 AS int) AS TR4102_M03,\n        CAST((3_month_sum_card_sales_count / 6_month_sum_card_sales_count) * 100 AS int) AS TR4201_M03,\n        CAST((3_month_avg_card_sales_count / 6_month_avg_card_sales_count) * 100 AS int) AS TR4202_M03,\n        CAST((6_month_sum_card_sales_amount / before_6_month_sum_card_sales_amount) * 100 AS int) AS TR6101_M06,\n        CAST((6_month_avg_card_sales_amount / before_6_month_avg_card_sales_amount) * 100 AS int) AS TR6102_M06,\n        CAST((6_month_sum_card_sales_count / before_6_month_sum_card_sales_count) * 100 AS int) AS TR6201_M06,\n        CAST((6_month_avg_card_sales_count / before_6_month_avg_card_sales_count) * 100 AS int) AS TR6202_M06,\n        CAST((3_month_avg_card_sales_amount / last_year_3_month_avg_card_sales_amount) * 100 AS int) AS TR7102_M03,\n        CAST((6_month_avg_card_sales_count / last_year_6_month_avg_card_sales_count) * 100 AS int) AS TR7202_M06,\n        CAST((3_month_sum_card_sales_count / address_3_month_avg_card_sales_count) * 100 AS int) AS LT8201_M03,\n        CAST((6_month_sum_card_sales_amount / classification_6_month_avg_card_sales_amount) * 100 AS int) AS CL8101_M06,\n        CAST((6_month_sum_card_sales_count / classification_6_month_avg_card_sales_count) * 100 AS int) AS CL8201_M06,\n        CAST((3_month_avg_hometax_sales_amount / 12_month_avg_hometax_sales_amount) * 100 AS int) AS SL5102_M03\nFROM businesses_monthly_stats stats\nLEFT OUTER JOIN address_monthly_stats ON stats.address = address_monthly_stats.address\nLEFT OUTER JOIN classification_monthly_stats classification ON stats.classification = classification.classification\nLEFT OUTER JOIN hometax_sales_monthly_stat hometax_stats ON stats.business_id = hometax_stats.business_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "businesses_with_nice_monthly_variables"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/nice_monthly/2021-01-01/businesses_with_nice_monthly_variables"
+      },
+      "type": "file"
+    }
+  ]
+}

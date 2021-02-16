@@ -1,0 +1,358 @@
+{
+  // DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD,
+  // TRANSACTIONS_PATH, RESERVED_PAYMENTS_PATH, PAYMENTS_PATH, OUTPUT_PATH
+  name: reserved_summary
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: issuer_histories
+      options:
+      {
+        url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb"
+        dbtable: "issuer_histories"
+        user: "${DB_USERNAME}"
+        password:  "${DB_PASSWORD}"
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: credentials
+      options:
+      {
+        paths: s3://kcd-data/raw/db/snowdon/snapshot/latest/credentials
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: payments
+      options:
+      {
+        paths: ${PAYMENTS_PATH}
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: reserved_payments
+      options:
+      {
+        paths: ${RESERVED_PAYMENTS_PATH}
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: purchases_resolved
+      options:
+      {
+        paths: ${PURCHASES_RESOLVED_PATH}
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: purchases_remaining
+      options:
+      {
+        paths: ${PURCHASES_REMAINING_PATH}
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: issuer_payments_upto
+      inputs:
+      [
+        issuer_histories
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    explode(array(0, 2, 3, 4, 5, 6, 7, 8, 9)) as salt,
+                    issuer_name,
+                    payments_upto
+          FROM      (
+              SELECT    issuer AS issuer_name,
+                        max(date) AS payments_upto
+              FROM      issuer_histories
+              WHERE     payments = true AND payments_checked = true
+              GROUP BY  1
+          )
+          '''
+      }
+    }
+    {
+      name: issuer_purchases_upto
+      inputs:
+      [
+        issuer_histories
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    explode(array(0, 2, 3, 4, 5, 6, 7, 8, 9)) as salt,
+                    issuer_name,
+                    purchased_upto
+          FROM      (
+              SELECT    issuer AS issuer_name,
+                        max(date) AS purchased_upto
+              FROM      issuer_histories
+              WHERE     purchases = true AND purchases_checked = true
+              GROUP BY  1
+          )
+          '''
+      }
+    }
+    {
+      name: credentials_since
+      inputs:
+      [
+        credentials
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  MAX(since) AS since
+          FROM   (
+             SELECT  business_id,
+                      CAST(
+                       greatest(
+                         unix_timestamp(date_trunc('month', add_months(created_at, -23)), 'yyyy-MM-dd'),
+                         unix_timestamp('2016-07-01', 'yyyy-MM-dd')
+                       ) AS timestamp
+                      ) as since
+             FROM    credentials
+             WHERE   `type` in ('Credentials::Crefia', 'Credentials::CrefiaBusiness')
+          )
+          GROUP BY business_id
+          '''
+      }
+    }
+    {
+      name: purchases_summary
+      inputs:
+      [
+        purchases_resolved
+        purchases_remaining
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT business_id,
+                 SUM(resolved_count) AS resolved_count,
+                 SUM(remaining_count) AS remaining_count
+          FROM   (
+           SELECT business_id, count(1) AS resolved_count, 0 AS remaining_count
+           FROM   purchases_resolved
+           GROUP BY 1
+
+           UNION ALL
+
+           SELECT business_id, 0 AS resolved_count, count(1) AS remaining_count
+           FROM   purchases_remaining
+           GROUP BY 1
+          )
+          GROUP BY 1
+          '''
+      }
+    }
+    {
+      name: payments_issuer_names
+      inputs:
+      [
+        reserved_payments
+        payments
+        credentials_since
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT /*+ BROADCAST(s) */
+                 DISTINCT p.business_id, p.issuer_name
+          FROM   reserved_payments p, credentials_since s
+          WHERE  p.business_id = s.business_id
+          AND    p.issuer_name in ('삼성', '하나')
+          AND    p.expected > p.received
+          AND    p.paid_at > s.since
+
+          UNION ALL
+
+          SELECT /*+ BROADCAST(s) */
+                 DISTINCT p.business_id, p.issuer_name
+          FROM   payments p, credentials_since s
+          WHERE  p.business_id = s.business_id
+          AND    p.issuer_name not in ('삼성', '하나')
+          AND    p.reserved_amount > 0
+          AND    p.received_at > s.since
+          '''
+      }
+    }
+    {
+      name: settlements_aggr
+      inputs:
+      [
+        reserved_payments
+        issuer_payments_upto
+        credentials_since
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT business_id,
+                 issuer_name,
+                 CASE
+                   WHEN issuer_name = '비씨' THEN
+                     least(sum(reserved), COALESCE(-sum(received_neg), 0))
+                   ELSE
+                     least(COALESCE(-sum(remaining_neg), 0), COALESCE(sum(remaining_pos), 0))
+                 END AS resolved,
+                 CASE
+                   WHEN issuer_name = '비씨' THEN
+                     greatest(sum(reserved) + COALESCE(sum(received_neg), 0), 0)
+                   ELSE
+                     sum(remaining)
+                 END AS remaining
+          FROM   (
+             SELECT /*+ BROADCAST(c, i) */
+                    p.*,
+                    IF (received < 0, received, 0) AS received_neg,
+                    IF (received > 0, received, 0) AS received_pos,
+                    IF (remaining < 0, remaining, 0) AS remaining_neg,
+                    IF (remaining > 0, remaining, 0) AS remaining_pos
+             FROM   reserved_payments p, credentials_since c, issuer_payments_upto i
+             WHERE  p.business_id = c.business_id
+             AND    p.issuer_name = i.issuer_name
+             AND    p.paid_at BETWEEN c.since AND i.payments_upto
+             AND    p.business_id % 10 = i.salt
+          )
+          GROUP BY business_id, issuer_name
+          '''
+      }
+    }
+    {
+      name: payments_summary
+      inputs:
+      [
+        payments_issuer_names
+        settlements_aggr
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT /*+ BROADCAST(i) */
+                 s.business_id,
+                 SUM(s.resolved) AS resolved_amount,
+                 SUM(s.remaining) AS remaining_amount,
+                 SUM(s.resolved + s.remaining) AS total_amount
+          FROM   settlements_aggr s, payments_issuer_names i
+          WHERE  s.business_id = i.business_id
+          AND    s.issuer_name = i.issuer_name
+          GROUP BY s.business_id
+          '''
+      }
+    }
+    {
+      name: reserved_summary
+      inputs:
+      [
+        purchases_summary
+        payments_summary
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  SUM(resolved_amount) AS resolved_amount,
+                  SUM(remaining_amount) AS remaining_amount,
+                  SUM(resolved_count) AS resolved_count,
+                  SUM(remaining_count) AS remaining_count
+          FROM   (
+            SELECT business_id, resolved_amount, remaining_amount,
+                   0 AS resolved_count, 0 AS remaining_count
+            FROM   payments_summary
+
+            UNION ALL
+
+            SELECT business_id, 0 AS resolved_amount, 0 AS remaining_amount,
+                   resolved_count, remaining_count
+            FROM   purchases_summary
+          )
+          GROUP BY 1
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      name: file_sink
+      inputs:
+      [
+        payments_issuer_names
+      ]
+      type: file
+      options:
+      {
+        path: '${OUTPUT_BASE_PATH}/payments_issuer_names'
+        format: parquet
+        mode: overwrite
+      }
+    }
+    {
+      name: file_sink
+      inputs:
+      [
+        settlements_aggr
+      ]
+      type: file
+      options:
+      {
+        path: '${OUTPUT_BASE_PATH}/settlements'
+        format: parquet
+        mode: overwrite
+      }
+    }
+    {
+      name: file_sink
+      inputs:
+      [
+        reserved_summary
+      ]
+      type: file
+      options:
+      {
+        path: '${OUTPUT_PATH}'
+        format: parquet
+        mode: overwrite
+      }
+    }
+  ]
+}

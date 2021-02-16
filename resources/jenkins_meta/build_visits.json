@@ -1,0 +1,57 @@
+{
+  "name": "build_visits",
+  "udfs": [
+    {
+      "name": "append_visit_count",
+      "class": "com.kcd.thrush.cardsales.spark.udfs.AppendVisitCount",
+      "params": {}
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "card_sales_transaction_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/transactions"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "grouped",
+      "inputs": [
+        "card_sales_transaction_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  key,\n        business_id,\n        collect_list(struct(*)) AS histories\nFROM    (\n   SELECT *,\n          COALESCE(encrypted_card_number, CONCAT_WS('_', issuer_name, card_number)) AS key\n   FROM   card_sales_transaction_src\n   WHERE  transacted_at >= '2018-10-01'\n   AND    created_at_date >= '2018-10-01'\n)\nGROUP BY key, business_id"
+      }
+    },
+    {
+      "name": "visits",
+      "inputs": [
+        "grouped"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  tx_with_count.transaction.*,\n        tx_with_count.prev_visit_count\nFROM    (\n  SELECT  explode(append_visit_count(histories)) AS tx_with_count\n  FROM    grouped\n)\nWHERE   tx_with_count.transaction.transacted_at >= date_add('2018-10-01', 365)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "name": "file_sink",
+      "inputs": [
+        "visits"
+      ],
+      "type": "file",
+      "options": {
+        "path": "s3://kcd-data/table/card_sales_revisit/created_at_date=2020-10-28/visits",
+        "format": "parquet",
+        "mode": "overwrite"
+      }
+    }
+  ]
+}

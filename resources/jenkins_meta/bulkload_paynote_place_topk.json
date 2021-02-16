@@ -1,0 +1,45 @@
+{
+  "name": "bulkload_${LABEL}",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "bulkload_file",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/bulkload/paynote_place_topk"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [],
+  "sink": [
+    {
+      "inputs": [
+        "bulkload_file"
+      ],
+      "name": "s2graph_sink",
+      "options": {
+        "s2.spark.sql.streaming.sink.writeMethod": "bulk",
+        "s2.spark.sql.bulkload.sink.label.mapping": "paynote_place_topk:paynote_place_topk-2021-01-24_09-24-37",
+        "s2.spark.sql.bulkload.sink.build.degree": "false",
+        "s2.spark.sql.bulkload.sink.auto.edge.create": "false",
+        "s2.spark.sql.streaming.sink.skip.error": "true",
+        "s2.spark.sql.bulkload.sink.hbase.table.name": "paynote_place_topk-2021-01-24_09-24-37",
+        "s2.spark.sql.bulkload.sink.hbase.table.num.regions": "10",
+        "s2.spark.sql.bulkload.sink.hbase.temp.dir": "/tmp/bulkload/paynote_place_topk-2021-01-24_09-24-37",
+        "s2.spark.sql.bulkload.sink.hbase.incrementalLoad": "false",
+        "s2.spark.sql.bulkload.sink.hbase.compression": "LZ4",
+        "runLoadIncrementalHFiles": "false",
+        "hbase.zookeeper.quorum": "ec2-13-125-222-89.ap-northeast-2.compute.amazonaws.com:2181",
+        "cache.max.size": "10000",
+        "cache.ttl.seconds": "6000",
+        "db.default.driver": "com.mysql.jdbc.Driver",
+        "db.default.url": "jdbc:mysql://s2graph-meta-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com/graph_production",
+        "db.default.user": "graph",
+        "db.default.password": "90f5b058-0151-4dcc-b0cb-c8346ebba924"
+      },
+      "type": "s2graph"
+    }
+  ]
+}

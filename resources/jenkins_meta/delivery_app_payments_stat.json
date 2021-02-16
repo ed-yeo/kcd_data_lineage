@@ -1,0 +1,83 @@
+{
+  "name": "delivery_app_payments_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "delivery_app_payments_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/delivery_app/delivery_app_payments"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "delivery_app_payments",
+      "inputs": [
+        "delivery_app_payments_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    delivery_app_payments_src\nWHERE   created_at_date >= ''\nAND     created_at_date < ''"
+      }
+    },
+    {
+      "inputs": [
+        "delivery_app_payments_src"
+      ],
+      "name": "daily_order_payments_stat",
+      "options": {
+        "sql": "SELECT    business_id,\n          date_trunc('day', deposited_at) AS time,\n          'day' AS time_unit,\n          SUM(received_amount) AS received_amount,\n          SUM(IF (app_name = 'baemin', received_amount, 0)) AS baemin_received_amount,\n          SUM(IF (app_name = 'baedaltong', received_amount, 0)) AS baedaltong_received_amount,\n          SUM(IF (app_name = 'yogiyo', received_amount, 0)) AS yogiyo_received_amount,\n          SUM(order_amount) AS order_amount,\n          SUM(IF (app_name = 'baemin', order_amount, 0)) AS baemin_order_amount,\n          SUM(IF (app_name = 'baedaltong', order_amount, 0)) AS baedaltong_order_amount,\n          SUM(IF (app_name = 'yogiyo', order_amount, 0)) AS yogiyo_order_amount,\n          MIN(period_started_at) AS period_started_at,\n          MAX(period_ended_at) AS period_ended_at\nFROM      delivery_app_payments_src\nGROUP BY  1, 2"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "daily_order_payments_stat"
+      ],
+      "name": "weekly_order_payments_stat",
+      "options": {
+        "sql": "SELECT    business_id,\n          date_trunc('week', time) AS time,\n          'week' AS time_unit,\n          SUM(received_amount) AS received_amount,\n          SUM(baemin_received_amount) AS baemin_received_amount,\n          SUM(baedaltong_received_amount) AS baedaltong_received_amount,\n          SUM(yogiyo_received_amount) AS yogiyo_received_amount,\n          SUM(order_amount) AS order_amount,\n          SUM(baemin_order_amount) AS baemin_order_amount,\n          SUM(baedaltong_order_amount) AS baedaltong_order_amount,\n          SUM(yogiyo_order_amount) AS yogiyo_order_amount,\n          MIN(period_started_at) AS period_started_at,\n          MAX(period_ended_at) AS period_ended_at\nFROM      daily_order_payments_stat\nGROUP BY  1, 2"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "daily_order_payments_stat"
+      ],
+      "name": "monthly_order_payments_stat",
+      "options": {
+        "sql": "SELECT    business_id,\n          date_trunc('month', time) AS time,\n          'month' AS time_unit,\n          SUM(received_amount) AS received_amount,\n          SUM(baemin_received_amount) AS baemin_received_amount,\n          SUM(baedaltong_received_amount) AS baedaltong_received_amount,\n          SUM(yogiyo_received_amount) AS yogiyo_received_amount,\n          SUM(order_amount) AS order_amount,\n          SUM(baemin_order_amount) AS baemin_order_amount,\n          SUM(baedaltong_order_amount) AS baedaltong_order_amount,\n          SUM(yogiyo_order_amount) AS yogiyo_order_amount,\n          MIN(period_started_at) AS period_started_at,\n          MAX(period_ended_at) AS period_ended_at\nFROM      daily_order_payments_stat\nGROUP BY  1, 2"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "daily_order_payments_stat",
+        "weekly_order_payments_stat",
+        "monthly_order_payments_stat"
+      ],
+      "name": "delivery_app_payments_stat",
+      "options": {
+        "sql": "SELECT * FROM daily_order_payments_stat\nUNION ALL\nSELECT * FROM weekly_order_payments_stat\nUNION ALL\nSELECT * FROM monthly_order_payments_stat"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "delivery_app_payments_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/stat/snowdon/delivery_app/delivery_app_payments_stat",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

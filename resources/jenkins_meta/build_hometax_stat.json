@@ -1,0 +1,133 @@
+{
+  "name": "build_hometax_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "hometax_cash_receipts_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/hometax/hometax_cash_receipts"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_invoices_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/hometax/hometax_invoices"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_card_sales_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_card_sales"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_card_purchases_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_card_purchases"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "hometax_cash_receipts",
+      "inputs": [
+        "hometax_cash_receipts_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    hometax_cash_receipts_src\nWHERE   created_at_date >= '2021-01-21'\nAND     created_at_date < '2021-01-28'"
+      }
+    },
+    {
+      "name": "hometax_invoices",
+      "inputs": [
+        "hometax_invoices_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    hometax_invoices_src\nWHERE   created_at_date >= '2021-01-21'\nAND     created_at_date < '2021-01-28'"
+      }
+    },
+    {
+      "name": "hometax_card_sales",
+      "inputs": [
+        "hometax_card_sales_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    hometax_card_sales_src\nWHERE   created_at_date >= '2021-01-21'\nAND     created_at_date < '2021-01-28'"
+      }
+    },
+    {
+      "name": "hometax_card_purchases",
+      "inputs": [
+        "hometax_card_purchases_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    hometax_card_purchases_src\nWHERE   created_at_date >= '2021-01-21'\nAND     created_at_date < '2021-01-28'"
+      }
+    },
+    {
+      "name": "hometax_sales_stat",
+      "inputs": [
+        "hometax_cash_receipts",
+        "hometax_invoices",
+        "hometax_card_sales"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id,\n        date_trunc('month', written_at) AS time,\n        'month' AS time_unit,\n        'hometax_sales_invoices' AS type,\n        SUM(amount) AS amount\nFROM    hometax_invoices\nWHERE   is_sales = true\nGROUP BY 1, 2\n\nUNION ALL\n\nSELECT  business_id,\n        date_trunc('month', sold_at) AS time,\n        'month' AS time_unit,\n        'hometax_sales_cash_receipts' AS type,\n        SUM(approved_amount) - SUM(canceled_amount) AS amount\nFROM    (\n    SELECT  *,\n            IF (approved, amount, 0) AS approved_amount,\n            IF (canceled, amount, 0) AS canceled_amount\n    FROM    hometax_cash_receipts\n    WHERE   is_sales = true\n)\nGROUP BY 1, 2\n\nUNION ALL\n\nSELECT  business_id,\n        month AS time,\n        'month' AS time_unit,\n        'hometax_sales_card_transactions' AS type,\n        amount\nFROM    hometax_card_sales"
+      }
+    },
+    {
+      "name": "hometax_purchases_stat",
+      "inputs": [
+        "hometax_cash_receipts",
+        "hometax_invoices",
+        "hometax_card_purchases"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id,\n        date_trunc('month', written_at) AS time,\n        'month' AS time_unit,\n        'hometax_purchases_invoices' AS type,\n        SUM(amount) AS amount\nFROM    hometax_invoices\nWHERE   is_purchases = true\nGROUP BY 1, 2\n\nUNION ALL\n\nSELECT  business_id,\n        date_trunc('month', purchased_at) AS time,\n        'month' AS time_unit,\n        'hometax_purchases_cash_receipts' AS type,\n        SUM(approved_amount) - SUM(canceled_amount) AS amount\nFROM    (\n    SELECT  *,\n            IF (receipt_type = 0, amount, 0) AS approved_amount,\n            IF (receipt_type = 1, amount, 0) AS canceled_amount\n    FROM    hometax_cash_receipts\n    WHERE   is_purchases = true\n)\nGROUP BY 1, 2\n\nUNION ALL\n\nSELECT  business_id,\n        date_trunc('month', approved_at) AS time,\n        'month' AS time_unit,\n        'hometax_purchases_card_transactions' AS type,\n        SUM(amount) AS amount\nFROM    hometax_card_purchases\nGROUP BY 1, 2"
+      }
+    },
+    {
+      "name": "hometax_stat",
+      "inputs": [
+        "hometax_sales_stat",
+        "hometax_purchases_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          time,\n          time_unit,\n          SUM(IF (type = 'hometax_sales_invoices', amount, 0)) AS hometax_sales_invoices_amount,\n          SUM(IF (type = 'hometax_sales_cash_receipts', amount, 0)) AS hometax_sales_cash_receipts_amount,\n          SUM(IF (type = 'hometax_sales_card_transactions', amount, 0)) AS hometax_sales_card_transactions_amount,\n          SUM(IF (type = 'hometax_purchases_invoices', amount, 0)) AS hometax_purchases_invoices_amount,\n          SUM(IF (type = 'hometax_purchases_cash_receipts', amount, 0)) AS hometax_purchases_cash_receipts_amount,\n          SUM(IF (type = 'hometax_purchases_card_transactions', amount, 0)) AS hometax_purchases_card_transactions_amount\nFROM      (\n  SELECT  * FROM hometax_sales_stat\n  UNION ALL\n  SELECT  * FROM hometax_purchases_stat\n)\nGROUP BY  1, 2, 3"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "hometax_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/stat/snowdon/hometax/hometax_stat",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

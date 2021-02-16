@@ -1,0 +1,111 @@
+{
+  "name": "cashnote_user_meta",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "business_meta",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_cubes/dimension/name=business_meta"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "users",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=cashnote_user_id/subject=users",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "user_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "message",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=cashnote_user_id/subject=message",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "user_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "custom_set",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/custom_set/user_type=cashnote/latest"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "users",
+        "message"
+      ],
+      "name": "merged_users",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinColumns": "user_id",
+        "joinType": "full_outer"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "business_meta",
+        "merged_users"
+      ],
+      "name": "user_with_business",
+      "options": {
+        "sql": "SELECT    u.users.*,\n          u.*,\n          business_meta.*\nFROM      business_meta\nJOIN  (\n        SELECT  *, explode(users.memberships.memberships) AS membership\n        FROM  merged_users\n) u\nON    business_meta.business_id = u.membership.business_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "user_with_business"
+      ],
+      "name": "formatted",
+      "options": {
+        "sql": "SELECT    *,\n          array(\n            classification.depth_1_name,\n            CONCAT(classification.depth_1_name, '>', classification.depth_2_name),\n            CONCAT(classification.depth_1_name, '>', classification.depth_2_name, '>', classification.depth_3_name)\n          ) AS classification_names,\n          array(\n            location.sido,\n            CONCAT(location.sido, '>', location.sigungu),\n            CONCAT(location.sido, '>', location.sigungu, '>', location.dong)\n          ) AS location_names\nFROM (\n        SELECT    CONCAT(user_id, '_', business_id) AS target_id,\n                  user_id,\n                  business_id,\n                  devices.device_type,\n                  demography.age_band,\n                  classification.kcd AS classification,\n                  businesses.businesses.opened_at,\n                  businesses.businesses.business_type,\n                  businesses.businesses.business_name,\n                  businesses.businesses.public_id,\n                  businesses.acceptance_templates,\n                  businesses.owner.owner_name,\n                  businesses.owner.phone_number AS owner_phone_number,\n                  location.common AS location,\n                  location.place_classification AS place_classification,\n                  businesses.credentials.types AS credential_types,\n                  IF(businesses.subscriptions IS NOT NULL, true, false) AS is_advanced_user,\n                  IF(businesses.subscriptions IS NOT NULL AND businesses.subscriptions.paid = true, true, false) AS is_paid_user,\n                  businesses.paynote.is_paynote_business,\n                  membership.role,\n                  membership.notifications,\n                  phones.blocked,\n                  phones.number AS phone_number,\n                  hometax.business_label.regular_employees_count,\n                  hometax.business_label.size_category,\n                  hometax.employee.employ_avg,\n                  bank.bank_accounts.bank_names,\n                  bank.bank_transactions.contents AS bank_contents,\n                  message.click.campaign_ids AS message_click_campaign_ids,\n                  message.click.ad_group_ids AS message_click_ad_group_ids,\n                  message.send.campaign_ids AS message_send_campaign_ids,\n                  message.send.ad_group_ids AS message_send_ad_group_ids\n        FROM      user_with_business\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "formatted",
+        "custom_set"
+      ],
+      "name": "formatted_with_custom_set",
+      "options": {
+        "sql": "SELECT\n          formatted.*,\n          custom_set.custom_set_ids\nFROM      formatted\nLEFT OUTER JOIN   custom_set\nON    formatted.target_id = custom_set.target_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "formatted_with_custom_set"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_cubes/dimension/name=cashnote_user_meta"
+      },
+      "type": "file"
+    }
+  ]
+}

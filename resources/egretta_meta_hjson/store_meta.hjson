@@ -1,0 +1,68 @@
+{
+  name: store_meta
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: business_meta
+      options:
+      {
+        format: parquet
+        paths: ${DATACUBE_DIR}/dimension/name=business_meta
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+        inputs:
+        [
+            business_meta
+        ]
+        name: store_info
+        options:
+        {
+            sql:
+            '''
+            SELECT
+                    business_id,
+                    businesses.businesses.name,
+                    location.kcd.location,
+                    location.kcd AS address,
+                    classification.kcd AS place_classification,
+                    market_area.store_tag_status.tag_status,
+                    market_area.store_tag_trend.tag_trend,
+                    market_area.store_cohort_trend.cohorts,
+                    market_area.visit_user_status.visit_user_sales_amount_status,
+                    market_area.visit_user_status.visit_user_user_count_status,
+                    market_area.visit_user_status.visit_user_unit_price_status,
+                    market_area.visit_user_trend.visit_user_sales_amount_trend,
+                    market_area.visit_user_trend.visit_user_user_count_trend,
+                    market_area.visit_user_trend.visit_user_unit_price_trend
+            FROM    merge
+            '''
+        }
+        type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        store_info
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DATACUBE_DIR}/dimension/name=market_area_meta
+      }
+      type: file
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "name": "message",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "click_log",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/logs/click_log"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "send_log",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/logs/send_log"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "click_log"
+      ],
+      "name": "click_users",
+      "options": {
+        "sql": "SELECT user_id, collect_set(campaign_id) AS campaign_ids, collect_set(ad_group_id) AS ad_group_ids\nFROM click_log\nWHERE created_at_date >= '2020-10-30'\nAND user_type = 'cashnote'\nAND status = true\nGROUP BY user_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "send_log"
+      ],
+      "name": "send_users",
+      "options": {
+        "sql": "SELECT user_id, collect_set(campaign_id) AS campaign_ids, collect_set(ad_group_id) AS ad_group_ids\nFROM send_log\nWHERE created_at_date >= '2020-10-30'\nAND user_type = 'cashnote'\nAND status = true\nGROUP BY user_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "click_users"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=cashnote_user_id/subject=message/name=click"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "send_users"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=cashnote_user_id/subject=message/name=send"
+      },
+      "type": "file"
+    }
+  ]
+}

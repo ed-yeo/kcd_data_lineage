@@ -1,0 +1,61 @@
+{
+  "name": "build_cohort",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "visit_pairs",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/market_area/analysis/visit_pairs"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "revisit_users",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/market_area/analysis/visit_user_type/user_type=revisit"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "visit_pairs",
+        "revisit_users"
+      ],
+      "name": "visit_pairs_with_user_type",
+      "options": {
+        "sql": "SELECT\n        visit_pairs.*,\n        IF(revisit_users.business_id IS NULL, 'new', 'revisit') AS user_type\nFROM visit_pairs\nLEFT OUTER JOIN revisit_users\nON visit_pairs.business_id = revisit_users.business_id\nAND visit_pairs.encrypted_card_number =  revisit_users.encrypted_card_number\nAND visit_pairs.start_date = revisit_users.date"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "visit_pairs_with_user_type"
+      ],
+      "name": "cohort",
+      "options": {
+        "sql": "SELECT    business_id,\n          user_type,\n          start_date,\n          end_date,\n          count(distinct encrypted_card_number) as user_count\nFROM      visit_pairs_with_user_type\nGROUP BY  business_id, user_type, start_date, end_date"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "cohort"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/market_area/analysis/cohort"
+      },
+      "type": "file"
+    }
+  ]
+}

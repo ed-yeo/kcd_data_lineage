@@ -1,0 +1,303 @@
+{
+  name: semas_daily_sales_stat
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: targets
+      options:
+      {
+        format: parquet
+        paths: "s3://thrush/test/shon/corona/targets_20200331"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: semas_businesses
+      options:
+      {
+        format: parquet
+        paths: "s3://thrush/dev/data/adhoc/DR-49/matched_targets"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: semas_classification_mapping
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\"}"
+        paths: "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/semas_kcd_mapping.csv"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: transactions_stat_with_meta
+      options:
+      {
+        format: parquet
+        paths: "${TRANSACTIONS_STAT_WITH_META_PATH}"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        transactions_stat_with_meta
+      ]
+      name: target_date_standard_period_transactions
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  MAX(place) AS meta,
+                  SUM(IF (weekofyear(time) = weekofyear('${target_date}') and year(time) = 2019, card_sales_amount, 0)) AS standard_amount,
+                  SUM(IF (time = '${target_date}', card_sales_amount, 0)) AS target_amount
+          FROM    transactions_stat_with_meta
+          WHERE   time_unit = 'day'
+          GROUP BY 1
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        targets
+        target_date_standard_period_transactions
+        semas_classification_mapping
+      ]
+      name: target_businesses_daily_ratio
+      options:
+      {
+        sql:
+          '''
+          SELECT  st.business_id,
+                  meta.lot_address_1_depth AS sido,
+                  meta.kcd_classification_1_depth AS depth_1_name,
+                  meta.kcd_classification_2_depth AS depth_2_name,
+                  s.semas_classification,
+                  concat_ws(
+                      ' ~ ',
+                      date_add('2019-01-01', (weekofyear('${target_date}') - 1) * 7 - 1),
+                      date_add('2019-01-01', (weekofyear('${target_date}') - 1) * 7 + 5)
+                  ) as standard_period,
+                  '${target_date}' as target_date,
+                  standard_amount,
+                  target_amount
+          FROM    target_date_standard_period_transactions st, targets t, semas_classification_mapping s
+          WHERE   st.business_id = t.business_id
+          AND     t.transacted_at_month_count = 13
+          AND     meta.lot_address_1_depth NOT IN ('none', 'NULL', '')
+          AND     meta.kcd_classification_1_depth = s.kcd_classification_depth_1
+          AND     meta.kcd_classification_2_depth = s.kcd_classification_depth_2
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        semas_businesses
+        target_date_standard_period_transactions
+      ]
+      name: semas_businesses_daily_ratio
+      options:
+      {
+        sql:
+          '''
+          SELECT  b.*,
+                  concat_ws(
+                      ' ~ ',
+                      date_add('2019-01-01', (weekofyear('${target_date}') - 1) * 7 - 1),
+                      date_add('2019-01-01', (weekofyear('${target_date}') - 1) * 7 + 5)
+                  ) as standard_period,
+                  '${target_date}' as target_date,
+                  standard_amount,
+                  target_amount
+          FROM target_date_standard_period_transactions a
+          JOIN (
+               SELECT DISTINCT business_id,
+                               sido
+               FROM semas_businesses
+          ) b ON a.business_id = b.business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        target_businesses_daily_ratio
+      ]
+      name: target_businesses_daily_stat
+      options:
+      {
+        sql:
+          '''
+          SELECT *
+          FROM
+          (
+              SELECT  '통합' as type,
+                      '전체' as condition,
+                      standard_period,
+                      target_date,
+                      sum(target_amount) as target_amount_sum,
+                      sum(standard_amount) as standard_amount_sum,
+                      sum(target_amount) / (sum(standard_amount) / 7) as rate,
+                      count(distinct target_businesses_daily_ratio.business_id) as business_count
+              FROM    target_businesses_daily_ratio
+              GROUP BY 1, 2, 3, 4
+
+              UNION ALL
+
+              SELECT  '지역' as type,
+                      sido as condition,
+                      standard_period,
+                      target_date,
+                      sum(target_amount) as target_amount_sum,
+                      sum(standard_amount) as standard_amount_sum,
+                      sum(target_amount) / (sum(standard_amount) / 7) as rate,
+                      count(distinct target_businesses_daily_ratio.business_id) as business_count
+              FROM    target_businesses_daily_ratio
+              WHERE   sido is not null
+              GROUP BY 1, 2, 3, 4
+
+              UNION ALL
+
+              SELECT  '업종' as type,
+                      semas_classification as condition,
+                      standard_period,
+                      target_date,
+                      sum(target_amount) as target_amount_sum,
+                      sum(standard_amount) as standard_amount_sum,
+                      sum(target_amount) / (sum(standard_amount) / 7) as rate,
+                      count(distinct target_businesses_daily_ratio.business_id) as business_count
+              FROM    target_businesses_daily_ratio
+              WHERE   depth_1_name is not null
+              AND     depth_1_name not in ('부동산', '금융,보험', '사회,공공기관', '언론,미디어')
+              GROUP BY 1, 2, 3, 4
+
+              UNION ALL
+
+              SELECT  '지역 X 업종' as type,
+                      concat_ws('>', sido, semas_classification) as condition,
+                      standard_period,
+                      target_date,
+                      sum(target_amount) as target_amount_sum,
+                      sum(standard_amount) as standard_amount_sum,
+                      sum(target_amount) / (sum(standard_amount) / 7) as rate,
+                      count(distinct target_businesses_daily_ratio.business_id) as business_count
+              FROM    target_businesses_daily_ratio
+              WHERE   sido is not null and depth_1_name is not null
+              AND     depth_1_name not in ('부동산', '금융,보험', '사회,공공기관', '언론,미디어')
+              GROUP BY 1, 2, 3, 4
+
+              UNION ALL
+
+              SELECT  '업종상세' as type,
+                      concat_ws('>', depth_1_name, depth_2_name) as condition,
+                      standard_period,
+                      target_date,
+                      sum(target_amount) as target_amount_sum,
+                      sum(standard_amount) as standard_amount_sum,
+                      sum(target_amount) / (sum(standard_amount) / 7) as rate,
+                      count(distinct target_businesses_daily_ratio.business_id) as business_count
+              FROM    target_businesses_daily_ratio
+              WHERE   depth_1_name is not null and depth_2_name is not null
+              AND     depth_1_name not in ('부동산', '금융,보험', '사회,공공기관', '언론,미디어')
+              GROUP BY 1, 2, 3, 4
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        semas_businesses_daily_ratio
+      ]
+      name: semas_businesses_daily_stat
+      options:
+      {
+        sql:
+          '''
+          SELECT *
+          FROM
+          (
+              SELECT  '통합' as type,
+                      '전체' as condition,
+                      standard_period,
+                      target_date,
+                      sum(target_amount) as target_amount_sum,
+                      sum(standard_amount) as standard_amount_sum,
+                      sum(target_amount) / (sum(standard_amount) / 7) as rate,
+                      count(distinct semas_businesses_daily_ratio.business_id) as business_count
+              FROM    semas_businesses_daily_ratio
+              GROUP BY 1, 2, 3, 4
+
+              UNION ALL
+
+              SELECT  '지역' as type,
+                      coalesce(sido, '주소정보없음') as condition,
+                      standard_period,
+                      target_date,
+                      sum(target_amount) as target_amount_sum,
+                      sum(standard_amount) as standard_amount_sum,
+                      sum(target_amount) / (sum(standard_amount) / 7) as rate,
+                      count(distinct semas_businesses_daily_ratio.business_id) as business_count
+              FROM    semas_businesses_daily_ratio
+              GROUP BY 1, 2, 3, 4
+          )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        target_businesses_daily_stat
+      ]
+      name: file_sink
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sinks.CSVSink
+        format: csv
+        mode: overwrite
+        path: "${OUTPUT_PATH}/${target_date}/targets"
+        header: "true"
+        numPartitions: "1"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        semas_businesses_daily_stat
+      ]
+      name: file_sink
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sinks.CSVSink
+        format: csv
+        mode: overwrite
+        path: "${OUTPUT_PATH}/${target_date}/semas_businesses"
+        header: "true"
+        numPartitions: "1"
+      }
+      type: custom
+    }
+  ]
+}

@@ -1,0 +1,353 @@
+{
+  name: build_corona_weekly_stats_ratio_adhoc
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: weekly_txns_src
+      options:
+      {
+        format: parquet
+        paths: "${OUTPUT_PATH}/${CURRENT_WEEK_NUMBER}/weekly_txns"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: kcd_places_with_gyeongnam_classifications
+      options:
+      {
+        format: csv
+        paths: s3://kcd-de-staging/work/ryan/misc/kcd_places_with_gyeongnam_classifications.csv
+        columns: kcd_classification_2_depth,shinhan_classification_2_depth,gyeongnam_classification
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        weekly_txns_src
+      ]
+      name: weekly_txns
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      weekly_txns_src
+          WHERE     week_of_year >= weekofyear(current_date()) - 3
+          AND       year(transacted_at_week) in (2019, 2020)
+          AND       lot_address_1_depth NOT IN ('none', 'NULL', '')
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        weekly_txns
+        kcd_places_with_gyeongnam_classifications
+      ]
+      name: gyeongnam_weekly_txns
+      options:
+      {
+        sql:
+          '''
+          SELECT    t.*,
+                    c.shinhan_classification_2_depth,
+                    c.gyeongnam_classification
+          FROM      weekly_txns t, kcd_places_with_gyeongnam_classifications c
+          WHERE     t.kcd_classification_2_depth = c.kcd_classification_2_depth
+          AND       t.lot_address_1_depth = '경상남도'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        gyeongnam_weekly_txns
+      ]
+      name: gyeongnam_shinhan_classification_ratio
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  CAST(a.2020_year_amount AS double) / CAST(a.2019_year_amount AS double) AS ratio
+          FROM (
+                SELECT  weekofyear(transacted_at_week) AS time,
+                        lot_address_2_depth,
+                        coalesce(shinhan_classification_2_depth, '업종정보없음') as shinhan_classification_2_depth,
+                        sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                        sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                        count(distinct business_id) as business_id_count
+                FROM    gyeongnam_weekly_txns
+                GROUP BY 1, 2, 3
+
+                UNION ALL
+
+                SELECT  weekofyear(transacted_at_week) AS time,
+                        lot_address_2_depth,
+                        '업종(전체)' as shinhan_classification_2_depth,
+                        sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                        sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                        count(distinct business_id) as business_id_count
+                FROM    gyeongnam_weekly_txns
+                GROUP BY 1, 2, 3
+
+                UNION ALL
+
+                SELECT  weekofyear(transacted_at_week) AS time,
+                        '경상남도(전체)' as lot_address_2_depth,
+                        coalesce(shinhan_classification_2_depth, '업종정보없음') as shinhan_classification_2_depth,
+                        sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                        sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                        count(distinct business_id) as business_id_count
+                FROM    gyeongnam_weekly_txns
+                GROUP BY 1, 2, 3
+
+                UNION ALL
+
+                SELECT  weekofyear(transacted_at_week) AS time,
+                        '경상남도(전체)' as lot_address_2_depth,
+                        '업종(전체)' as shinhan_classification_2_depth,
+                        sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                        sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                        count(distinct business_id) as business_id_count
+                FROM    gyeongnam_weekly_txns
+                GROUP BY 1, 2, 3
+
+          ) a
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        gyeongnam_shinhan_classification_ratio
+      ]
+      name: gyeongnam_shinhan_classification_ratio_pivot
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.processes.Pivot
+        group_by: "lot_address_2_depth,shinhan_classification_2_depth"
+        pivot: "time"
+        agg: "first(ratio) as ratio,first(business_id_count) as business_id_count"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        gyeongnam_weekly_txns
+      ]
+      name: gyeongnam_classification_ratio
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  CAST(a.2020_year_amount AS double) / CAST(a.2019_year_amount AS double) AS ratio
+          FROM (
+                SELECT  weekofyear(transacted_at_week) AS time,
+                        lot_address_2_depth,
+                        coalesce(gyeongnam_classification, '업종정보없음') as gyeongnam_classification,
+                        sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                        sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                        count(distinct business_id) as business_id_count
+                FROM    gyeongnam_weekly_txns
+                GROUP BY 1, 2, 3
+
+                UNION ALL
+
+                SELECT  weekofyear(transacted_at_week) AS time,
+                        lot_address_2_depth,
+                        '업종(전체)' as gyeongnam_classification,
+                        sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                        sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                        count(distinct business_id) as business_id_count
+                FROM    gyeongnam_weekly_txns
+                GROUP BY 1, 2, 3
+
+                UNION ALL
+
+                SELECT  weekofyear(transacted_at_week) AS time,
+                        '경상남도(전체)' as lot_address_2_depth,
+                        coalesce(gyeongnam_classification, '업종정보없음') as gyeongnam_classification,
+                        sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                        sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                        count(distinct business_id) as business_id_count
+                FROM    gyeongnam_weekly_txns
+                GROUP BY 1, 2, 3
+
+                UNION ALL
+
+                SELECT  weekofyear(transacted_at_week) AS time,
+                        '경상남도(전체)' as lot_address_2_depth,
+                        '업종(전체)' as gyeongnam_classification,
+                        sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                        sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                        count(distinct business_id) as business_id_count
+                FROM    gyeongnam_weekly_txns
+                GROUP BY 1, 2, 3
+          ) a
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        gyeongnam_classification_ratio
+      ]
+      name: gyeongnam_classification_ratio_pivot
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.processes.Pivot
+        group_by: "lot_address_2_depth,gyeongnam_classification"
+        pivot: "time"
+        agg: "first(ratio) as ratio,first(business_id_count) as business_id_count"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        gyeongnam_weekly_txns
+      ]
+      name: gyeongnam_kcd_classification_ratio
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  CAST(a.2020_year_amount AS double) / CAST(a.2019_year_amount AS double) AS ratio
+          FROM (
+                SELECT  weekofyear(transacted_at_week) AS time,
+                        lot_address_2_depth,
+                        coalesce(kcd_classification_1_depth, '대분류_업종정보없음') as kcd_classification_1_depth,
+                        coalesce(kcd_classification_2_depth, '중분류_업종정보없음') as kcd_classification_2_depth,
+                        sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                        sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                        count(distinct business_id) as business_id_count
+                FROM    gyeongnam_weekly_txns
+                GROUP BY 1, 2, 3, 4
+
+                UNION ALL
+
+                SELECT  weekofyear(transacted_at_week) AS time,
+                        lot_address_2_depth,
+                        '대분류_업종(전체)' as kcd_classification_1_depth,
+                        '중분류_업종(전체)' as kcd_classification_2_depth,
+                        sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                        sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                        count(distinct business_id) as business_id_count
+                FROM    gyeongnam_weekly_txns
+                GROUP BY 1, 2, 3, 4
+
+                UNION ALL
+
+                SELECT  weekofyear(transacted_at_week) AS time,
+                        '경상남도(전체)' as lot_address_2_depth,
+                        coalesce(kcd_classification_1_depth, '대분류_업종정보없음') as kcd_classification_1_depth,
+                        coalesce(kcd_classification_2_depth, '중분류_업종정보없음') as kcd_classification_2_depth,
+                        sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                        sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                        count(distinct business_id) as business_id_count
+                FROM    gyeongnam_weekly_txns
+                GROUP BY 1, 2, 3, 4
+
+                UNION ALL
+
+                SELECT  weekofyear(transacted_at_week) AS time,
+                        '경상남도(전체)' as lot_address_2_depth,
+                        '대분류_업종(전체)' as kcd_classification_1_depth,
+                        '중분류_업종(전체)' as kcd_classification_2_depth,
+                        sum(IF (year(transacted_at_week) = 2020, amount_sum, 0)) as 2020_year_amount,
+                        sum(IF (year(transacted_at_week) = 2019, amount_sum, 0)) as 2019_year_amount,
+                        count(distinct business_id) as business_id_count
+                FROM    gyeongnam_weekly_txns
+                GROUP BY 1, 2, 3, 4
+          ) a
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        gyeongnam_kcd_classification_ratio
+      ]
+      name: gyeongnam_kcd_classification_ratio_pivot
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.processes.Pivot
+        group_by: "lot_address_2_depth,kcd_classification_1_depth,kcd_classification_2_depth"
+        pivot: "time"
+        agg: "first(ratio) as ratio,first(business_id_count) as business_id_count"
+      }
+      type: custom
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        gyeongnam_shinhan_classification_ratio_pivot
+      ]
+      name: file_sink
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sinks.CSVSink
+        format: csv
+        mode: overwrite
+        path: "${OUTPUT_PATH}/${CURRENT_WEEK_NUMBER}/gyeongnam/shinhan_classification_ratio"
+        header: "true"
+        numPartitions: "1"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        gyeongnam_classification_ratio_pivot
+      ]
+      name: file_sink
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sinks.CSVSink
+        format: csv
+        mode: overwrite
+        path: "${OUTPUT_PATH}/${CURRENT_WEEK_NUMBER}/gyeongnam/gyeongnam_classification_ratio"
+        header: "true"
+        numPartitions: "1"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        gyeongnam_kcd_classification_ratio_pivot
+      ]
+      name: file_sink
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sinks.CSVSink
+        format: csv
+        mode: overwrite
+        path: "${OUTPUT_PATH}/${CURRENT_WEEK_NUMBER}/gyeongnam/kcd_classification_ratio"
+        header: "true"
+        numPartitions: "1"
+      }
+      type: custom
+    }
+  ]
+}

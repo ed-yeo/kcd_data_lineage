@@ -1,0 +1,156 @@
+{
+  // PARAMS: TEMP_PATH, TARGET_PATH
+  name: address_geo_location
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: address_geo_json
+      options:
+      {
+        format: json
+        paths: ${ADDRESS_GEO_JSON}
+      }
+      type: file
+    }
+    {
+        inputs: []
+        name: business_meta
+        options:
+        {
+          format: parquet
+          paths: ${BUSINESS_META}
+        }
+        type: file
+     }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        business_meta
+      ]
+      name: business_address
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    business_id,
+                    name,
+                    ST_PointFromText(
+                        CONCAT(location_arr[1],',',location_arr[0]),
+                        ','
+                     ) AS geo_point,
+                    address.*
+          FROM (
+              SELECT
+                        business_id,
+                        name,
+                        split(location, ",") AS location_arr,
+                        address
+              FROM      business_meta
+              WHERE     location is not null
+          )
+          WHERE size(location_arr) = 2
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        address_geo_json
+      ]
+      name: address_polygon
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                *,
+                case
+                     when split(adm_nm, ' ')[0] = '서울' then '서울특별시'
+                     when split(adm_nm, ' ')[0] = '세종특별자치' then '세종특별자치시'
+                     when split(adm_nm, ' ')[0] = '강원' then '강원도'
+                     when split(adm_nm, ' ')[0] = '경기' then '경기도'
+                     when split(adm_nm, ' ')[0] = '경남' then '경상남도'
+                     when split(adm_nm, ' ')[0] = '경북' then '경상북도'
+                     when split(adm_nm, ' ')[0] = '광주' then '광주광역시'
+                     when split(adm_nm, ' ')[0] = '대구' then '대구광역시'
+                     when split(adm_nm, ' ')[0] = '대전' then '대전광역시'
+                     when split(adm_nm, ' ')[0] = '부산' then '부산광역시'
+                     when split(adm_nm, ' ')[0] = '세종' then '세종특별자치시'
+                     when split(adm_nm, ' ')[0] = '울산' then '울산광역시'
+                     when split(adm_nm, ' ')[0] = '인천' then '인천광역시'
+                     when split(adm_nm, ' ')[0] = '전남' then '전라남도'
+                     when split(adm_nm, ' ')[0] = '전북' then '전라북도'
+                     when split(adm_nm, ' ')[0] = '제주' then '제주특별자치도'
+                     when split(adm_nm, ' ')[0] = '충남' then '충청남도'
+                     when split(adm_nm, ' ')[0] = '충북' then '충청북도'
+                     else split(adm_nm, ' ')[0]
+                 end as address_1_depth,
+                 split(adm_nm, ' ')[1] AS address_2_depth,
+                 split(adm_nm, ' ')[2] AS address_3_depth
+
+          FROM (
+              SELECT
+                        properties.adm_cd,
+                        properties.adm_cd2,
+                        properties.adm_nm,
+                      ST_GeomFromGeoJSON(to_json(geometry)) AS polygon
+              FROM address_geo_json
+              WHERE type is not null
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        business_address
+        address_polygon
+      ]
+      name: business_joined
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                 business_address.*,
+                 adm_nm,
+                 adm_cd,
+                 adm_cd2,
+                 IF(polygon IS NOT NULL,ST_Contains(polygon, geo_point), false) AS is_valid_geo_point
+          FROM   business_address
+          LEFT OUTER JOIN address_polygon
+          ON  business_address.address_1_depth = address_polygon.address_1_depth
+          AND business_address.address_2_depth = address_polygon.address_2_depth
+          AND business_address.address_3_depth = address_polygon.address_3_depth
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        business_joined
+      ]
+      name: hometax_business_label_file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/geo_location
+      }
+      type: file
+    }
+  ]
+}

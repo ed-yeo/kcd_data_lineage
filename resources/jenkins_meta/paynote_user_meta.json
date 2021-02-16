@@ -1,0 +1,65 @@
+{
+  "name": "paynote_user_meta",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "users",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=paynote_user_id/subject=users",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "user_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "custom_set",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/custom_set/user_type=paynote/latest"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "users"
+      ],
+      "name": "formatted",
+      "options": {
+        "sql": "SELECT    user_id,\n          devices.device_type,\n          users.age_band,\n          users.gender,\n          users.plus_friends,\n          card_agreements.issuers AS agreement_issuers,\n          card_agreements.options AS agreement_options,\n          acceptance_templates\nFROM      users"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "formatted",
+        "custom_set"
+      ],
+      "name": "formatted_with_custom_set",
+      "options": {
+        "sql": "SELECT\n          formatted.*,\n          custom_set.custom_set_ids\nFROM      formatted\nLEFT OUTER JOIN   custom_set\nON    formatted.user_id = custom_set.user_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "formatted_with_custom_set"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_cubes/dimension/name=paynote_user_meta"
+      },
+      "type": "file"
+    }
+  ]
+}

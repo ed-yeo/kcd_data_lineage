@@ -1,0 +1,129 @@
+{
+  name: test_transform_message
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: target_group
+      options:
+      {
+        format: parquet
+        paths: ${CORRECT_SET_PATH}/target_group
+      }
+      type: file
+    }
+    {
+        inputs: []
+        name: message_data
+        options:
+        {
+          class: com.kcd.thrush.dmp.spark.MergeSchemaSource
+          format: json
+          basePath: '${REPORT_DIR}/date_id=${TARGET_DATE}'
+          partitionName: report_name
+          joinType: full_outer
+          joinColumns: business_id
+        }
+        type: custom
+     }
+    {
+      inputs: []
+      name: correct_message
+      options:
+      {
+        format: parquet
+        paths: ${CORRECT_SET_PATH}/target_messages
+      }
+      type: file
+      cache: true
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        target_group
+        message_data
+      ]
+      name: target_messages
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.TargetExtractProcess
+        targetGroupName: target_group
+        businessMetaName: message_data
+        uniqueIdColumn: business_id
+      }
+      type: custom
+      cache: true
+    }
+    {
+      inputs:
+      [
+        target_messages
+        correct_message
+      ]
+      name: compare_result
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  (correct_cnt / total_cnt) * 100 AS accuracy,
+                  (total_cnt - correct_cnt) AS wrong_cnt,
+                  correct_cnt,
+                  total_cnt
+          FROM (
+              SELECT
+                      (
+                          SELECT    count(1)
+                          FROM      correct_message
+                          JOIN      target_messages
+                          ON        correct_message.business_id = target_messages.business_id
+                          AND       correct_message.targetGroup.meta.ad_group_id = target_messages.targetGroup.meta.ad_group_id
+                          WHERE     correct_message.targetGroup.result = target_messages.targetGroup.result
+                          AND       correct_message.targetGroup.status = target_messages.targetGroup.status
+                      ) AS correct_cnt,
+                      (
+                          SELECT count(1) FROM correct_message
+                      ) AS total_cnt
+          )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        target_messages
+      ]
+      name: target_messages_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_DIR}/type=target_messages/num=${TEST_NUM}
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        compare_result
+      ]
+      name: compare_result_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_DIR}/type=result/num=${TEST_NUM}
+      }
+      type: file
+    }
+  ]
+}

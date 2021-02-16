@@ -1,0 +1,45 @@
+{
+  "name": "crefia_business_meta",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "business_meta",
+      "options": {
+        "paths": "s3://kcd-de-production/data_cubes/dimension/name=business_meta",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "crefia_business_meta",
+      "inputs": [
+        "business_meta"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          businesses.businesses.registration_number,\n          businesses.businesses.business_name,\n          businesses.businesses.card_merchant_signed_up_at,\n          businesses.businesses.opened_at,\n          businesses.businesses.closed_at,\n          businesses.businesses.taxation_type,\n          businesses.businesses.crefia_size_code,\n          businesses.businesses.crefia_owner_birthday as owner_birthday,\n          classification.kcd.depth_1_name as kcd_classification_depth_1_name,\n          classification.kcd.depth_2_name as kcd_classification_depth_2_name,\n          classification.kcd.depth_3_name as kcd_classification_depth_3_name,\n          location.common.full_address as address\nFROM      business_meta\nWHERE     array_contains(businesses.credentials.types, 'Crefia')\nOR        array_contains(businesses.credentials.types, 'CrefiaBusiness')"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "crefia_business_meta"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "format": "csv",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/ryan/DR/DR-71/210115/2020/results/crefia_business_meta",
+        "header": "true",
+        "numPartitions": "1",
+        "sep": "|"
+      },
+      "type": "custom"
+    }
+  ]
+}

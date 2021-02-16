@@ -1,0 +1,248 @@
+{
+  name: paynote_users
+  udfs: [
+    {
+      name: filterJsonTrue
+      class: com.kcd.thrush.dmp.spark.udfs.JsonFilter
+      params: {}
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: users_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/snapshot/latest/users
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: card_agreements_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/snapshot/latest/card_agreements
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: devices_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/goose/snapshot/latest/devices
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: answers
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/bluebird/snapshot/latest/acceptanced_business_template_answers
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: templates
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/bluebird/snapshot/latest/acceptanced_business_templates
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        users_src
+      ]
+      name: users
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    CASE
+                        WHEN age < 20 THEN "20_under"
+                        WHEN age >= 20 AND age < 30 THEN "20s"
+                        WHEN age >= 30 AND age < 40 THEN "30s"
+                        WHEN age >= 40 AND age < 50 THEN "40s"
+                        WHEN age >= 50 AND age < 60 THEN "50s"
+                        WHEN age >= 60 THEN "60_over"
+                        ELSE "none"
+                    END AS age_band
+          FROM (
+              SELECT
+                      *,
+                      year(birth_date) AS birth_year,
+                      month(birth_date) AS birth_month,
+                      date_format(birth_date, 'MM-dd') AS birthday,
+                      (year(current_date()) - year(birth_date) + 1) AS age
+              FROM (
+                      SELECT
+                              id AS user_id,
+                              nickname,
+                              gender,
+                              provider,
+                              to_date(birthday, 'yyyyMMdd') AS birth_date,
+                              plus_friends,
+                              created_at AS user_created_at
+                      FROM    users_src
+              )
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        card_agreements_src
+      ]
+      name: card_agreements
+      options:
+      {
+        sql:
+          '''
+            SELECT  user_id,
+                    collect_set(issuer) AS issuers,
+                    collect_set(CONCAT(issuer, '_', option_type)) AS options
+            FROM (
+                    SELECT  *, explode(option_arr) AS option_type
+                    FROM (
+                            SELECT  *,
+                                    IF(options = '\"{}\"', array('none'), filterJsonTrue(options)) AS option_arr
+                            FROM    card_agreements_src
+                    )
+                    WHERE  agreed = true
+            )
+            GROUP BY user_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        devices_src
+      ]
+      name: devices
+      options:
+      {
+        sql:
+          '''
+          SELECT    user_id, device_type
+          FROM      devices_src
+          WHERE     user_id is not null
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        answers
+        templates
+      ]
+      name: acceptance_templates
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  user_id,
+                  collect_set(complete_poll) AS complete_polls,
+                  collect_set(enter_poll) AS enter_polls,
+                  collect_set(complete_application) AS complete_applications
+          FROM (
+              SELECT
+                      paynote_user_id AS user_id,
+                      IF (template_type = 'poll' AND answer IS NOT NULL AND answer != '[]', t.id, null) AS complete_poll,
+                      IF (template_type = 'poll', t.id, null) AS enter_poll,
+                      IF (template_type = 'application', t.id, null) AS complete_application
+              FROM (
+                  SELECT IF(step_layout = true, 'poll', 'application') AS template_type,
+                          user_type, id, title
+                  FROM templates
+                  WHERE user_type = 'paynote'
+              ) AS t
+              JOIN answers
+              ON t.id = answers.acceptanced_business_template_id
+          )
+          GROUP BY user_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        users
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=users
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        card_agreements
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=card_agreements
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        devices
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=devices
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        acceptance_templates
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=acceptance_templates
+      }
+      type: file
+    }
+  ]
+}

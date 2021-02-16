@@ -1,0 +1,84 @@
+{
+  "name": "merchant_places",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "places",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/snapshot/latest/places"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "place_merchants",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/snapshot/latest/place_merchants"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "places",
+        "place_merchants"
+      ],
+      "name": "merchant_places",
+      "options": {
+        "sql": "SELECT    *\nFROM (\n          SELECT\n                  issuer AS card_issuer, merchant_number,\n                  places.*,\n                  row_number() OVER (PARTITION BY place_merchants.registration_number, issuer, merchant_number, type ORDER BY places.updated_at DESC ) AS rank\n          FROM      place_merchants\n          JOIN      places\n          ON        place_merchants.place_id = places.id\n          AND       place_merchants.registration_number = places.registration_number\n)\nWHERE rank = 1"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "merchant_places"
+      ],
+      "name": "kakao_places",
+      "options": {
+        "sql": "SELECT    *\nFROM      merchant_places\nWHERE     type = 'Places::Kakao'\n"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "merchant_places"
+      ],
+      "name": "naver_places",
+      "options": {
+        "sql": "SELECT    *\nFROM      merchant_places\nWHERE     type = 'Places::Naver'"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "kakao_places"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=places/name=kakao"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "naver_places"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=merchant_number/subject=places/name=naver"
+      },
+      "type": "file"
+    }
+  ]
+}

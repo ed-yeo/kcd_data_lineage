@@ -1,0 +1,1002 @@
+{
+  name: build_raw_tables
+  udfs: [
+    {
+      name: estimate_paid_at
+      class: com.kcd.thrush.cardsales.spark.udfs.EstimatePaidAt
+      params: {
+        business_days_path: 's3://kcd-de-production/raw/db/snowdon/snapshot/latest/business_days'
+      }
+    }
+    {
+      name: mask_card_number
+      class: com.kcd.thrush.udfs.MarkCardNumberUDF
+      params: {}
+    }
+    {
+      name: purchase_delayed
+      class: com.kcd.thrush.cardsales.spark.udfs.PurchaseDelayed
+      params: {
+        business_days_path: 's3://kcd-de-production/raw/db/snowdon/snapshot/latest/business_days'
+      }
+    }
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: businesses
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "businesses"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: card_merchants
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "card_merchants"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: credential_keys
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "credential_keys"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+      inputs: []
+      name: prev_approvals_raw
+      options:
+      {
+        paths: "${PREV_APPROVALS_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: after_approvals_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        paths: "${AFTER_APPROVALS_PATH}"
+        format: json
+        partition_keys: 'year,month,day,hour'
+        log_leaf_file: 'true'
+        mergeSchema: 'true'
+        extraColumns: 'credential_key:string,scraping_type:string'
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: catalog_approvals_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        paths: "${CATALOG_PATH}/tb=owl_api_card_sales_approvals"
+        format: json
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+        mergeSchema: 'true'
+        extraColumns: 'credential_key:string,scraping_type:string'
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: prev_purchases_raw
+      options:
+      {
+        paths: "${PREV_PURCHASES_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: after_purchases_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        paths: "${AFTER_PURCHASES_PATH}"
+        format: json
+        partition_keys: 'year,month,day,hour'
+        log_leaf_file: 'true'
+        mergeSchema: 'true'
+        extraColumns: 'credential_key:string,scraping_type:string'
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: catalog_purchases_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        paths: "${CATALOG_PATH}/tb=owl_api_card_sales_purchases"
+        format: json
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+        mergeSchema: 'true'
+        extraColumns: 'credential_key:string,scraping_type:string'
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: prev_payments_raw
+      options:
+      {
+        paths: "${PREV_PAYMENTS_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: after_payments_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        paths: "${AFTER_PAYMENTS_PATH}"
+        format: json
+        partition_keys: 'year,month,day,hour'
+        log_leaf_file: 'true'
+        mergeSchema: 'true'
+        extraColumns: 'credential_key:string,scraping_type:string'
+      }
+      type: custom
+    }
+    {
+      inputs: []
+      name: catalog_payments_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        paths: "${CATALOG_PATH}/tb=owl_api_card_sales_payments"
+        format: json
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+        mergeSchema: 'true'
+        extraColumns: 'credential_key:string,scraping_type:string'
+      }
+      type: custom
+    }
+  ]
+  process:
+  [
+    {
+      name: prev_approvals
+      inputs:
+      [
+        prev_approvals_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT   *
+           FROM     prev_approvals_raw
+           WHERE    created_at_date >= '${PREV_MIN_CREATED_AT_DATE}'
+           AND      created_at_date < '${PREV_MAX_CREATED_AT_DATE}'
+          '''
+      }
+    }
+    {
+      name: catalog_approvals_filtered
+      inputs:
+      [
+        catalog_approvals_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT   *
+           FROM     catalog_approvals_raw
+           WHERE    created_at_date >= '${CURRENT_MIN_CREATED_AT_DATE}'
+           AND      created_at_date < '${CURRENT_MAX_CREATED_AT_DATE}'
+          '''
+      }
+    }
+    {
+      name: after_approvals
+      inputs:
+      [
+        credential_keys
+        after_approvals_raw
+        catalog_approvals_filtered
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(created_at, 'yyyy-MM-dd') AS created_at_date
+          FROM      (
+             SELECT   trim(IF (affiCardNm = '', null, affiCardNm)) AS acquirer_name,
+                      CAST(authAmt AS int) AS amount,
+                      trim(IF (authNo = '', null, authNo)) AS authorization_number,
+                      CAST(a.business_id AS int) AS business_id,
+                      trim(replace(cardNo, '', '')) AS card_number,
+                      CAST(trim(cardKnd) AS int) AS card_type,
+                      COALESCE(credential_key, k.uuid) AS credential_key,
+                      trim(IF (cardRealNo = '', null, cardRealNo)) AS encrypted_card_number,
+                      IF (insTrmNm is null, 0, CAST(insTrmNm AS int)) AS installment,
+                      trim(IF (cardNm = '', null, replace(cardNm, '카드', ''))) AS issuer_name,
+                      mask_card_number(trim(replace(cardNo, '', ''))) AS masked_card_number,
+                      trim(IF (merNo = '', null, merNo)) AS merchant_number,
+                      scraping_type,
+                      IF (authClassNm = '승인', 0, 1) AS status,
+                      to_timestamp(unix_timestamp(concat_ws(' ', trnsDate, trnsTime), 'yyyyMMdd HHmmss')) AS transacted_at,
+                      to_timestamp(
+                       concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')
+                      ) AS created_at,
+                      to_timestamp(
+                       concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')
+                      ) AS updated_at
+             FROM     after_approvals_raw a LEFT OUTER JOIN credential_keys k
+             ON       a.business_id = k.business_id
+             WHERE    cardNo is not null
+          )
+
+          UNION ALL
+
+          SELECT    trim(IF (afficardnm = '', null, afficardnm)) AS acquirer_name,
+                    CAST(authamt AS int) AS amount,
+                    trim(IF (authno = '', null, authno)) AS authorization_number,
+                    CAST(a.business_id AS int) AS business_id,
+                    trim(replace(cardno, '', '')) AS card_number,
+                    CAST(trim(cardknd) AS int) AS card_type,
+                    COALESCE(credential_key, k.uuid) AS credential_key,
+                    trim(IF (cardrealno = '', null, cardrealno)) AS encrypted_card_number,
+                    IF (instrmnm is null, 0, CAST(instrmnm AS int)) AS installment,
+                    trim(IF (cardnm = '', null, replace(cardnm, '카드', ''))) AS issuer_name,
+                    mask_card_number(trim(replace(cardno, '', ''))) AS masked_card_number,
+                    trim(IF (merno = '', null, merno)) AS merchant_number,
+                    scraping_type,
+                    IF (authclassnm = '승인', 0, 1) AS status,
+                    to_timestamp(unix_timestamp(concat_ws(' ', trnsdate, trnstime), 'yyyyMMdd HHmmss')) AS transacted_at,
+                    to_timestamp(
+                     concat(created_at_date, ' ', created_at_hour, ':00:00.000')
+                    ) AS created_at,
+                    to_timestamp(
+                     concat(created_at_date, ' ', created_at_hour, ':00:00.000')
+                    ) AS updated_at,
+                    created_at_date
+           FROM     catalog_approvals_filtered a LEFT OUTER JOIN credential_keys k
+           ON       a.business_id = k.business_id
+           WHERE    cardno is not null
+          '''
+      }
+    }
+    {
+      name: reformat_approvals
+      inputs:
+      [
+        after_approvals
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      (
+           SELECT * FROM   after_approvals
+          )
+          WHERE     business_id is not null
+          AND       authorization_number is not null
+          AND       transacted_at is not null
+          '''
+      }
+    }
+    {
+      name: approvals
+      inputs:
+      [
+        reformat_approvals
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id,
+                    credential_key,
+                    transacted_at,
+                    authorization_number,
+                    amount,
+                    MIN(acquirer_name) AS acquirer_name,
+                    MIN(card_number) AS card_number,
+                    MIN(card_type) AS card_type,
+                    MIN(encrypted_card_number) AS encrypted_card_number,
+                    MIN(installment) AS installment,
+                    MIN(issuer_name) AS issuer_name,
+                    MIN(masked_card_number) AS masked_card_number,
+                    MIN(merchant_number) AS merchant_number,
+                    MIN(scraping_type) AS scraping_type,
+                    MIN(status) AS status,
+                    MIN(created_at) AS created_at,
+                    MIN(updated_at) AS updated_at,
+                    MIN(created_at_date) AS created_at_date
+          FROM      reformat_approvals
+          GROUP BY  business_id, credential_key, transacted_at, authorization_number, amount
+          '''
+      }
+    }
+    {
+      name: current_approvals
+      inputs:
+      [
+        approvals
+        prev_approvals
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    c.*
+          FROM      approvals c LEFT ANTI JOIN prev_approvals p
+          ON        (
+            p.business_id = c.business_id AND
+            p.credential_key = c.credential_key AND
+            p.transacted_at = c.transacted_at AND
+            p.authorization_number = c.authorization_number AND
+            p.amount = c.amount AND
+            p.credential_key = c.credential_key
+          )
+          '''
+      }
+    }
+    {
+      name: merged_approvals
+      inputs:
+      [
+        businesses
+        card_merchants
+        current_approvals
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    acquirer_name,
+                    amount,
+                    row_number() OVER (
+                        PARTITION BY business_id, credential_key, CAST(transacted_at AS DATE), masked_card_number, authorization_number, amount, status
+                        ORDER BY created_at DESC
+                    ) AS approval_seq,
+                    authorization_number,
+                    business_id,
+                    card_number,
+                    card_type,
+                    credential_key,
+                    encrypted_card_number,
+                    estimated_fee AS fee,
+                    estimated_paid_at,
+                    installment,
+                    issuer_name,
+                    masked_card_number,
+                    merchant_number,
+                    amount - estimated_fee - estimated_vat_fee AS payment,
+                    scraping_type,
+                    status,
+                    transacted_at,
+                    NULLIF(estimated_vat_fee, 0) AS vat_fee,
+                    created_at,
+                    updated_at,
+                    created_at_date
+          FROM      (
+              SELECT    a.*,
+                        estimate_paid_at(
+                            a.issuer_name,
+                            c.bank_name,
+                            a.transacted_at,
+                            COALESCE(c.calculated_purchase_period, 1),
+                            COALESCE(c.calculated_payment_period, c.payment_period),
+                            c.paid_on_weekends
+                        ) AS estimated_paid_at,
+                        CASE
+                            WHEN card_type = 1 THEN
+                                CAST((a.amount * COALESCE(c.calculated_credit_fee_rate, c.credit_fee_rate) / 100) AS INTEGER)
+                            ELSE
+                                CAST((a.amount * COALESCE(c.calculated_check_fee_rate, c.check_fee_rate_c) / 100) AS INTEGER)
+                        END AS estimated_fee,
+                        CASE
+                            WHEN b.vat_withheld AND a.transacted_at > '2019-01-01' THEN
+                                CAST((a.amount * 4 / 110 / 10) AS INTEGER) * 10
+                            ELSE
+                                0
+                        END AS estimated_vat_fee
+              FROM      current_approvals a, businesses b, card_merchants c
+              WHERE     a.business_id = b.id
+              AND       a.business_id = c.business_id
+              AND       a.issuer_name = c.issuer_name
+              AND       a.merchant_number = c.merchant_number
+          )
+          '''
+      }
+    }
+    {
+      name: prev_purchases
+      inputs:
+      [
+        prev_purchases_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT   *
+           FROM     prev_purchases_raw
+           WHERE    created_at_date >= '${PREV_MIN_CREATED_AT_DATE}'
+           AND      created_at_date < '${PREV_MAX_CREATED_AT_DATE}'
+          '''
+      }
+    }
+    {
+      name: catalog_purchases_filtered
+      inputs:
+      [
+        catalog_purchases_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT   *
+           FROM     catalog_purchases_raw
+           WHERE    created_at_date >= '${CURRENT_MIN_CREATED_AT_DATE}'
+           AND      created_at_date < '${CURRENT_MAX_CREATED_AT_DATE}'
+          '''
+      }
+    }
+    {
+      name: after_purchases
+      inputs:
+      [
+        credential_keys
+        after_purchases_raw
+        catalog_purchases_filtered
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  date_format(created_at, 'yyyy-MM-dd') AS created_at_date
+          FROM    (
+            SELECT  trim(IF (affiCardNm = '', null, affiCardNm)) AS acquirer_name,
+                    CAST(pcaAmt AS int) AS amount,
+                    trim(IF (authNo = '', null, authNo)) AS authorization_number,
+                    CAST(basicFee AS int) AS base_fee,
+                    CAST(a.business_id AS int) AS business_id,
+                    trim(replace(cardNo, '-', '')) AS card_number,
+                    CAST(trim(cardClss) AS int) AS card_type,
+                    COALESCE(credential_key, k.uuid) AS credential_key,
+                    CAST(etcFee AS int) AS etc_fee,
+                    CAST(fee AS int) AS fee,
+                    trim(IF (cardNm = '', null, replace(cardNm, '카드', ''))) AS issuer_name,
+                    mask_card_number(trim(replace(cardNo, '-', ''))) AS masked_card_number,
+                    trim(IF (merNo = '', null, merNo)) AS merchant_number,
+                    to_timestamp(unix_timestamp(pymScdDate , 'yyyyMMdd')) AS paid_at,
+                    CAST(pymAmt AS int) AS payment,
+                    CAST(pointFee AS int) AS point_fee,
+                    to_timestamp(unix_timestamp(pcaDate , 'yyyyMMdd')) AS purchased_at,
+                    scraping_type,
+                    to_timestamp(unix_timestamp(trnsDate , 'yyyyMMdd')) AS transacted_at,
+                    CAST(vatFee AS int) AS vat_fee,
+                    to_timestamp(
+                     concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')
+                    ) AS created_at,
+                    to_timestamp(
+                     concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')
+                    ) AS updated_at
+            FROM    after_purchases_raw a LEFT OUTER JOIN credential_keys k
+            ON      a.business_id = k.business_id
+            WHERE   cardNo is not null
+          )
+
+          UNION ALL
+
+          SELECT  trim(IF (afficardnm = '', null, afficardnm)) AS acquirer_name,
+                  CAST(pcaamt AS int) AS amount,
+                  trim(IF (authno = '', null, authno)) AS authorization_number,
+                  CAST(basicfee AS int) AS base_fee,
+                  CAST(a.business_id AS int) AS business_id,
+                  trim(replace(cardno, '-', '')) AS card_number,
+                  CAST(trim(cardclss) AS int) AS card_type,
+                  COALESCE(credential_key, k.uuid) AS credential_key,
+                  CAST(etcfee AS int) AS etc_fee,
+                  CAST(fee AS int) AS fee,
+                  trim(IF (cardnm = '', null, replace(cardnm, '카드', ''))) AS issuer_name,
+                  mask_card_number(trim(replace(cardno, '-', ''))) AS masked_card_number,
+                  trim(IF (merno = '', null, merno)) AS merchant_number,
+                  to_timestamp(unix_timestamp(pymscddate , 'yyyyMMdd')) AS paid_at,
+                  CAST(pymamt AS int) AS payment,
+                  CAST(pointfee AS int) AS point_fee,
+                  to_timestamp(unix_timestamp(pcadate , 'yyyyMMdd')) AS purchased_at,
+                  scraping_type,
+                  to_timestamp(unix_timestamp(trnsdate , 'yyyyMMdd')) AS transacted_at,
+                  CAST(vatfee AS int) AS vat_fee,
+                  to_timestamp(
+                   concat(created_at_date, ' ', created_at_hour, ':00:00.000')
+                  ) AS created_at,
+                  to_timestamp(
+                   concat(created_at_date, ' ', created_at_hour, ':00:00.000')
+                  ) AS updated_at,
+                  created_at_date
+          FROM    catalog_purchases_filtered a LEFT OUTER JOIN credential_keys k
+          ON      a.business_id = k.business_id
+          WHERE   cardno is not null
+          '''
+      }
+    }
+    {
+      name: reformat_purchases
+      inputs:
+      [
+        card_merchants
+        after_purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    a.acquirer_name,
+                    a.amount,
+                    a.authorization_number,
+                    a.base_fee,
+                    a.business_id,
+                    a.card_number,
+                    a.card_type,
+                    a.credential_key,
+                    a.etc_fee,
+                    a.fee,
+                    a.issuer_name,
+                    a.masked_card_number,
+                    a.merchant_number,
+                    COALESCE(a.paid_at,
+                        estimate_paid_at(
+                            a.issuer_name,
+                            c.bank_name,
+                            a.transacted_at,
+                            COALESCE(c.calculated_purchase_period, 1),
+                            COALESCE(c.calculated_payment_period, c.payment_period),
+                            c.paid_on_weekends
+                        )
+                    ) AS paid_at,
+                    a.payment,
+                    a.point_fee,
+                    purchase_delayed(a.issuer_name, a.transacted_at, a.purchased_at) AS purchase_delayed,
+                    a.purchased_at,
+                    a.scraping_type,
+                    a.transacted_at,
+                    a.vat_fee,
+                    a.created_at,
+                    a.updated_at,
+                    a.created_at_date
+          FROM      after_purchases a, card_merchants c
+          WHERE     a.business_id is not null
+          AND       a.issuer_name is not null
+          AND       a.card_number is not null
+          AND       a.purchased_at is not null
+          AND       a.business_id = c.business_id
+          AND       a.issuer_name = c.issuer_name
+          AND       a.merchant_number = c.merchant_number
+          '''
+      }
+    }
+    {
+      name: purchases
+      inputs:
+      [
+        reformat_purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    acquirer_name,
+                    amount,
+                    authorization_number,
+                    base_fee,
+                    business_id,
+                    card_number,
+                    card_type,
+                    credential_key,
+                    etc_fee,
+                    fee,
+                    issuer_name,
+                    masked_card_number,
+                    merchant_number,
+                    paid_at,
+                    payment,
+                    point_fee,
+                    purchase_delayed,
+                    purchased_at,
+                    scraping_type,
+                    transacted_at,
+                    vat_fee,
+                    created_at,
+                    updated_at,
+                    created_at_date
+          FROM      (
+            SELECT    business_id,
+                      credential_key,
+                      authorization_number,
+                      masked_card_number,
+                      amount,
+                      purchased_at,
+                      paid_at,
+                      MIN(acquirer_name) AS acquirer_name,
+                      MIN(base_fee) AS base_fee,
+                      MIN(card_number) AS card_number,
+                      MIN(card_type) AS card_type,
+                      MIN(etc_fee) AS etc_fee,
+                      MIN(fee) AS fee,
+                      MIN(issuer_name) AS issuer_name,
+                      MIN(merchant_number) AS merchant_number,
+                      MIN(payment) AS payment,
+                      MIN(point_fee) AS point_fee,
+                      MIN(purchase_delayed) AS purchase_delayed,
+                      MIN(scraping_type) AS scraping_type,
+                      MIN(transacted_at) AS transacted_at,
+                      MIN(vat_fee) AS vat_fee,
+                      MIN(created_at) AS created_at,
+                      MIN(updated_at) AS updated_at,
+                      MIN(created_at_date) AS created_at_date
+            FROM      reformat_purchases
+            GROUP BY  1, 2, 3, 4, 5, 6, 7
+          )
+          '''
+      }
+    }
+    {
+      name: current_purchases
+      inputs:
+      [
+        purchases
+        prev_purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    c.*
+          FROM      purchases c LEFT ANTI JOIN prev_purchases p
+          ON        (
+            p.business_id = c.business_id AND
+            p.authorization_number = c.authorization_number AND
+            p.masked_card_number = c.masked_card_number AND
+            p.amount = c.amount AND
+            p.purchased_at = c.purchased_at AND
+            p.paid_at = c.paid_at AND
+            p.credential_key = c.credential_key
+          )
+          '''
+      }
+    }
+    {
+      name: merged_purchases
+      inputs:
+      [
+        current_purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    acquirer_name,
+                    amount,
+                    authorization_number,
+                    base_fee,
+                    business_id,
+                    card_number,
+                    card_type,
+                    credential_key,
+                    etc_fee,
+                    fee,
+                    issuer_name,
+                    masked_card_number,
+                    merchant_number,
+                    paid_at,
+                    payment,
+                    point_fee,
+                    purchase_delayed,
+                    row_number() OVER (
+                        PARTITION BY business_id, credential_key, transacted_at, masked_card_number, amount
+                        ORDER BY purchased_at DESC
+                    ) AS purchase_cancel_seq,
+                    row_number() OVER (
+                        PARTITION BY business_id, credential_key, CAST(transacted_at AS DATE), authorization_number, masked_card_number, amount
+                        ORDER BY purchased_at ASC
+                    ) AS purchase_seq,
+                    purchased_at,
+                    scraping_type,
+                    transacted_at,
+                    vat_fee,
+                    created_at,
+                    updated_at,
+                    created_at_date
+          FROM      current_purchases
+          '''
+      }
+    }
+    {
+      name: prev_payments
+      inputs:
+      [
+        prev_payments_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT   *
+           FROM     prev_payments_raw
+           WHERE    created_at_date >= '${PREV_MIN_CREATED_AT_DATE}'
+           AND      created_at_date < '${PREV_MAX_CREATED_AT_DATE}'
+          '''
+      }
+    }
+    {
+      name: catalog_payments_filtered
+      inputs:
+      [
+        catalog_payments_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT   *
+           FROM     catalog_payments_raw
+           WHERE    created_at_date >= '${CURRENT_MIN_CREATED_AT_DATE}'
+           AND      created_at_date < '${CURRENT_MAX_CREATED_AT_DATE}'
+          '''
+      }
+    }
+    {
+      name: after_payments
+      inputs:
+      [
+        credential_keys
+        after_payments_raw
+        catalog_payments_filtered
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+            SELECT  CAST(a.business_id AS int) AS business_id,
+                    COALESCE(a.credential_key, k.uuid) AS credential_key,
+                    trim(IF (cardNm = '', null, replace(cardNm, '카드', ''))) AS issuer_name,
+                    trim(IF (merNo = '', null, merNo)) AS merchant_number,
+                    trim(IF (stlBankNm = '', null, replace(stlBankNm, '은행', ''))) AS bank_name,
+                    trim(stlAcctNo) AS account_number,
+                    CAST(pcaCnt AS int) AS sales_count,
+                    scraping_type,
+                    CAST(rsvAmt AS BIGINT) AS reserved_amount,
+                    CAST(etcAmt AS BIGINT) AS etc_amount,
+                    CAST(pcaAmt AS BIGINT) AS sales_amount,
+                    CAST(rcpScdAmt AS BIGINT) AS received_amount,
+                    CAST(vatFeeAmt AS BIGINT) AS vat_fee_amount,
+                    to_timestamp(unix_timestamp(pymDate, 'yyyyMMdd')) AS received_at,
+                    to_timestamp(
+                      concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')
+                    ) AS created_at,
+                    to_timestamp(
+                      concat(concat_ws('-', year, month, day), ' ', hour, ':00:00.000')
+                    ) AS updated_at
+            FROM    after_payments_raw a LEFT OUTER JOIN credential_keys k
+            ON      a.business_id = k.business_id
+
+            UNION ALL
+
+            SELECT  CAST(a.business_id AS int) AS business_id,
+                    COALESCE(a.credential_key, k.uuid) AS credential_key,
+                    trim(IF (cardnm = '', null, replace(cardnm, '카드', ''))) AS issuer_name,
+                    trim(IF (merno = '', null, merno)) AS merchant_number,
+                    trim(IF (stlbanknm = '', null, replace(stlbanknm, '은행', ''))) AS bank_name,
+                    trim(stlacctno) AS account_number,
+                    CAST(pcacnt AS int) AS sales_count,
+                    scraping_type,
+                    CAST(rsvamt AS BIGINT) AS reserved_amount,
+                    CAST(etcamt AS BIGINT) AS etc_amount,
+                    CAST(pcaamt AS BIGINT) AS sales_amount,
+                    CAST(rcpscdamt AS BIGINT) AS received_amount,
+                    CAST(vatfeeamt AS BIGINT) AS vat_fee_amount,
+                    to_timestamp(unix_timestamp(pymdate, 'yyyyMMdd')) AS received_at,
+                    to_timestamp(
+                      concat(created_at_date, ' ', created_at_hour, ':00:00.000')
+                    ) AS created_at,
+                    to_timestamp(
+                      concat(created_at_date, ' ', created_at_hour, ':00:00.000')
+                    ) AS updated_at
+            FROM    catalog_payments_filtered a LEFT OUTER JOIN credential_keys k
+            ON      a.business_id = k.business_id
+          '''
+      }
+    }
+    {
+      name: reformat_payments
+      inputs:
+      [
+        after_payments
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      (
+            SELECT * FROM after_payments
+          )
+          WHERE     business_id is not null
+          AND       merchant_number is not null
+          AND       bank_name is not null
+          AND       received_at is not null
+          '''
+      }
+    }
+    {
+      name: payments
+      inputs:
+      [
+        reformat_payments
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+            SELECT  business_id,
+                    credential_key,
+                    merchant_number,
+                    bank_name,
+                    received_at,
+                    MIN(issuer_name) AS issuer_name,
+                    MIN(account_number) AS account_number,
+                    MIN(sales_count) AS sales_count,
+                    MIN(scraping_type) AS scraping_type,
+                    MIN(reserved_amount) AS reserved_amount,
+                    MIN(etc_amount) AS etc_amount,
+                    MIN(sales_amount) AS sales_amount,
+                    MIN(received_amount) AS received_amount,
+                    MIN(vat_fee_amount) AS vat_fee_amount,
+                    MIN(created_at) AS created_at,
+                    MIN(updated_at) AS updated_at,
+                    MIN(date_format(created_at, 'yyyy-MM-dd')) AS created_at_date
+            FROM    reformat_payments
+            GROUP BY business_id, credential_key, merchant_number, bank_name, received_at
+          '''
+      }
+    }
+    {
+      name: merged_payments
+      inputs:
+      [
+        payments
+        prev_payments
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    c.*
+          FROM      payments c LEFT ANTI JOIN prev_payments p
+          ON        (
+            p.business_id = c.business_id AND
+            p.credential_key = c.credential_key AND
+            p.merchant_number = c.merchant_number AND
+            p.bank_name = c.bank_name AND
+            p.received_at = c.received_at AND
+            p.credential_key = c.credential_key
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        merged_approvals
+      ]
+      name: approvals_sink
+      options: {
+        mode: overwritePartitions
+        path: "${OUTPUT_BASE_PATH}/approvals"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: "created_at_date"
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+        checkpoint: "false"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        merged_purchases
+      ]
+      name: purchases_sink
+      options: {
+        mode: overwritePartitions
+        path: "${OUTPUT_BASE_PATH}/purchases"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: "created_at_date"
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+        checkpoint: "false"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        merged_payments
+      ]
+      name: payments_sink
+      options: {
+        mode: overwritePartitions
+        path: "${OUTPUT_BASE_PATH}/payments"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: "created_at_date"
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+        checkpoint: "false"
+      }
+      type: custom
+    }
+  ]
+}

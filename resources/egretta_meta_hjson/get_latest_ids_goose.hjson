@@ -1,0 +1,90 @@
+{
+  name: get_latest_ids_goose
+  udfs: [
+  ]
+  source:
+  [
+     {
+         inputs: []
+         name: card_payments
+         options:
+         {
+           format: parquet
+           paths: "${BASE_PATH}/goose/incremental/card_payments"
+         }
+         type: file
+      }
+      {
+         inputs: []
+         name: access_logs
+         options:
+         {
+           format: parquet
+           paths: "${BASE_PATH}/goose/incremental/access_logs"
+         }
+         type: file
+      }
+     {
+         inputs: []
+         name: user_events
+         options:
+         {
+           format: parquet
+           paths: "${BASE_PATH}/goose/incremental/user_events"
+         }
+         type: file
+      }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        card_payments
+        access_logs
+        user_events
+      ]
+      name: latest_ids
+      options:
+      {
+        sql:
+          '''
+            SELECT  'card_payments' AS table, max(id) AS latest_id
+            FROM    card_payments
+            WHERE   created_at > (SELECT max(created_at_date) FROM card_payments)
+
+            UNION ALL
+
+            SELECT  'access_logs' AS table, max(id) AS latest_id
+            FROM    access_logs
+            WHERE   created_at > (SELECT max(created_at_date) FROM access_logs)
+
+            UNION ALL
+
+            SELECT  'user_events' AS table, max(id) AS latest_id
+            FROM    user_events
+            WHERE   created_at > (SELECT max(created_at_date) FROM user_events)
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        latest_ids
+      ]
+      name: file_sink
+      options:
+      {
+        format: json
+        mode: overwrite
+        path: ${TARGET_PATH}
+        numPartitions: '1'
+      }
+      type: file
+    }
+  ]
+}

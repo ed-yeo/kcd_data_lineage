@@ -1,0 +1,7 @@
+,type,src_options_paths
+740,file,s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_bluebird_web/created_at_date=2021-01-28
+740,file,s3://kcd-data/raw/catalog_v2/raw/tb=kcd_bluebird_web
+740,file,s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_bluebird_web
+741,file,s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_bluebird_web/created_at_date=2021-01-28
+741,file,s3://kcd-data/raw/catalog_v2/raw/tb=kcd_bluebird_web
+741,file,s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_bluebird_web

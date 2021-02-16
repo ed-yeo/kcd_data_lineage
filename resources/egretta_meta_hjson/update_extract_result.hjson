@@ -1,0 +1,137 @@
+{
+  name: update_extract_result
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: ad_group
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "ad_group"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+      inputs:
+      []
+      name: target_group
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_GROUP_PATH}
+      }
+      type: file
+    }
+    {
+      inputs:
+      []
+      name: target_messages
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_MESSAGE_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        target_group
+        ad_group
+      ]
+      name: valid_ad_group
+      options:
+      {
+        sql:
+        '''
+        SELECT  ad_group.*
+        FROM (
+                SELECT DISTINCT meta.ad_group_id AS ad_group_id
+                FROM   target_group
+        ) AS t
+        JOIN ad_group
+        ON t.ad_group_id = ad_group.id
+        '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        target_messages
+        valid_ad_group
+      ]
+      name: update_ad_group
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  valid_ad_group.id,
+                  valid_ad_group.campaign_id,
+                  valid_ad_group.name,
+                  valid_ad_group.description,
+                  valid_ad_group.type,
+                  valid_ad_group.target,
+                  valid_ad_group.target_type,
+                  'EXTRACT_COMPLETE' AS status,
+                  valid_ad_group.path,
+                  valid_ad_group.population,
+                  valid_ad_group.frequency_cap,
+                  valid_ad_group.enabled,
+                  valid_ad_group.created_at,
+                  current_timestamp() AS updated_at,
+                  valid_ad_group.use_today_data,
+                  valid_ad_group.report_name,
+                  IF(valid_messages.cnt IS NULL, null,
+                      CONCAT('${TARGET_MESSAGE_PATH}/ad_group_id=',  valid_ad_group.id)
+                  ) AS extract_path,
+                  IF(valid_messages.cnt IS NULL, 0, valid_messages.cnt) AS target_count
+          FROM    valid_ad_group
+          LEFT OUTER JOIN (
+              SELECT
+                      meta.ad_group_id,
+                      count(1) AS cnt
+              FROM  target_messages
+              WHERE status.valid = true
+              GROUP BY meta.ad_group_id
+          ) AS valid_messages
+          ON valid_ad_group.id = valid_messages.ad_group_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        update_ad_group
+      ]
+      name: update_ad_group_db_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        dbtable: ad_group
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        operation: upsert
+        conflictColumns: id
+        updateColumns: status,extract_path,target_count,updated_at
+      }
+      type: jdbc
+    }
+  ]
+}

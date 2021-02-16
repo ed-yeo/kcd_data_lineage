@@ -1,0 +1,194 @@
+{
+  name: group_history
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: approvals
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/dev/card_sales_v2/table/approvals
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: purchases
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/dev/card_sales_v2/table/purchases
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        purchases
+      ]
+      name: purchase_cancel
+      options:
+      {
+        sql:
+          '''
+            SELECT  *,
+                    row_number() OVER (
+                        PARTITION BY transacted_at, card_number, amount
+                        ORDER BY purchased_at DESC
+                    ) AS seq
+            FROM    purchases
+            WHERE   amount < 0
+            AND     created_at_date >= '${_40_day_ago}'  AND     created_at_date <= '${_1_day_ago}'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        purchases
+      ]
+      name: purchase_not_cancel
+      options:
+      {
+        sql:
+          '''
+            SELECT  *,
+                    row_number() OVER (
+                        PARTITION BY transacted_at, card_number, amount
+                        ORDER BY purchased_at DESC
+                    ) AS seq
+            FROM    purchases
+            WHERE   amount >= 0
+            AND     created_at_date >= '${_40_day_ago}'  AND     created_at_date <= '${_1_day_ago}'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        purchase_cancel
+        purchase_not_cancel
+      ]
+      name: purchase_recover_cancel
+      options:
+      {
+        sql:
+          '''
+            SELECT  /*+BROADCAST(no_auth) */
+                    auth.authorization_number,
+                    no_auth.acquirer_name,
+                    no_auth.amount,
+                    no_auth.amount_abs,
+                    no_auth.base_fee,
+                    no_auth.business_id,
+                    no_auth.card_number,
+                    no_auth.card_type,
+                    no_auth.created_at,
+                    no_auth.created_at_date,
+                    no_auth.encrypted_card_number,
+                    no_auth.etc_fee,
+                    no_auth.fee,
+                    no_auth.id,
+                    no_auth.installment,
+                    no_auth.issuer_name,
+                    no_auth.masked_card_number,
+                    no_auth.merchant_number,
+                    no_auth.paid_at,
+                    no_auth.payment,
+                    no_auth.point_fee,
+                    no_auth.purchase_canceled_at,
+                    no_auth.purchase_delayed,
+                    no_auth.purchased_at,
+                    no_auth.returning,
+                    no_auth.status,
+                    no_auth.transacted_at,
+                    no_auth.transacted_at_date,
+                    no_auth.transaction_canceled_at,
+                    no_auth.vat_fee
+            FROM    purchase_not_cancel auth, purchase_cancel no_auth
+            WHERE   auth.business_id = no_auth.business_id
+            AND     auth.issuer_name = no_auth.issuer_name
+            AND     auth.masked_card_number = no_auth.masked_card_number
+            AND     auth.amount_abs = no_auth.amount_abs
+            AND     (
+                      CASE
+                        WHEN no_auth.card_type = 4 THEN
+                          auth.authorization_number = no_auth.authorization_number
+                        ELSE
+                          auth.transacted_at = no_auth.transacted_at
+                          AND auth.seq = no_auth.seq
+                      END
+            )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        approvals
+        purchases
+        purchase_recover_cancel
+      ]
+      name: union
+      options:
+      {
+        sql:
+          '''
+            SELECT acquirer_name, amount, amount_abs, authorization_number, base_fee, business_id, card_number, card_type, created_at, created_at_date, encrypted_card_number, etc_fee, fee, id, installment, issuer_name, masked_card_number, merchant_number, paid_at, payment, point_fee, purchase_canceled_at, purchase_delayed, purchased_at, returning, status, transacted_at, transacted_at_date, transaction_canceled_at, vat_fee
+            FROM approvals  WHERE   created_at_date >= '${_40_day_ago}'  AND     created_at_date <= '${_1_day_ago}'
+            UNION ALL
+            SELECT acquirer_name, amount, amount_abs, authorization_number, base_fee, business_id, card_number, card_type, created_at, created_at_date, encrypted_card_number, etc_fee, fee, id, installment, issuer_name, masked_card_number, merchant_number, paid_at, payment, point_fee, purchase_canceled_at, purchase_delayed, purchased_at, returning, status, transacted_at, transacted_at_date, transaction_canceled_at, vat_fee
+            FROM purchases  WHERE   created_at_date >= '${_40_day_ago}'  AND     created_at_date <= '${_1_day_ago}'
+            UNION ALL
+            SELECT acquirer_name, amount, amount_abs, authorization_number, base_fee, business_id, card_number, card_type, created_at, created_at_date, encrypted_card_number, etc_fee, fee, id, installment, issuer_name, masked_card_number, merchant_number, paid_at, payment, point_fee, purchase_canceled_at, purchase_delayed, purchased_at, returning, status, transacted_at, transacted_at_date, transaction_canceled_at, vat_fee
+            FROM purchase_recover_cancel
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        union
+      ]
+      name: grouped
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    business_id, merchant_number, issuer_name, authorization_number, masked_card_number, amount_abs,
+                    collect_list(struct(*)) AS histories
+            FROM    union
+            GROUP BY    business_id, merchant_number, issuer_name, authorization_number, masked_card_number, amount_abs
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        grouped
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://thrush/test/card_sales_v2/raw_v2/grouped/date_id=${date_id}
+      }
+      type: file
+    }
+  ]
+}

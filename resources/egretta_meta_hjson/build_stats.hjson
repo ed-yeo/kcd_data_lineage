@@ -1,0 +1,159 @@
+{
+  name: build_stats
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: places_src
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/test/shon/classification/places
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: ${db_file_path}/businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: sessions
+      options:
+      {
+        format: parquet
+        paths: "${output_path}/sessions"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        businesses
+        places_src
+      ]
+      name: meta
+      options:
+      {
+        sql:
+          '''
+          SELECT  b.id AS business_id,
+                  b.name,
+                  b.registration_number,
+                  p.name AS place_name,
+                  p.kcd_classification AS place_classification,
+                  p.latitude AS place_latitude,
+                  p.longitude AS place_longitude,
+                  p.uid AS place_uid,
+                  p.type AS place_type
+          FROM    businesses b LEFT OUTER JOIN places_src p ON (b.id = p.business_id)
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        sessions
+      ]
+      name: aggregated
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    (
+            SELECT  *,
+                    row_number() OVER (PARTITION BY src_business_id ORDER BY lift DESC) AS rank
+            FROM    (
+              SELECT  *,
+                      CAST(co_count AS DOUBLE) / CAST(src_co_count AS DOUBLE) AS confidence,
+                      (CAST(co_count AS DOUBLE) * total_count) / (src_co_count * tgt_co_count) AS lift
+              FROM    (
+                SELECT  *,
+                        SUM(co_count) OVER (PARTITION BY src_business_id) AS src_co_count,
+                        SUM(co_count) OVER (PARTITION BY tgt_business_id) AS tgt_co_count,
+                        100000000 AS total_count
+                FROM    (
+                  SELECT  src_business_id,
+                          tgt_business_id,
+                          SUM(count) AS co_count
+                  FROM    sessions
+                  GROUP BY src_business_id, tgt_business_id
+                )
+                WHERE   co_count >= 3
+              )
+            )
+            WHERE confidence > 0.001
+          )
+          WHERE   rank <= 10
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        meta
+        aggregated
+      ]
+      name: stats
+      options:
+      {
+        sql:
+          '''
+          SELECT  /*+BROADCAST(src_p, tgt_p)*/
+                  agg.*,
+                  src_p.registration_number AS src_registration_number,
+                  src_p.name AS src_name,
+                  src_p.place_name AS src_place_name,
+                  src_p.place_classification AS src_place_classification,
+                  src_p.place_latitude AS src_place_latitude,
+                  src_p.place_longitude AS src_place_longitude,
+                  src_p.place_type AS src_place_type,
+                  src_p.place_uid AS src_place_uid,
+                  tgt_p.registration_number AS tgt_registration_number,
+                  tgt_p.name AS tgt_name,
+                  tgt_p.place_name AS tgt_place_name,
+                  tgt_p.place_classification AS tgt_place_classification,
+                  tgt_p.place_latitude AS tgt_place_latitude,
+                  tgt_p.place_longitude AS tgt_place_longitude,
+                  tgt_p.place_type AS tgt_place_type,
+                  tgt_p.place_uid AS tgt_place_uid
+          FROM    aggregated agg LEFT OUTER JOIN meta src_p
+          ON      (agg.src_business_id = src_p.business_id) LEFT OUTER JOIN meta tgt_p
+          ON      (agg.tgt_business_id = tgt_p.business_id)
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        stats
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${output_path}/stats"
+      }
+      type: file
+    }
+  ]
+}

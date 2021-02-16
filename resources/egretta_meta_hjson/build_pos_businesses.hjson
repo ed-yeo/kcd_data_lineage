@@ -1,0 +1,128 @@
+{
+  name: build_pos_businesses
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: merged_transactions
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.sources.HudiSource
+        format: parquet
+        paths: "${OUTPUT_BASE_PATH}/pos/asp/merged_transactions/*"
+        hoodie.datasource.query.type: incremental
+        hoodie.datasource.read.begin.instanttime: "${BEGIN_INSTANT_TIME}"
+        hoodie.datasource.read.end.instanttime: "${END_INSTANT_TIME}"
+      }
+      type: custom
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        merged_transactions
+      ]
+      name: pos_tables
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    CONCAT_WS('|',
+                        business_id,
+                        registration_number,
+                        pos_asp_agent,
+                        brand_uid,
+                        brand_name,
+                        brand_registration_number,
+                        francise_uid,
+                        francise_name,
+                        francise_registration_number,
+                        store_uid,
+                        store_name,
+                        store_registration_number,
+                        francise_address,
+                        store_address,
+                        store_area,
+                        store_table_count,
+                        issuer_name,
+                        merchant_number,
+                        pos_uid,
+                        pos_name,
+                        table_uid
+                    ) AS record_key,
+                    current_timestamp() AS ts
+          FROM      (
+              SELECT    DISTINCT
+                        business_id,
+                        registration_number,
+                        pos_asp_agent,
+                        brand_uid,
+                        brand_name,
+                        brand_registration_number,
+                        francise_uid,
+                        francise_name,
+                        francise_registration_number,
+                        store_uid,
+                        store_name,
+                        store_registration_number,
+                        francise_address,
+                        store_address,
+                        store_area,
+                        store_table_count,
+                        issuer_name,
+                        merchant_number,
+                        pos_uid,
+                        pos_name,
+                        table_uid
+              FROM      merged_transactions
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_tables
+      ]
+      name: pos_tables_filtered
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      pos_tables
+          WHERE     record_key is not null
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        pos_tables_filtered
+      ]
+      name: file_sink
+      options:
+      {
+         class: 'com.kcd.thrush.jobs.tasks.sinks.HudiSink'
+         mode: append
+         hoodie.base.path: "${OUTPUT_BASE_PATH}/pos/asp"
+         hoodie.table.name: pos_tables
+         hoodie.datasource.write.operation: upsert
+         hoodie.datasource.write.recordkey.field: record_key
+         hoodie.datasource.write.precombine.field: ts
+         hoodie.upsert.shuffle.parallelism: "200"
+      }
+      type: custom
+    }
+  ]
+}

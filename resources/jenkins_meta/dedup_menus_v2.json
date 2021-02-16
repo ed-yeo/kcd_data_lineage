@@ -1,0 +1,49 @@
+{
+  "name": "dedup_menus",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "pos_menus_raw_v2",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource",
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=posetl_menus_v2/created_at_date=2021-01-28,s3://kcd-de-production/raw/catalog_v2/raw/tb=posetl_menus_v2/created_at_date=2021-01-27,s3://kcd-de-production/raw/catalog_v2/raw/tb=posetl_menus_v2/created_at_date=2021-01-26",
+        "partition_keys": "created_at_date,created_at_hour",
+        "mergeSchema": "true"
+      },
+      "type": "custom"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "pos_menus_raw_v2"
+      ],
+      "name": "pos_menus_distinct_v2",
+      "options": {
+        "sql": "SELECT\n  _event_id,\n  bill_key,\n  uid,\n  uid_type,\n  CAST(count as integer) AS count,\n  idx,\n  label_name,\n  menu_key,\n  name,\n  order_time,\n  service_name,\n  timestamp,\n  CAST(total_price as integer) AS total_price,\n  CAST(created_at_date as string) AS created_at_date,\n  created_at_hour,\n  CAST(price as integer) AS price,\n  date_format(ordered_at_timestamp, \"yyyy-MM-dd\") AS order_date,\n  date_format(ordered_at_timestamp, \"yyyy-MM\") AS order_month,\n  CAST(date_format(ordered_at_timestamp, \"HH\") AS integer) AS order_hour\nFROM (\n  SELECT\n    *,\n    COALESCE(\n      to_timestamp(order_time, \"yyyy-MM-dd HH:mm:ss\"),\n      to_timestamp(order_time, \"yyyy-MM-dd'T'HH:mm:ss\"),\n      to_timestamp(order_time, \"yyyy-MM-dd HH:mm:ss.SSS\")\n    ) AS ordered_at_timestamp,\n    row_number() OVER (PARTITION BY menu_key ORDER BY timestamp DESC) AS rank\n  FROM\n    pos_menus_raw_v2\n  WHERE\n    created_at_date >= '2020-07-30' AND created_at_date < '2021-01-29'\n)\nWHERE rank = 1"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "pos_menus_distinct_v2"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/raw/etl/pos/pos_menus_v2",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

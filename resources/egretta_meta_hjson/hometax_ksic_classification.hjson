@@ -1,0 +1,167 @@
+{
+  name: hometax_ksic_classification
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_ksic_map
+      options:
+      {
+        format: csv
+        paths: ${LOOKUP_DIR}/subject=classification_v2/hometax_ksic_mapping.csv
+        columns: id,hometax_classification_code,hometax_classification_code_1_depth,hometax_classification_name_1_depth,hometax_classification_code_2_depth,hometax_classification_name_2_depth,hometax_classification_code_3_depth,hometax_classification_name_3_depth,hometax_classification_code_4_depth,hometax_classification_name_4_depth,hometax_classification_name_5_depth,standard_classification_code,standard_classification_code_1_depth,standard_classification_name_1_depth,standard_classification_code_2_depth,standard_classification_name_2_depth,standard_classification_code_3_depth,standard_classification_name_3_depth,standard_classification_code_4_depth,standard_classification_name_4_depth,standard_classification_name_5_depth
+      }
+      type: file
+      cache: true
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        businesses
+        hometax_ksic_map
+      ]
+      name: hometax_classification
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  businesses.id AS business_id,
+                  businesses.registration_number,
+                  hometax_classification_code AS code,
+                  hometax_classification_code_1_depth AS depth_1_code,
+                  hometax_classification_name_1_depth AS depth_1_name,
+                  hometax_classification_code_2_depth AS depth_2_code,
+                  hometax_classification_name_2_depth AS depth_2_name,
+                  hometax_classification_code_3_depth AS depth_3_code,
+                  hometax_classification_name_3_depth AS depth_3_name,
+                  hometax_classification_code_4_depth AS depth_4_code,
+                  hometax_classification_name_4_depth AS depth_4_name,
+                  hometax_classification_name_5_depth AS depth_5_name
+          FROM businesses
+          JOIN (
+                  SELECT *
+                  FROM (
+                          SELECT    *,
+                                    row_number() OVER (PARTITION BY hometax_classification_code ORDER BY id) AS code_rank
+                          FROM      hometax_ksic_map
+                  )
+                  WHERE code_rank = 1
+          ) AS dedup_map
+          ON businesses.hometax_business_classification_code = dedup_map.hometax_classification_code
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        businesses
+        hometax_ksic_map
+      ]
+      name: ksic_classification
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    businesses.id AS business_id,
+                    businesses.registration_number,
+                    code,
+                    depth_1_code,
+                    depth_1_name,
+                    depth_2_code,
+                    depth_2_name,
+                    depth_3_code,
+                    depth_3_name,
+                    depth_4_code,
+                    depth_4_name,
+                    depth_5_name,
+                    depth_all,
+                    depth_1_2_code
+          FROM      businesses
+          JOIN (
+                SELECT
+                        hometax_classification_code,
+                        collect_set(standard_classification_code) AS code,
+                        collect_set(standard_classification_code_1_depth) AS depth_1_code,
+                        collect_set(standard_classification_name_1_depth) AS depth_1_name,
+                        collect_set(standard_classification_code_2_depth) AS depth_2_code,
+                        collect_set(standard_classification_name_2_depth) AS depth_2_name,
+                        collect_set(standard_classification_code_3_depth) AS depth_3_code,
+                        collect_set(standard_classification_name_3_depth) AS depth_3_name,
+                        collect_set(standard_classification_code_4_depth) AS depth_4_code,
+                        collect_set(standard_classification_name_4_depth) AS depth_4_name,
+                        collect_set(standard_classification_name_5_depth) AS depth_5_name,
+                        to_json(
+                            collect_set(
+                                named_struct(
+                                    'depth_1_code', standard_classification_code_1_depth,
+                                    'depth_1_name', standard_classification_name_1_depth,
+                                    'depth_2_code', standard_classification_code_2_depth,
+                                    'depth_2_name', standard_classification_name_2_depth,
+                                    'depth_3_code', standard_classification_code_3_depth,
+                                    'depth_3_name', standard_classification_name_3_depth,
+                                    'depth_4_code', standard_classification_code_4_depth,
+                                    'depth_4_name', standard_classification_name_4_depth,
+                                    'depth_5_name', standard_classification_name_5_depth
+                                )
+                            )
+                        ) AS depth_all,
+                        collect_set(concat(standard_classification_code_1_depth,standard_classification_code_2_depth)) AS depth_1_2_code
+                FROM    hometax_ksic_map
+                GROUP BY hometax_classification_code
+          ) AS ksic
+          ON businesses.hometax_business_classification_code = ksic.hometax_classification_code
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        hometax_classification
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=hometax_old
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        ksic_classification
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=ksic
+      }
+      type: file
+    }
+  ]
+}

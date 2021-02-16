@@ -1,0 +1,209 @@
+{
+  //OUTPUT_BASE_PATH
+  name: match_to_transactions
+  udfs: [
+    {
+      name: mask_card_number
+      class: com.kcd.thrush.udfs.MarkCardNumberUDF
+      params: {}
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: transaction_candidates
+      options:
+      {
+        paths: "${OUTPUT_BASE_PATH}/candidates/transactions_current"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: current_transactions
+      inputs:
+      [
+        transaction_candidates
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    DISTINCT
+                      acquirer_name,
+                      amount,
+                      approval_canceled_at,
+                      approval_seq,
+                      authorization_number,
+                      base_fee,
+                      business_id,
+                      card_number,
+                      card_type,
+                      credential_key,
+                      encrypted_card_number,
+                      estimated_paid_at,
+                      etc_fee,
+                      fee,
+                      installment,
+                      issuer_name,
+                      masked_card_number,
+                      merchant_number,
+                      paid_at,
+                      payment,
+                      point_fee,
+                      purchase_cancel_seq,
+                      purchase_canceled_at,
+                      purchase_delayed,
+                      purchase_seq,
+                      purchased_at,
+                      scraping_type,
+                      status,
+                      transacted_at,
+                      vat_fee,
+                      created_at,
+                      updated_at,
+                      created_at_date
+          FROM        (
+            SELECT    approval.acquirer_name,
+                      approval.amount,
+                      CAST(approval.approval_seq AS integer) AS approval_seq,
+                      approval.authorization_number,
+                      CAST(null AS integer) AS base_fee,
+                      approval.business_id,
+                      approval.card_number,
+                      approval.card_type,
+                      approval.credential_key,
+                      approval.encrypted_card_number,
+                      approval.estimated_paid_at,
+                      CAST(null AS integer) AS etc_fee,
+                      approval.fee AS fee,
+                      approval.installment,
+                      approval.issuer_name,
+                      approval.masked_card_number,
+                      approval.merchant_number,
+                      CAST(null AS timestamp) AS paid_at,
+                      approval.payment AS payment,
+                      CAST(null AS integer) AS point_fee,
+                      CAST(null AS integer) AS purchase_cancel_seq,
+                      CAST(null AS timestamp) AS purchase_canceled_at,
+                      CAST(null AS boolean) AS purchase_delayed,
+                      CAST(null AS integer) AS purchase_seq,
+                      CAST(null AS timestamp) AS purchased_at,
+                      approval.scraping_type,
+                      approval.status,
+                      approval.transacted_at,
+                      approval.approval_canceled_at,
+                      approval.vat_fee AS vat_fee,
+                      approval.created_at,
+                      approval.updated_at,
+                      date_format(approval.created_at, 'yyyy-MM-dd') AS created_at_date
+            FROM      transaction_candidates
+            WHERE     purchase.business_id is null
+
+            UNION ALL
+
+            SELECT    purchase.acquirer_name,
+                      purchase.amount,
+                      CAST(null AS integer) AS approval_seq,
+                      purchase.authorization_number,
+                      purchase.base_fee,
+                      purchase.business_id,
+                      purchase.card_number,
+                      purchase.card_type,
+                      purchase.credential_key,
+                      CAST(null AS string) AS encrypted_card_number,
+                      CAST(null AS timestamp) AS estimated_paid_at,
+                      purchase.etc_fee,
+                      purchase.fee,
+                      CAST(null AS integer) AS installment,
+                      purchase.issuer_name,
+                      purchase.masked_card_number,
+                      purchase.merchant_number,
+                      purchase.paid_at,
+                      purchase.payment,
+                      purchase.point_fee,
+                      CAST(purchase.purchase_cancel_seq AS integer) AS purchase_cancel_seq,
+                      purchase.purchase_canceled_at,
+                      purchase.purchase_delayed,
+                      CAST(purchase.purchase_seq AS integer) AS purchase_seq,
+                      purchase.purchased_at,
+                      purchase.scraping_type,
+                      CAST(null AS integer) AS status,
+                      purchase.transacted_at,
+                      CAST(null AS timestamp) AS approval_canceled_at,
+                      purchase.vat_fee,
+                      purchase.created_at,
+                      purchase.updated_at,
+                      date_format(purchase.created_at, 'yyyy-MM-dd') AS created_at_date
+            FROM      transaction_candidates
+            WHERE     approval.business_id is null
+
+            UNION ALL
+
+            SELECT    approval.acquirer_name,
+                      approval.amount,
+                      CAST(approval.approval_seq AS integer) AS approval_seq,
+                      approval.authorization_number,
+                      purchase.base_fee,
+                      approval.business_id,
+                      approval.card_number,
+                      approval.card_type,
+                      approval.credential_key,
+                      approval.encrypted_card_number,
+                      approval.estimated_paid_at,
+                      purchase.etc_fee,
+                      purchase.fee,
+                      approval.installment,
+                      approval.issuer_name,
+                      approval.masked_card_number,
+                      approval.merchant_number,
+                      purchase.paid_at,
+                      purchase.payment,
+                      purchase.point_fee,
+                      CAST(purchase.purchase_cancel_seq AS integer) AS purchase_cancel_seq,
+                      purchase.purchase_canceled_at,
+                      purchase.purchase_delayed,
+                      CAST(purchase.purchase_seq AS integer) AS purchase_seq,
+                      purchase.purchased_at,
+                      approval.scraping_type,
+                      approval.status,
+                      approval.transacted_at,
+                      approval.approval_canceled_at,
+                      purchase.vat_fee,
+                      approval.created_at,
+                      approval.updated_at,
+                      date_format(approval.created_at, 'yyyy-MM-dd') AS created_at_date
+            FROM      transaction_candidates
+            WHERE     approval.business_id is not null AND purchase.business_id is not null
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        current_transactions
+      ]
+      name: file_sink
+      options: {
+        mode: overwritePartitions
+        path: "${OUTPUT_PATH}"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: "created_at_date"
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

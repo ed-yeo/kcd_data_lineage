@@ -1,0 +1,164 @@
+{
+  name: target_user_extract
+  udfs: [
+    {
+      name: user_filter
+      class: com.kcd.thrush.dmp.spark.udfs.TargetUserFilter
+      params: {}
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: user_info
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_DIR}/user_info
+      }
+      type: file
+    }
+    {
+        inputs: []
+        name: target_messages
+        options:
+        {
+          format: parquet
+          paths: ${TARGET_DIR}/target_messages
+        }
+        type: file
+     }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        target_messages
+        user_info
+      ]
+      name: joined
+      options:
+      {
+        sql:
+          '''
+              SELECT    target_messages.business_id,
+                        user_filter(struct(user_info.*), targetGroup) AS targetGroup,
+                        struct(
+                            user_info.*
+                        ) AS user_info
+              FROM      target_messages
+              LEFT OUTER JOIN   user_info
+              ON        target_messages.business_id = user_info.business_id
+              WHERE     target_messages.targetGroup.meta.target_type = 'ALL'
+              OR        upper(target_messages.targetGroup.meta.target_type) = upper(user_info.role)
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        joined
+      ]
+      name: target_users
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    targetGroup.meta.ad_group_id,
+                    to_timestamp('${TARGET_DATE} ${TARGET_TS}', 'yyyy-MM-dd HH_mm') AS sent_at,
+                    CONCAT(
+                        replace('${TARGET_DATE}', '-', ''), '-', '${TARGET_TS}',
+                        '_',
+                        targetGroup.meta.campaign_id, targetGroup.meta.ad_group_id, targetGroup.meta.creative_id,
+                        '_',
+                        business_id, user_info.user_id
+                    ) AS id,
+                    CONCAT(
+                        targetGroup.meta.campaign_id, targetGroup.meta.ad_group_id, targetGroup.meta.creative_id,
+                        '_',
+                        business_id, user_info.user_id
+                    ) AS message_id,
+                    named_struct(
+                        'campaign_id', targetGroup.meta.campaign_id,
+                        'ad_group_id', targetGroup.meta.ad_group_id,
+                        'creative_id', targetGroup.meta.creative_id,
+                        'business_id', CAST(business_id AS LONG),
+                        'user_id', user_info.user_id,
+                        'type', targetGroup.meta.`type`,
+                        'priority', targetGroup.meta.priority,
+                        'only_single_message', targetGroup.meta.only_single_message
+                    ) AS meta,
+                    targetGroup.status AS status,
+                    named_struct(
+                        'message_type',     targetGroup.meta.message_type,
+                        'phone_number',     regexp_replace(user_info.phone_number, '^0', '82'),
+                        'template_code',    targetGroup.meta.template_code,
+                        'title',            targetGroup.result.title,
+                        'message',          targetGroup.result.message,
+                        'ad_flag',          IF(array_contains(array('EXTERNAL_AD', 'INTERNAL_AD'),targetGroup.meta.`type`), 'Y', 'N'),
+                        'attachment',       targetGroup.result.attachment
+                    ) AS message
+          FROM      joined
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        target_users
+      ]
+      name: target_users_with_priority
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    ad_group_id, sent_at, id, message_id, meta, message,
+                    CASE
+                        WHEN (meta.campaign_id = 2 AND user_business_rank > 1) THEN named_struct('valid', false, 'error', 'LOW PRIORITY')
+                        WHEN (meta.only_single_message = true AND user_ad_group_rank > 1) THEN named_struct('valid', false, 'error', 'LOW PRIORITY')
+                        ELSE status
+                    END AS status
+          FROM (
+              SELECT  *,
+                      row_number() OVER (PARTITION BY meta.user_id, meta.business_id ORDER BY meta.priority DESC ) AS user_business_rank,
+                      row_number() OVER (PARTITION BY meta.user_id, meta.ad_group_id ORDER BY meta.priority DESC ) AS user_ad_group_rank
+              FROM target_users
+              WHERE status.valid = true
+          )
+
+          UNION ALL
+
+          SELECT    ad_group_id, sent_at, id, message_id, meta, message, status
+          FROM      target_users
+          WHERE     status.valid = false
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        target_users_with_priority
+      ]
+      name: target_users_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_USER_DIR}
+        partitions: ad_group_id
+      }
+      type: file
+    }
+  ]
+}

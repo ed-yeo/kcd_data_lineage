@@ -1,0 +1,109 @@
+{
+  "name": "hometax_purchase",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "hometax_card_purchases_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_card_purchases"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_purchases_cash_receipts_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_purchases_cash_receipts"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_purchases_invoices_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_purchases_invoices"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "hometax_card_purchases_src"
+      ],
+      "name": "hometax_card_purchases",
+      "options": {
+        "sql": "  SELECT\n          timestamp,\n          business_id,\n          date_format(timestamp, 'yyyy-MM-dd') AS date_id,\n          SUM(amount) AS amount_sum,\n          COUNT(1) AS tx_count,\n          collect_set(vendor_business_category) AS vendor_business_categories,\n          collect_set(vendor_business_classification_code) AS vendor_business_classification_codes,\n          collect_set(vendor_taxation_type) AS vendor_taxation_types\n  FROM (\n          SELECT\n                  business_id,\n                  date_trunc('MONTH', purchased_at) AS timestamp,\n                  amount,\n                  vendor_business_category,\n                  vendor_business_classification_code,\n                  vendor_taxation_type\n          FROM    hometax_card_purchases_src\n          WHERE   business_id IS NOT NULL\n          AND     purchased_at between '2017-01-01' AND '2021-01-24'\n  )\n  GROUP BY business_id, timestamp"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hometax_purchases_cash_receipts_src"
+      ],
+      "name": "hometax_purchases_cash_receipts",
+      "options": {
+        "sql": "  SELECT\n          timestamp,\n          business_id,\n          date_format(timestamp, 'yyyy-MM-dd') AS date_id,\n          SUM(amount) AS amount_sum,\n          COUNT(1) AS tx_count\n  FROM (\n          SELECT\n                  business_id,\n                  date_trunc('MONTH', purchased_at) AS timestamp,\n                  amount\n          FROM    hometax_purchases_cash_receipts_src\n          WHERE   business_id IS NOT NULL\n          AND     purchased_at between '2017-01-01' AND '2021-01-24'\n  )\n  GROUP BY business_id, timestamp"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hometax_purchases_invoices_src"
+      ],
+      "name": "hometax_purchases_invoices",
+      "options": {
+        "sql": "  SELECT\n          timestamp,\n          business_id,\n          date_format(timestamp, 'yyyy-MM-dd') AS date_id,\n          SUM(amount) AS amount_sum,\n          COUNT(1) AS tx_count,\n          collect_set(vendor_business_classification) AS vendor_business_classifications,\n          collect_set(vendor_business_category) AS vendor_business_categories,\n          collect_set(item_name) AS item_names\n  FROM (\n          SELECT\n                  business_id,\n                  date_trunc('MONTH', issued_at) AS timestamp,\n                  amount,\n                  vendor_business_classification,\n                  vendor_business_category,\n                  item_name\n          FROM    hometax_purchases_invoices_src\n          WHERE   business_id IS NOT NULL\n          AND     issued_at between '2017-01-01' AND '2021-01-24'\n  )\n  GROUP BY business_id, timestamp"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "hometax_card_purchases"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=hometax/name=purchases_card",
+        "evenPartitions": "true",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_purchases_cash_receipts"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=hometax/name=purchases_cash_receipts",
+        "evenPartitions": "true",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "hometax_purchases_invoices"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=hometax/name=purchases_invoices",
+        "evenPartitions": "true",
+        "partitions": "date_id"
+      },
+      "type": "file"
+    }
+  ]
+}

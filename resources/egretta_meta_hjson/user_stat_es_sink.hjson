@@ -1,0 +1,64 @@
+{
+  name: user_stat_es_sink
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: user_stat
+      options:
+      {
+        format: parquet
+        paths: ${BASE_DIR}/stat
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+        inputs:
+        [
+          user_stat
+        ]
+        name: add_join_field
+        options:
+        {
+          sql:
+            '''
+              SELECT
+                        CONCAT(user_id, '_', timestamp) AS doc_id,
+                        named_struct(
+                            'name', 'user_stat',
+                            'parent', user_id
+                        ) AS user_join_field,
+                        *
+              FROM      user_stat
+              WHERE     user_id IS NOT NULL
+            '''
+        }
+        type: sql
+      }
+  ]
+  sink:
+  [
+    {
+      "inputs": [
+        add_join_field
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "${targetIndexName}",
+        "es.nodes": "${ES_HOST}",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+        "es.mapping.id": "doc_id",
+        "es.mapping.join": "user_join_field"
+      },
+      "type": "es"
+    }
+  ]
+}

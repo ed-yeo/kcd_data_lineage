@@ -1,0 +1,83 @@
+{
+  name: upload_sales_stat
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: sales_stat
+      options:
+      {
+        format: parquet
+        paths: ${OUTPUT_BASE_PATH}/sales_stat
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: sales_stat_upserts
+      inputs:
+      [
+        sales_stat
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  region_id,
+                  classification_id,
+                  base_date,
+                  date_unit,
+                  business_count,
+                  card_sales_amount,
+                  card_sales_count,
+                  COALESCE(delivery_sales_amount, 0) AS delivery_sales_amount,
+                  COALESCE(delivery_count, 0) AS delivery_sales_count,
+                  created_at,
+                  updated_at
+          FROM    sales_stat
+          WHERE   (region_id is not null AND classification_id is not null)
+          AND     (
+            (
+              date_unit = 'week' AND
+              year(base_date) in (2019, 2020) AND
+              weekofyear(base_date) < weekofyear(current_date()) AND
+              weekofyear(base_date) >= weekofyear(current_date()) - 1 - ${TIME_WINDOW}
+            ) OR
+            (
+              date_unit = 'day' AND
+              base_date < current_date() AND
+              base_date >= DATE_SUB(current_date(), ${TIME_WINDOW})
+            )
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        sales_stat_upserts
+      ]
+      name: upserts_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        dbtable: sales_stats
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        operation: upsert
+        conflictColumns: region_id,classification_id,base_date,date_unit
+        updateColumns: business_count,card_sales_amount,card_sales_count,delivery_sales_amount,delivery_sales_count,updated_at
+      }
+      type: jdbc
+    }
+  ]
+}

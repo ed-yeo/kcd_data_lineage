@@ -1,0 +1,43 @@
+{
+  // INPUT_PATH, OUTPUT_PATH, PARTITIONS
+  name: even_partitions
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: input
+      options:
+      {
+        paths: "${INPUT_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        input
+      ]
+      name: file_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: "${PARTITIONS}"
+          evenPartitions: "true"
+          numOfRecordPerFile: "4000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

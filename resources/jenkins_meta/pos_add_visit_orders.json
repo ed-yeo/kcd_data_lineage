@@ -1,0 +1,145 @@
+{
+  "name": "pos_add_visit_order",
+  "udfs": [
+    {
+      "name": "pos_add_visit_order",
+      "class": "com.kcd.thrush.pos.spark.udfs.AppendVisitCount",
+      "params": {
+        "windowDays": "365"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "pos_payments_raw",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource",
+        "format": "json",
+        "paths": "s3://kcd-data/raw/catalog_v2/raw/tb=posetl_payments",
+        "partition_keys": "created_at_date,created_at_hour"
+      },
+      "type": "custom"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "pos_payments_raw"
+      ],
+      "name": "pos_payments_distinct",
+      "options": {
+        "sql": "SELECT\n  distinct(payment_key),\n  *\nFROM\n  pos_payments_raw\nWHERE\n  created_at_date >= '2018-09-23' AND created_at_date < '2020-09-23'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_payments_distinct"
+      ],
+      "name": "pos_payments",
+      "options": {
+        "sql": "SELECT\n  *,\n  cast(unix_timestamp(paid_at, \"yyyy-MM-dd HH:mm:ss.SSS\") as timestamp) as transacted_at,\n  cast(to_date(CAST(unix_timestamp(paid_at, \"yyyy-MM-dd\") as timestamp), 'yyyy-MM-dd') as string) as transacted_at_date\nFROM\n  pos_payments_distinct"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_payments"
+      ],
+      "name": "current_pos_payments",
+      "options": {
+        "sql": "SELECT\n  *\nFROM\n  pos_payments\nWHERE\n  created_at_date >= '2019-09-23' AND created_at_date < '2020-09-23'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_payments"
+      ],
+      "name": "prev_pos_payments",
+      "options": {
+        "sql": "SELECT\n  *\nFROM\n  pos_payments\nWHERE\n  created_at_date >= '2018-09-23' AND created_at_date < '2019-09-23'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "current_pos_payments"
+      ],
+      "name": "current_pos_payments_approved",
+      "options": {
+        "sql": "SELECT *\nFROM   current_pos_payments\nWHERE  (amount >= 0 AND card_number is not null AND card_number != '')"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "current_pos_payments"
+      ],
+      "name": "current_pos_payments_canceled",
+      "options": {
+        "sql": "SELECT *\nFROM   current_pos_payments\nWHERE  NOT (amount >= 0 AND card_number is not null AND card_number != '')"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "prev_pos_payments"
+      ],
+      "name": "prev_pos_payments_approved",
+      "options": {
+        "sql": "SELECT  *\nFROM    prev_pos_payments\nWHERE   (amount >= 0 AND card_number is not null AND card_number != '')"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "prev_pos_payments_approved",
+        "current_pos_payments_approved"
+      ],
+      "name": "current_visits_approved",
+      "options": {
+        "sql": "SELECT\n  _event_id,\n  `type`,\n  amount,\n  authorization_number,\n  bill_key,\n  bill_no,\n  business_id,\n  card_number,\n  client_id,\n  index,\n  issuer_name,\n  label_name,\n  merchant_number,\n  order_status,\n  paid_at,\n  payment_key,\n  pos_no,\n  pos_type,\n  service_name,\n  shop_code,\n  store_key,\n  timestamp,\n  visit_order,\n  created_at_date\nFROM    (\n  SELECT  pos_tx.*\n  FROM    (\n    SELECT  explode(pos_add_visit_order(histories)) AS pos_tx\n    FROM    (\n      SELECT  business_id,\n              card_number,\n              collect_list(struct(*)) AS histories\n      FROM    (\n        SELECT * FROM prev_pos_payments_approved\n        UNION ALL\n        SELECT * FROM current_pos_payments_approved\n      )\n      GROUP BY business_id, issuer_name, card_number\n    )\n  )\n)\nWHERE   created_at_date >= '2019-09-23'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "current_pos_payments_canceled"
+      ],
+      "name": "current_visits_canceled",
+      "options": {
+        "sql": "SELECT\n        _event_id,\n        `type`,\n        amount,\n        authorization_number,\n        bill_key,\n        bill_no,\n        business_id,\n        card_number,\n        client_id,\n        index,\n        issuer_name,\n        label_name,\n        merchant_number,\n        order_status,\n        paid_at,\n        payment_key,\n        pos_no,\n        pos_type,\n        service_name,\n        shop_code,\n        store_key,\n        timestamp,\n        CAST(null AS int) AS visit_order,\n        created_at_date\nFROM\n    current_pos_payments_canceled"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "current_visits_canceled",
+        "current_visits_approved"
+      ],
+      "name": "visits",
+      "options": {
+        "sql": "SELECT  *\nFROM    current_visits_approved\n\nUNION ALL\n\nSELECT  *\nFROM    current_visits_canceled"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "visits"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-data/raw/pos/pos_payments_with_visited",
+        "format": "parquet",
+        "partitions": "created_at_date",
+        "numPartitions": "10"
+      },
+      "type": "file"
+    }
+  ]
+}

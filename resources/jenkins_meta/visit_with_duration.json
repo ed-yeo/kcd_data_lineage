@@ -1,0 +1,51 @@
+{
+  "name": "visit_with_duration",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "visits",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/visits"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "visits_filtered",
+      "inputs": [
+        "visits"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      visits\nWHERE     encrypted_card_number is not null\nAND       purchase_canceled_at is null\nAND       created_at_date >= '2020-01-01'\nAND       transacted_at >= '2020-01-01'\nAND       transacted_at < '2021-01-01'"
+      }
+    },
+    {
+      "inputs": [
+        "visits_filtered"
+      ],
+      "name": "reformat",
+      "options": {
+        "sql": "SELECT    *,\n          IF (add_months(current_month, -3) <= transacted_at_month and\n              transacted_at_month < current_month, true, false) AS within_3_month,\n          IF (add_months(current_month, -6) <= transacted_at_month and\n              transacted_at_month < current_month, true, false) AS within_6_month,\n          IF (add_months(current_month, -9) <= transacted_at_month and\n              transacted_at_month < current_month, true, false) AS within_9_month,\n          IF (add_months(current_month, -12) <= transacted_at_month and\n              transacted_at_month < current_month, true, false) AS within_12_month\nFROM      (\n    SELECT    *,\n              date_trunc('month', transacted_at) AS transacted_at_month,\n              date_trunc('month', current_timestamp()) AS current_month\n    FROM      visits_filtered\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "reformat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/market_area/analysis/visit_with_duration"
+      },
+      "type": "file"
+    }
+  ]
+}

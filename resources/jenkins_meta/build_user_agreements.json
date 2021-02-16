@@ -1,0 +1,104 @@
+{
+  "name": "build_user_agreements",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "current_client_user_mapping",
+      "options": {
+        "url": "jdbc:mysql://auth-mysql-2.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:3306/auth?characterEncoding=UTF-8",
+        "dbtable": "client_user_mapping",
+        "user": "auth",
+        "password": "83jCxnHncj",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000",
+        "driver": "com.mysql.jdbc.Driver",
+        "autoPartition": "false"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "prev_client_user_mapping",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/auth/snapshot/latest/client_user_mapping"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "current_client_user_mapping"
+      ],
+      "name": "targets_to_send_message",
+      "options": {
+        "sql": "SELECT  distinct phone_number\nFROM    current_client_user_mapping\nWHERE   realm_id = 'paynote'\nAND     client_id = 'gsshop'\nAND     verified is not null\nAND     DATEDIFF(current_date(), CAST(verified AS DATE)) >= 7\nAND     phone_number is not null\nAND     phone_number != ''"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "current_client_user_mapping",
+        "prev_client_user_mapping"
+      ],
+      "name": "client_user_mapping_joined",
+      "options": {
+        "sql": "SELECT  struct(current.*) AS current,\n        struct(prev.*) AS prev\nFROM    current_client_user_mapping current FULL OUTER JOIN prev_client_user_mapping prev\nON      current.id = prev.id\nWHERE   current.realm_id = 'paynote'\nAND     current.client_id = 'gsshop'\nAND     prev.realm_id = 'paynote'\nAND     prev.client_id = 'gsshop'\nAND     current.verified_ci = current.ci"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "client_user_mapping_joined"
+      ],
+      "name": "targets_to_send_data",
+      "options": {
+        "sql": "SELECT  prev.client_id,\n        prev.client_user_id,\n        prev.created,\n        'delete' AS operation\nFROM    client_user_mapping_joined\nWHERE   current.id IS NULL AND prev.id IS NOT NULL\n\nUNION ALL\n\nSELECT  current.client_id,\n        current.client_user_id,\n        current.created,\n        'insert' AS operation\nFROM    client_user_mapping_joined\nWHERE   current.id IS NOT NULL AND prev.id IS NULL"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "targets_to_send_message"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "path": "s3://kcd-de-production/paynote_connect/gs/created_at_date=2021-01-19/message_targets",
+        "numPartitions": "1",
+        "mode": "overwrite"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "targets_to_send_data"
+      ],
+      "name": "file_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "path": "s3://kcd-de-production/paynote_connect/gs/created_at_date=2021-01-19/agreements",
+        "numPartitions": "1",
+        "header": "true",
+        "mode": "overwrite"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [
+        "current_client_user_mapping"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "path": "s3://kcd-de-production/paynote_connect/gs/created_at_date=2021-01-19/dump/client_user_mapping",
+        "mode": "overwrite"
+      },
+      "type": "file"
+    }
+  ]
+}

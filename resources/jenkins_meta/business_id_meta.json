@@ -1,0 +1,117 @@
+{
+  "name": "business_meta",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=businesses",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "business_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "classification",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "business_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "hometax",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=hometax",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "business_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "location",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "business_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "bank",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=bank",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "business_id"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "cardsales",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaSource",
+        "format": "parquet",
+        "basePath": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=cardsales",
+        "partitionName": "name",
+        "joinType": "full_outer",
+        "joinColumns": "business_id"
+      },
+      "type": "custom"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "businesses",
+        "classification",
+        "location",
+        "hometax",
+        "bank",
+        "cardsales"
+      ],
+      "name": "merge",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinColumns": "business_id",
+        "joinType": "full_outer"
+      },
+      "type": "custom"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "merge"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_cubes/dimension/name=business_meta"
+      },
+      "type": "file"
+    }
+  ]
+}

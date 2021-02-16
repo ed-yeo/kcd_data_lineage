@@ -1,0 +1,79 @@
+{
+  name: aggregate_payments
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: payments_raw
+      options:
+      {
+        paths: ${PAYMENTS_PATH}
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: payments
+      inputs:
+      [
+        payments_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      payments_raw
+          WHERE     received_at >= '${MIN_RECEIVED_AT}'
+          '''
+      }
+    }
+    {
+      name: payments_aggr
+      inputs:
+      [
+        payments
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  date_format(received_at, 'yyyy-MM-dd') AS received_at_date
+          FROM    (
+              SELECT  p.business_id,
+                      p.received_at,
+                      p.issuer_name,
+                      SUM(p.reserved_amount) AS reserved,
+                      SUM(p.received_amount) AS received
+              FROM    payments p
+              GROUP BY 1, 2, 3
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      name: file_sink
+      inputs:
+      [
+        payments_aggr
+      ]
+      type: file
+      options:
+      {
+        path: ${OUTPUT_PATH}
+        format: parquet
+        mode: overwrite
+      }
+    }
+  ]
+}

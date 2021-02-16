@@ -1,0 +1,178 @@
+{
+  name: pos_sales_amount_daily
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: pos_sales_source_raw
+      options:
+      {
+        format: parquet
+        paths: "${INPUT_PATH}"
+        partition_keys: 'created_at_date'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        pos_sales_source_raw
+      ]
+      name: pos_sales_source
+      options:
+      {
+        sql:
+          '''
+              SELECT
+                  *,
+                  date_format(paid_at, "yyyy-MM-dd") AS date_id
+              FROM
+                  pos_sales_source_raw
+              WHERE
+                  created_at_date >= '${DATE_AFTER}'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_sales_source
+      ]
+      name: pos_sales_daily_process
+      options:
+      {
+        sql:
+          '''
+             SELECT * FROM
+               (SELECT
+                   business_id,
+                   date_id,
+                   sum(card_amount) AS total_amount,
+                   sum(case when card_amount > 0 then 1 else -1 end) AS total_count,
+                   '카드' as paid_type
+               FROM
+                   (
+                   SELECT
+                       *
+                   FROM
+                       pos_sales_source
+                   WHERE
+                       card_amount != 0
+                   )
+               GROUP BY
+                   business_id, date_id
+
+               UNION ALL
+
+               SELECT
+                   business_id,
+                   date_id,
+                   sum(cash_amount) AS total_amount,
+                   sum(case when cash_amount > 0 then 1 else -1 end) AS total_count,
+                   '현금' as paid_type
+               FROM
+                   (
+                   SELECT
+                       *
+                   FROM
+                       pos_sales_source
+                   WHERE
+                       cash_amount != 0
+                   )
+               GROUP BY
+                   business_id, date_id
+
+               UNION ALL
+
+               SELECT
+                   business_id,
+                   date_id,
+                   sum(total_amount) - (sum(cash_amount) + sum(card_amount)) AS total_amount,
+                   sum(count_src) AS total_count,
+                   '기타' as paid_type
+               FROM
+                   (
+                   SELECT
+                       *,
+                       CASE WHEN total_amount - (cash_amount + card_amount) > 0 THEN 1 ELSE -1 END AS count_src
+                   FROM
+                       pos_sales_source
+                   WHERE
+                       total_amount != (cash_amount + card_amount) AND total_amount != 0
+                   )
+               GROUP BY
+                   business_id, date_id
+               )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_sales_daily_process
+      ]
+      name: pos_sales_daily_process_jdbc
+      options:
+      {
+        sql:
+          '''
+             SELECT
+               business_id,
+               to_date(date_id, 'yyyy-MM-dd') as date_id,
+               total_amount,
+               total_count,
+               paid_type
+             FROM
+               pos_sales_daily_process
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        pos_sales_daily_process
+      ]
+      name: file_sink
+      options:
+      {
+        mode: overwrite
+        path: ${OUTPUT_PATH}
+        format: parquet
+        partitions: date_id
+        numPartitions: "10"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        pos_sales_daily_process_jdbc
+      ]
+      name: jdbc_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        operation: upsert
+        dbtable: ${DB_TABLE_NAME}
+        conflictColumns: business_id,date_id,paid_type
+        updateColumns: total_amount,total_count
+        typeCastColumns: "paid_type:bills_paid_type_t"
+      }
+      type: jdbc
+    }
+  ]
+}

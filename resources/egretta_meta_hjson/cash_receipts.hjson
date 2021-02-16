@@ -1,0 +1,159 @@
+{
+  name: cash_receipts
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: purchases_cash_receipts
+        options:
+        {
+          format: parquet
+          paths: ${DB_DUMP_DIR}/snowdon/incremental/hometax_purchases_cash_receipts/created_at_date=${TARGET_DATE}
+        }
+        type: file
+     }
+    {
+        inputs: []
+        name: sales_cash_receipts
+        options:
+        {
+          format: parquet
+          paths: ${DB_DUMP_DIR}/snowdon/incremental/hometax_sales_cash_receipts/created_at_date=${TARGET_DATE}
+        }
+        type: file
+     }
+    {
+      inputs: []
+      name: memberships
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/memberships
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        purchases_cash_receipts
+      ]
+      name: purchases
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    business_id,
+                    collect_list(vendor_purchase) AS vendor_purchases,
+                    sum(total_amount) AS total_amount,
+                    sum(total_cnt) AS total_cnt
+            FROM (
+                    SELECT  business_id,
+                            vendor_registration_number,
+                            struct(
+                                nvl(vendor_business_name, vendor_registration_number) AS vendor_name,
+                                format_number(sum(amount), 0) AS amount,
+                                count(1) AS cnt
+                            ) AS vendor_purchase,
+                            sum(amount) AS total_amount,
+                            count(1) AS total_cnt
+                    FROM purchases_cash_receipts
+                    GROUP BY business_id, vendor_registration_number, vendor_business_name
+            )
+            GROUP BY business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        sales_cash_receipts
+      ]
+      name: sales
+      options:
+      {
+        sql:
+          '''
+            SELECT business_id, sum(amount) AS total_amount, count(1) AS total_cnt
+            FROM sales_cash_receipts
+            GROUP BY business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        purchases
+        sales
+      ]
+      name: cash_receipts_report
+      options:
+      {
+        sql:
+          '''
+          SELECT    IF(purchases.business_id IS NOT NULL, purchases.business_id, sales.business_id) AS business_id,
+                    date_sub(current_date, 1) AS yesterday,
+                    purchases.vendor_purchases,
+                    format_number(purchases.total_amount, 0) AS purchases_amount,
+                    purchases.total_cnt AS purchases_cnt,
+                    format_number(sales.total_amount, 0) AS sales_amount,
+                    sales.total_cnt AS sales_cnt,
+                    nvl(purchases.total_cnt, 0) + nvl(sales.total_cnt , 0) AS total_cnt
+          FROM      purchases
+          FULL OUTER JOIN sales
+          ON        purchases.business_id = sales.business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        cash_receipts_report
+        memberships
+      ]
+      name: add_target_id
+      options:
+      {
+        sql:
+          '''
+          SELECT    CONCAT(user_id, '_', business_id) AS target_id,
+                    *
+          FROM (
+                    SELECT
+                            cash_receipts_report.*,
+                            memberships.user_id
+                    FROM    cash_receipts_report
+                    JOIN    memberships
+                    ON      cash_receipts_report.business_id = memberships.business_id
+        )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        add_target_id
+      ]
+      name: cash_receipts_sink
+      options:
+      {
+        format: json
+        mode: overwrite
+        path: ${REPORT_DIR}/date_id=${TARGET_DATE}/report_name=cash_receipts
+      }
+      type: file
+    }
+  ]
+}

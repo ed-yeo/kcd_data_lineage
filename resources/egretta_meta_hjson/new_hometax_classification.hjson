@@ -1,0 +1,115 @@
+{
+  name: new_hometax_classification
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: hometax_business_classification
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=classification/name=hometax_old
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_new_old_mapping
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}"
+        paths: ${LOOKUP_DIR}/subject=classification_v2/name=hometax_new_old_mapping
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: new_hometax_classification
+      options:
+      {
+        format: csv
+        read: "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}"
+        paths: ${LOOKUP_DIR}/subject=classification_v2/hometax_new_clasification.tsv
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        hometax_new_old_mapping
+        new_hometax_classification
+      ]
+      name: mapping
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    mapping.*,
+                    new_hometax_classification.depth_1_name,
+                    new_hometax_classification.depth_2_name,
+                    new_hometax_classification.depth_3_name,
+                    new_hometax_classification.depth_4_name
+          FROM      hometax_new_old_mapping AS mapping
+          JOIN      new_hometax_classification
+          ON        new_hometax_classification.classification_code = mapping.hometax_new_code
+
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hometax_business_classification
+        mapping
+      ]
+      name: new_hometax_business_classification
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM (
+                  SELECT
+                            hometax_business_classification.business_id,
+                            hometax_business_classification.registration_number,
+                            mapping.hometax_new_code AS classification_code,
+                            mapping.depth_1_name,
+                            mapping.depth_2_name,
+                            mapping.depth_3_name,
+                            mapping.depth_4_name
+                  FROM      hometax_business_classification
+                  JOIN      mapping
+                  ON        hometax_business_classification.code = mapping.hometax_old_code
+          )
+          WHERE     classification_code IS NOT NULL
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        new_hometax_business_classification
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=hometax
+      }
+      type: file
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  name: registration_number_meta
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: '${DIMENSION_DIR}/id_type=registration_number/subject=businesses/name=businesses'
+      }
+      type: file
+    }
+    {
+        inputs: []
+        name: places
+        options:
+        {
+          class: com.kcd.thrush.dmp.spark.MergeSchemaSource
+          format: parquet
+          basePath: '${DIMENSION_DIR}/id_type=registration_number/subject=places'
+          partitionName: name
+          joinType: full_outer
+          joinColumns: registration_number
+        }
+        type: custom
+    }
+    {
+      inputs: []
+      name: classification
+      options:
+      {
+        format: parquet
+        paths: '${DIMENSION_DIR}/id_type=registration_number/subject=classification/name=kcd'
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: location
+      options:
+      {
+        format: parquet
+        paths: '${DIMENSION_DIR}/id_type=registration_number/subject=location/name=common'
+      }
+      type: file
+    }
+    {
+        inputs: []
+        name: cardsales
+        options:
+        {
+          class: com.kcd.thrush.dmp.spark.MergeSchemaSource
+          format: parquet
+          basePath: '${DIMENSION_DIR}/id_type=registration_number/subject=cardsales'
+          partitionName: name
+          joinType: full_outer
+          joinColumns: registration_number
+        }
+        type: custom
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        businesses
+        classification
+        location
+        places
+        cardsales
+      ]
+      name: merge
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.MergeSchemaProcess
+        joinType: full_outer
+        joinColumns: registration_number
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        merge
+      ]
+      name: select_columns
+      options:
+      {
+        sql:
+          '''
+          SELECT    registration_number,
+                    businesses,
+                    location,
+                    classification,
+                    cardsales,
+                    CASE
+                        WHEN    places.places.merchant_name IS NOT NULL AND location IS NOT NULL THEN CONCAT(
+                                                                                        location.sido, ' ',
+                                                                                        location.sigungu, ' ',
+                                                                                        location.dong, ' ',
+                                                                                        places.places.merchant_name
+                                                                                   )
+                        WHEN    places.places.merchant_name IS NOT NULL  THEN places.places.merchant_name
+                        ELSE    null
+                    END AS search_name,
+
+                    named_struct(
+                        'name', places.places.merchant_name,
+                        'reviews', places.reviews
+                    ) AS places
+          FROM      merge
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        select_columns
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DATACUBE_DIR}/dimension/name=registration_number_meta
+      }
+      type: file
+    }
+  ]
+}

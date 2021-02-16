@@ -1,0 +1,309 @@
+{
+  name: total_region_code_with_polygon
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: total_region_code
+      options:
+      {
+        format: parquet
+        paths: ${LOOKUP_DIR}/subject=${SUBJECT}/name=total_region_code
+      }
+      type: file
+      cache: true
+    }
+    {
+      inputs: []
+      name: region_code_mapping
+      options:
+      {
+        format: parquet
+        paths: ${LOOKUP_DIR}/subject=${SUBJECT}/name=region_code_mapping
+      }
+      type: file
+      cache: true
+    }
+    {
+      inputs: []
+      name: b_dong_geojson
+      options:
+      {
+        format: json
+        paths: ${B_DONG_GEOJSON}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: h_dong_geojson
+      options:
+      {
+        format: json
+        paths: ${H_DONG_GEOJSON}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: sigungu_geojson
+      options:
+      {
+        format: json
+        paths: ${SIGUNGU_GEOJSON}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: sido_geojson
+      options:
+      {
+        format: json
+        paths: ${SIDO_GEOJSON}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        total_region_code
+        b_dong_geojson
+      ]
+      name: b_dong_with_polygon
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  region.*,
+                  polygon.geometry
+          FROM (
+                  SELECT *
+                  FROM  total_region_code
+                  WHERE region_type = 'b_dong'
+          ) AS region
+          LEFT OUTER JOIN (
+                  SELECT
+                          CONCAT(properties.EMD_CD, '00') AS code,
+                          geometry
+                  FROM  b_dong_geojson
+                  WHERE properties is not null
+                  AND properties.GID NOT IN (5077, 1006, 4931)
+          ) AS polygon
+          ON region.code = polygon.code
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        total_region_code
+        region_code_mapping
+        h_dong_geojson
+      ]
+      name: h_dong_with_polygon
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  region.*,
+                  polygon.geometry
+          FROM (
+              SELECT    h.*,
+                        m.region_code
+              FROM (
+                  SELECT    *
+                  FROM      total_region_code
+                  WHERE     region_type = 'h_dong'
+              ) h
+              LEFT OUTER JOIN (
+                  SELECT    DISTINCT h_code, region_code
+                  FROM      region_code_mapping
+              ) m
+              ON h.code = m.h_code
+          ) AS region
+          LEFT OUTER JOIN (
+              SELECT
+                        properties.ADM_DR_CD AS code,
+                        geometry
+              FROM      h_dong_geojson
+              WHERE     properties is not null
+          ) AS polygon
+          ON region.region_code = polygon.code
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        total_region_code
+        region_code_mapping
+        sigungu_geojson
+      ]
+      name: sigungu_with_polygon
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  region.*,
+                  polygon.geometry
+          FROM (
+              SELECT h.*, m.region_code
+              FROM (
+                  SELECT    *
+                  FROM      total_region_code
+                  WHERE     region_type = 'sigungu'
+              ) h
+              LEFT OUTER JOIN (
+                  SELECT    DISTINCT h_code, region_code
+                  FROM      region_code_mapping
+              ) m
+              ON h.code = m.h_code
+          ) AS region
+          LEFT OUTER JOIN (
+              SELECT
+                        properties.SIGUNGU_CD AS code,
+                        geometry
+              FROM      sigungu_geojson
+              WHERE     properties is not null
+          ) AS polygon
+          ON region.region_code = polygon.code
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        total_region_code
+        region_code_mapping
+        sido_geojson
+      ]
+      name: sido_with_polygon
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  region.*,
+                  polygon.geometry
+          FROM (
+              SELECT h.*, m.region_code
+              FROM (
+                  SELECT    *
+                  FROM      total_region_code
+                  WHERE     region_type = 'sido'
+              ) h
+              LEFT OUTER JOIN (
+                  SELECT    DISTINCT h_code, region_code
+                  FROM      region_code_mapping
+              ) m
+              ON h.code = m.h_code
+          ) AS region
+          LEFT OUTER JOIN (
+              SELECT
+                        properties.SIDO_CD AS code,
+                        geometry
+              FROM      sido_geojson
+              WHERE     properties is not null
+          ) AS polygon
+          ON region.region_code = polygon.code
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        sido_with_polygon
+        sigungu_with_polygon
+        h_dong_with_polygon
+        b_dong_with_polygon
+      ]
+      name: region_polygon
+      options:
+      {
+        sql:
+          '''
+          SELECT code, sido, sido_code, sigungu, sigungu_code, dong, full_address, mapping_codes, region_type, geometry FROM sido_with_polygon
+          UNION ALL
+          SELECT code, sido, sido_code, sigungu, sigungu_code, dong, full_address, mapping_codes, region_type, geometry FROM sigungu_with_polygon
+          UNION ALL
+          SELECT code, sido, sido_code, sigungu, sigungu_code, dong, full_address, mapping_codes, region_type, geometry FROM h_dong_with_polygon
+          UNION ALL
+          SELECT code, sido, sido_code, sigungu, sigungu_code, dong, full_address, mapping_codes, region_type, geometry FROM b_dong_with_polygon
+          '''
+      }
+      type: sql
+      cache: true
+    }
+    {
+      inputs:
+      [
+        region_polygon
+      ]
+      name: region_polygon_db
+      options:
+      {
+        sql:
+          '''
+          SELECT    code, sido, sido_code, sigungu, sigungu_code, dong, full_address, mapping_codes, region_type,
+                    to_json(geometry.coordinates) AS polygon,
+                    current_timestamp() AS created_at,
+                    current_timestamp() AS updated_at
+          FROM      region_polygon
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        region_polygon
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${LOOKUP_DIR}/subject=${SUBJECT}/name=total_region
+        numPartitions: "20"
+        partitions: region_type
+      }
+      type: file
+    }
+    /*
+    {
+      inputs:
+      [
+        region_polygon_db
+      ]
+      name: jdbc_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        dbtable: ${DB_TABLE}
+        mode: overwrite
+        truncate: "true"
+      }
+      type: jdbc
+    }
+    */
+  ]
+}

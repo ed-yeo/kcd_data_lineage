@@ -1,0 +1,238 @@
+{
+  name: place_table_graph_format
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: place_indexes
+      options:
+      {
+        format: parquet
+        paths: "${PLACE_TABLE_INPUT_PATH}/place_indexes"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_info
+      options:
+      {
+        format: parquet
+        paths: "${PLACE_TABLE_INPUT_PATH}/place_info"
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_menus
+      options:
+      {
+        format: parquet
+        paths: "${PLACE_TABLE_INPUT_PATH}/place_menus"
+      }
+      type: file
+    }
+     {
+       inputs: []
+       name: place_reviews
+       options:
+       {
+         format: parquet
+         paths: "${PLACE_TABLE_INPUT_PATH}/place_reviews"
+       }
+       type: file
+     }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+          place_indexes
+      ]
+      name: place_indexes_graph_format
+      options:
+      {
+        sql:
+          '''
+              SELECT
+                  timestamp,
+                  registration_number AS from,
+                  concat(place_uid, '_', place_type) AS to,
+                  'place_indexes' as label,
+                  to_json(
+                     struct(
+                         issuer,
+                         merchant_number,
+                         place_uid,
+                         place_type,
+                         registration_number
+                     )
+                  ) AS props
+              FROM
+                  place_indexes
+          '''
+      }
+      type: sql
+    },
+    {
+      inputs:
+      [
+          place_info
+      ]
+      name: place_info_graph_format
+      options:
+      {
+        sql:
+          '''
+              SELECT
+                  timestamp,
+                  concat(place_uid, '_', place_type) AS from,
+                  concat(place_uid, '_', place_type) AS to,
+                  'place_info' as label,
+                  to_json(struct(
+                      classification,
+                      images,
+                      latitude,
+                      longitude,
+                      lot_address,
+                      phone_number,
+                      place_uid,
+                      street_address,
+                      nvl(review_count, 0) AS review_count,
+                      avg_review_rating,
+                      registration_number,
+                      name
+                  )) AS props
+              FROM
+                  place_info
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+          place_menus
+      ]
+      name: place_menus_graph_format
+      options:
+      {
+        sql:
+          '''
+               SELECT
+                   timestamp,
+                   concat(place_uid, '_', place_type) AS from,
+                   java_method('java.util.UUID', 'randomUUID') AS to,
+                   'place_menus' as label,
+                   to_json(struct(
+                       description,
+                       image,
+                       name,
+                       place_type,
+                       place_uid,
+                       price,
+                       priority
+                   )) AS props
+               FROM
+                   place_menus
+          '''
+      }
+      type: sql
+    }
+     {
+       inputs:
+       [
+           place_reviews
+       ]
+       name: place_reviews_graph_format
+       options:
+       {
+         sql:
+           '''
+               SELECT
+                   timestamp,
+                   concat(place_uid, '_', place_type) AS from,
+                   concat(review_id, '_', review_type) AS to,
+                   'place_reviews' as label,
+                   to_json(struct(
+                       author,
+                       contents,
+                       image,
+                       place_type,
+                       place_uid,
+                       rating,
+                       review_id,
+                       review_type,
+                       title,
+                       written_at
+                   )) AS props
+               FROM
+                    place_reviews
+           '''
+       }
+       type: sql
+     }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        place_indexes_graph_format
+      ]
+      name: place_indexes_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}/place_indexes"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        place_info_graph_format
+      ]
+      name: place_info_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}/place_info"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        place_menus_graph_format
+      ]
+      name: place_menus_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}/place_menus"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        place_reviews_graph_format
+      ]
+      name: place_reviews_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${OUTPUT_PATH}/place_reviews"
+      }
+      type: file
+    }
+  ]
+}

@@ -1,0 +1,123 @@
+{
+  name: build_user_visit_info
+  udfs: [
+    {
+        name: cohort
+        class: com.kcd.thrush.analysis.spark.udfs.Cohort
+        params: {
+            time_unit: WEEK
+        }
+      }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: visits
+      options:
+      {
+        format: parquet
+        paths: ${REVISIT_TARGET_PATH}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        visits
+      ]
+      name: visit_pairs
+      options:
+      {
+        sql:
+          '''
+            SELECT  encrypted_card_number,
+                    business_id,
+                    pair._1 as start_date,
+                    pair._2 as end_date
+            FROM    (
+                    SELECT  encrypted_card_number,
+                            business_id,
+                            explode(cohort(visits)) as pair
+                    FROM    (
+                            SELECT  encrypted_card_number,
+                                    business_id,
+                                    collect_list(transacted_at) as visits
+                            FROM    visits
+                            WHERE   encrypted_card_number IS NOT NULL
+                            AND     business_id IS NOT NULL
+                            AND     transacted_at >= '${START_DATE}'
+                            AND     transacted_at < '${END_DATE}'
+                            GROUP BY encrypted_card_number, business_id
+                    )
+            )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        visits
+      ]
+      name: visit_user_type
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                  *,
+                  IF(visit_count > 1, 'revisit', 'new') AS user_type
+          FROM (
+                  SELECT
+                          business_id, encrypted_card_number, date, min(prev_visit_count) AS visit_count
+                  FROM (
+                      SELECT  business_id,
+                              encrypted_card_number,
+                              date_trunc('WEEK', transacted_at) AS date,
+                              (visit_order - 1) AS prev_visit_count
+                      FROM visits
+                  )
+                  GROUP BY business_id, encrypted_card_number, date
+          )
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        visit_pairs
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/visit_pairs
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        visit_user_type
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/visit_user_type
+        partitions: user_type
+      }
+      type: file
+    }
+  ]
+}

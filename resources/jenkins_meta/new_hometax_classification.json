@@ -1,0 +1,73 @@
+{
+  "name": "new_hometax_classification",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "hometax_business_classification",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=hometax_old"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_new_old_mapping",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/name=hometax_new_old_mapping"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "new_hometax_classification",
+      "options": {
+        "format": "csv",
+        "read": "{\"header\":\"true\",\"delimiter\":\"\\\\t\"}",
+        "paths": "s3://kcd-de-production/data_sources/lookup/subject=classification_v2/hometax_new_clasification.tsv"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "hometax_new_old_mapping",
+        "new_hometax_classification"
+      ],
+      "name": "mapping",
+      "options": {
+        "sql": "SELECT\n          mapping.*,\n          new_hometax_classification.depth_1_name,\n          new_hometax_classification.depth_2_name,\n          new_hometax_classification.depth_3_name,\n          new_hometax_classification.depth_4_name\nFROM      hometax_new_old_mapping AS mapping\nJOIN      new_hometax_classification\nON        new_hometax_classification.classification_code = mapping.hometax_new_code\n"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hometax_business_classification",
+        "mapping"
+      ],
+      "name": "new_hometax_business_classification",
+      "options": {
+        "sql": "SELECT    *\nFROM (\n        SELECT\n                  hometax_business_classification.business_id,\n                  hometax_business_classification.registration_number,\n                  mapping.hometax_new_code AS classification_code,\n                  mapping.depth_1_name,\n                  mapping.depth_2_name,\n                  mapping.depth_3_name,\n                  mapping.depth_4_name\n        FROM      hometax_business_classification\n        JOIN      mapping\n        ON        hometax_business_classification.code = mapping.hometax_old_code\n)\nWHERE     classification_code IS NOT NULL"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "new_hometax_business_classification"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=classification/name=hometax"
+      },
+      "type": "file"
+    }
+  ]
+}

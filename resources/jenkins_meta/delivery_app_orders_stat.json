@@ -1,0 +1,94 @@
+{
+  "name": "delivery_app_orders_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "delivery_app_orders_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/delivery_app/delivery_app_orders"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "delivery_app_orders_src"
+      ],
+      "name": "delivery_app_orders",
+      "options": {
+        "sql": "SELECT    *\nFROM      delivery_app_orders_src\nWHERE     created_at_date >= ''\nAND       created_at_date < ''\nAND       closed"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "delivery_app_orders"
+      ],
+      "name": "hourly_delivery_apps_order_stats",
+      "options": {
+        "sql": "SELECT    business_id,\n          date_trunc('hour', ordered_at) AS time,\n          'day_hour' AS time_unit,\n          SUM(order_amount) AS amount_sum,\n          SUM(IF (app_name = 'baemin', order_amount, 0)) AS baemin_amount_sum,\n          SUM(IF (app_name = 'baedaltong', order_amount, 0)) AS baedaltong_amount_sum,\n          SUM(IF (app_name = 'yogiyo', order_amount, 0)) AS yogiyo_amount_sum,\n          SUM(IF (paid_online, order_amount, 0)) AS online_amount_sum,\n          SUM(IF (paid_online and app_name = 'baemin', order_amount, 0)) AS baemin_online_amount_sum,\n          SUM(IF (paid_online and app_name = 'baedaltong', order_amount, 0)) AS baedaltong_online_amount_sum,\n          SUM(IF (paid_online and app_name = 'yogiyo', order_amount, 0)) AS yogiyo_online_amount_sum,\n          SUM(IF (paid_offline, order_amount, 0)) AS offline_amount_sum,\n          SUM(IF (paid_offline and app_name = 'baemin', order_amount, 0)) AS baemin_offline_amount_sum,\n          SUM(IF (paid_offline and app_name = 'baedaltong', order_amount, 0)) AS baedaltong_offline_amount_sum,\n          SUM(IF (paid_offline and app_name = 'yogiyo', order_amount, 0)) AS yogiyo_offline_amount_sum,\n          COUNT(*) AS order_count,\n          SUM(IF (app_name = 'baemin', 1, 0)) AS baemin_order_count,\n          SUM(IF (app_name = 'baedaltong', 1, 0)) AS baedaltong_order_count,\n          SUM(IF (app_name = 'yogiyo', 1, 0)) AS yogiyo_order_count,\n          SUM(IF (paid_online, 1, 0)) AS online_order_count,\n          SUM(IF (paid_online and app_name = 'baemin', 1, 0)) AS baemin_online_order_count,\n          SUM(IF (paid_online and app_name = 'baedaltong', 1, 0)) AS baedaltong_online_order_count,\n          SUM(IF (paid_online and app_name = 'yogiyo', 1, 0)) AS yogiyo_online_order_count,\n          SUM(IF (paid_offline, 1, 0)) AS offline_order_count,\n          SUM(IF (paid_offline and app_name = 'baemin', 1, 0)) AS baemin_offline_order_count,\n          SUM(IF (paid_offline and app_name = 'baedaltong', 1, 0)) AS baedaltong_offline_order_count,\n          SUM(IF (paid_offline and app_name = 'yogiyo', 1, 0)) AS yogiyo_offline_order_count\nFROM      delivery_app_orders\nGROUP BY 1, 2"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hourly_delivery_apps_order_stats"
+      ],
+      "name": "daily_delivery_apps_order_stats",
+      "options": {
+        "sql": "SELECT    business_id,\n          date_trunc('day', time) AS time,\n          'day' AS time_unit,\n          SUM(amount_sum) AS amount_sum,\n          SUM(baemin_amount_sum) AS baemin_amount_sum,\n          SUM(baedaltong_amount_sum) AS baedaltong_amount_sum,\n          SUM(yogiyo_amount_sum) AS yogiyo_amount_sum,\n          SUM(online_amount_sum) AS online_amount_sum,\n          SUM(baemin_online_amount_sum) AS baemin_online_amount_sum,\n          SUM(baedaltong_online_amount_sum) AS baedaltong_online_amount_sum,\n          SUM(yogiyo_online_amount_sum) AS yogiyo_online_amount_sum,\n          SUM(offline_amount_sum) AS offline_amount_sum,\n          SUM(baemin_offline_amount_sum) AS baemin_offline_amount_sum,\n          SUM(baedaltong_offline_amount_sum) AS baedaltong_offline_amount_sum,\n          SUM(yogiyo_offline_amount_sum) AS yogiyo_offline_amount_sum,\n          SUM(order_count) AS order_count,\n          SUM(baemin_order_count) AS baemin_order_count,\n          SUM(baedaltong_order_count) AS baedaltong_order_count,\n          SUM(yogiyo_order_count) AS yogiyo_order_count,\n          SUM(online_order_count) AS online_order_count,\n          SUM(baemin_online_order_count) AS baemin_online_order_count,\n          SUM(baedaltong_online_order_count) AS baedaltong_online_order_count,\n          SUM(yogiyo_online_order_count) AS yogiyo_online_order_count,\n          SUM(offline_order_count) AS offline_order_count,\n          SUM(baemin_offline_order_count) AS baemin_offline_order_count,\n          SUM(baedaltong_offline_order_count) AS baedaltong_offline_order_count,\n          SUM(yogiyo_offline_order_count) AS yogiyo_offline_order_count\nFROM      hourly_delivery_apps_order_stats\nGROUP BY 1, 2"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "daily_delivery_apps_order_stats"
+      ],
+      "name": "weekly_delivery_apps_order_stats",
+      "options": {
+        "sql": "SELECT    business_id,\n          date_trunc('week', time) AS time,\n          'week' AS time_unit,\n          SUM(amount_sum) AS amount_sum,\n          SUM(baemin_amount_sum) AS baemin_amount_sum,\n          SUM(baedaltong_amount_sum) AS baedaltong_amount_sum,\n          SUM(yogiyo_amount_sum) AS yogiyo_amount_sum,\n          SUM(online_amount_sum) AS online_amount_sum,\n          SUM(baemin_online_amount_sum) AS baemin_online_amount_sum,\n          SUM(baedaltong_online_amount_sum) AS baedaltong_online_amount_sum,\n          SUM(yogiyo_online_amount_sum) AS yogiyo_online_amount_sum,\n          SUM(offline_amount_sum) AS offline_amount_sum,\n          SUM(baemin_offline_amount_sum) AS baemin_offline_amount_sum,\n          SUM(baedaltong_offline_amount_sum) AS baedaltong_offline_amount_sum,\n          SUM(yogiyo_offline_amount_sum) AS yogiyo_offline_amount_sum,\n          SUM(order_count) AS order_count,\n          SUM(baemin_order_count) AS baemin_order_count,\n          SUM(baedaltong_order_count) AS baedaltong_order_count,\n          SUM(yogiyo_order_count) AS yogiyo_order_count,\n          SUM(online_order_count) AS online_order_count,\n          SUM(baemin_online_order_count) AS baemin_online_order_count,\n          SUM(baedaltong_online_order_count) AS baedaltong_online_order_count,\n          SUM(yogiyo_online_order_count) AS yogiyo_online_order_count,\n          SUM(offline_order_count) AS offline_order_count,\n          SUM(baemin_offline_order_count) AS baemin_offline_order_count,\n          SUM(baedaltong_offline_order_count) AS baedaltong_offline_order_count,\n          SUM(yogiyo_offline_order_count) AS yogiyo_offline_order_count\nFROM      daily_delivery_apps_order_stats\nGROUP BY 1, 2"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "daily_delivery_apps_order_stats"
+      ],
+      "name": "monthly_delivery_apps_order_stats",
+      "options": {
+        "sql": "SELECT    business_id,\n          date_trunc('month', time) AS time,\n          'month' AS time_unit,\n          SUM(amount_sum) AS amount_sum,\n          SUM(baemin_amount_sum) AS baemin_amount_sum,\n          SUM(baedaltong_amount_sum) AS baedaltong_amount_sum,\n          SUM(yogiyo_amount_sum) AS yogiyo_amount_sum,\n          SUM(online_amount_sum) AS online_amount_sum,\n          SUM(baemin_online_amount_sum) AS baemin_online_amount_sum,\n          SUM(baedaltong_online_amount_sum) AS baedaltong_online_amount_sum,\n          SUM(yogiyo_online_amount_sum) AS yogiyo_online_amount_sum,\n          SUM(offline_amount_sum) AS offline_amount_sum,\n          SUM(baemin_offline_amount_sum) AS baemin_offline_amount_sum,\n          SUM(baedaltong_offline_amount_sum) AS baedaltong_offline_amount_sum,\n          SUM(yogiyo_offline_amount_sum) AS yogiyo_offline_amount_sum,\n          SUM(order_count) AS order_count,\n          SUM(baemin_order_count) AS baemin_order_count,\n          SUM(baedaltong_order_count) AS baedaltong_order_count,\n          SUM(yogiyo_order_count) AS yogiyo_order_count,\n          SUM(online_order_count) AS online_order_count,\n          SUM(baemin_online_order_count) AS baemin_online_order_count,\n          SUM(baedaltong_online_order_count) AS baedaltong_online_order_count,\n          SUM(yogiyo_online_order_count) AS yogiyo_online_order_count,\n          SUM(offline_order_count) AS offline_order_count,\n          SUM(baemin_offline_order_count) AS baemin_offline_order_count,\n          SUM(baedaltong_offline_order_count) AS baedaltong_offline_order_count,\n          SUM(yogiyo_offline_order_count) AS yogiyo_offline_order_count\nFROM      daily_delivery_apps_order_stats\nGROUP BY 1, 2"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "hourly_delivery_apps_order_stats",
+        "daily_delivery_apps_order_stats",
+        "weekly_delivery_apps_order_stats",
+        "monthly_delivery_apps_order_stats"
+      ],
+      "name": "delivery_app_orders_stat",
+      "options": {
+        "sql": "SELECT * FROM hourly_delivery_apps_order_stats\nUNION ALL\nSELECT * FROM daily_delivery_apps_order_stats\nUNION ALL\nSELECT * FROM weekly_delivery_apps_order_stats\nUNION ALL\nSELECT * FROM monthly_delivery_apps_order_stats"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "delivery_app_orders_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/stat/snowdon/delivery_app/delivery_app_orders_stat",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

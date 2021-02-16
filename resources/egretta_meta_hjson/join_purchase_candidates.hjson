@@ -1,0 +1,101 @@
+{
+  name: join_purchase_candidates
+  udfs: [
+    {
+      name: mask_card_number
+      class: com.kcd.thrush.udfs.MarkCardNumberUDF
+      params: {}
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: purchases_raw
+      options:
+      {
+        paths: "${PURCHASES_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: current_purchases
+      inputs:
+      [
+        purchases_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      purchases_raw
+          WHERE     created_at_date >= '${MIN_CREATED_AT_DATE}'
+          AND       created_at_date < '${MAX_CREATED_AT_DATE}'
+          '''
+      }
+    }
+    {
+      name: current_purchase_candidates
+      inputs:
+      [
+        current_purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    struct(purchased.*) AS purchased,
+                    struct(canceled.*) AS canceled,
+                    COALESCE(purchased.created_at_date, canceled.created_at_date) AS created_at_date
+          FROM      (
+            SELECT  *
+            FROM    current_purchases
+            WHERE   amount > 0
+          ) purchased FULL OUTER JOIN (
+            SELECT  *
+            FROM    current_purchases
+            WHERE   amount < 0
+          ) canceled
+          ON  (
+            purchased.business_id = canceled.business_id AND
+            purchased.credential_key = canceled.credential_key AND
+            purchased.amount = -canceled.amount AND
+            purchased.masked_card_number = canceled.masked_card_number AND
+            (
+                purchased.card_type = 4 AND
+                purchased.authorization_number = canceled.authorization_number OR
+                (
+                    purchased.card_type != 4 AND
+                    CAST(purchased.transacted_at AS DATE) = CAST(canceled.transacted_at AS DATE) AND
+                    purchased.purchase_cancel_seq = canceled.purchase_cancel_seq
+                )
+            )
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        current_purchase_candidates
+      ]
+      name: file_sink
+      options: {
+          mode: overwrite
+          path: "${OUTPUT_BASE_PATH}/candidates/purchases_current"
+          format: parquet
+      }
+      type: file
+    }
+  ]
+}

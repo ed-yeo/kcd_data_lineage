@@ -1,0 +1,98 @@
+{
+  //DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD
+  name: hometax_business_label_upload
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: hometax_businesses
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/hometax_businesses
+      }
+      type: file
+      cache: true
+    }
+    {
+      inputs: []
+      name: business_label
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=business_id/subject=hometax/name=business_label
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        hometax_businesses
+        business_label
+      ]
+      name: result
+      options:
+      {
+        sql:
+          '''
+            SELECT  b.id,
+                    b.business_id,
+                    b.name,
+                    b.address,
+                    b.phone_number,
+                    b.owner_name,
+                    b.owner_birthday,
+                    b.owner_nationality,
+                    b.owner_email,
+                    b.opened_at,
+                    b.operation_status,
+                    b.taxation_type,
+                    b.item_name,
+                    b.item_code,
+                    b.login,
+                    b.official_name,
+                    b.official_code,
+                    b.official_number,
+                    b.tax_refunds_count,
+                    b.created_at,
+                    current_timestamp() AS updated_at,
+                    l.regular_employees_count,
+                    l.size_category,
+                    b.owner_address,
+                    b.type_name
+            FROM    hometax_businesses b LEFT OUTER JOIN business_label l
+            ON      b.business_id = l.business_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        result
+      ]
+      name: jdbc_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        operation: upsert
+        dbtable: hometax_businesses
+        conflictColumns: business_id
+        updateColumns: regular_employees_count,size_category,updated_at
+        typeCastColumns: size_category:hometax_business_size_category
+      }
+      type: jdbc
+    }
+  ]
+}

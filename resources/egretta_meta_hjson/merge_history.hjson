@@ -1,0 +1,157 @@
+{
+  name: merge_history
+  udfs: [
+    {
+        name: transactionHistoryMatchUDF
+        class: com.kcd.thrush.udfs.TransactionHistoryMatchUDF
+        params: {
+            businessDaysPath: s3://thrush/dev/card_sales_v2/db/snowdon/business_days/latest
+        }
+    }
+    {
+        name: purchaseDelayUDF
+        class: com.kcd.thrush.udfs.PurchaseDelayedUDF
+        params: {
+            businessDaysPath: s3://thrush/dev/card_sales_v2/db/snowdon/business_days/latest
+        }
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/dev/card_sales_v2/db/snowdon/businesses/latest
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: card_merchants
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/dev/card_sales_v2/db/snowdon/card_merchants/latest
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: grouped
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/test/card_sales_v2/raw_v2/grouped/date_id=${date_id}
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        businesses
+        card_merchants
+        grouped
+      ]
+      name: transactions
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                     explode(
+                        transactionHistoryMatchUDF(
+                            histories,
+                            vat_withheld,
+                            credit_fee_rate,
+                            check_fee_rate,
+                            bank_name,
+                            purchase_period,
+                            payment_period,
+                            paid_on_weekends
+                        )
+                     )AS tx_with_history
+          FROM (
+              SELECT /*+ BROADCAST(b, c) */
+                     a.*,
+                     COALESCE(b.vat_withheld, false) AS vat_withheld,
+                     CAST(COALESCE(c.calculated_credit_fee_rate, c.credit_fee_rate) AS double) AS credit_fee_rate,
+                     CAST(COALESCE(c.calculated_check_fee_rate, c.check_fee_rate_c) AS double) AS check_fee_rate,
+                     c.bank_name,
+                     COALESCE(c.calculated_purchase_period, 1) AS purchase_period,
+                     COALESCE(c.calculated_payment_period, c.payment_period) AS payment_period,
+                     c.paid_on_weekends
+              FROM   grouped a, businesses b, card_merchants c
+              WHERE  a.business_id = b.id
+              AND    a.business_id = c.business_id
+              AND    a.issuer_name = c.issuer_name
+              AND    a.merchant_number = c.merchant_number
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        transactions
+      ]
+      name: filtered
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    acquirer_name, amount, authorization_number, base_fee, business_id, card_number, card_type, created_at, encrypted_card_number, etc_fee, fee, id, installment, issuer_name, masked_card_number, merchant_number, paid_at, payment, point_fee, purchase_canceled_at, purchased_at, returning, status, transacted_at, transacted_at_date, transaction_canceled_at, vat_fee,
+                    vat_withheld,
+                    credit_fee_rate,
+                    check_fee_rate,
+                    bank_name,
+                    purchase_period,
+                    payment_period,
+                    paid_on_weekends,
+                    purchaseDelayUDF(*) AS purchase_delayed
+            FROM (
+                    SELECT
+                           tx_with_history.transaction.*,
+                           vat_withheld,
+                           credit_fee_rate,
+                           check_fee_rate,
+                           bank_name,
+                           purchase_period,
+                           payment_period,
+                           paid_on_weekends
+                    FROM   transactions
+            )
+            WHERE   created_at_date >= '${_7_day_ago}'
+            AND     created_at_date <= '${today}'
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        grouped
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://thrush/test/card_sales_v2/raw_v2/tx_upsert
+        partitions: created_at_date
+        evenPartitions: "true"
+      }
+      type: file
+    }
+  ]
+}

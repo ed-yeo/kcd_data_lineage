@@ -1,0 +1,47 @@
+{
+  "name": "dump_db_card_sales",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "card_sales_transactions",
+      "options": {
+        "url": "jdbc:postgresql://snowdon-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/ebdb",
+        "dbtable": "new_card_sales_transactions",
+        "user": "scraper",
+        "password": "g6XEyybrQU.nDA6jTp",
+        "lowerBound": "8581239045",
+        "upperBound": "9068232598",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "card_sales_transactions"
+      ],
+      "name": "card_sales_transactions",
+      "options": {
+        "sql": "\nSELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,\n        *\nFROM    card_sales_transactions\nWHERE   id >= 8581239045\nAND     id < 9068232598\n          "
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "card_sales_transactions"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/work/elric/dump/snowdon/incremental/card_sales_transactions"
+      },
+      "type": "file"
+    }
+  ]
+}

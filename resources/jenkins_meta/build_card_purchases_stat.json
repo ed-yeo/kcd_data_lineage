@@ -1,0 +1,82 @@
+{
+  "name": "build_card_purchases_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "cards",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/cards",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_purchases_src",
+      "options": {
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card/card_purchases",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "card_purchases",
+      "inputs": [
+        "card_purchases_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      card_purchases_src\nWHERE     created_at_date >= '2021-01-21'\nAND       created_at_date < '2021-01-28'"
+      }
+    },
+    {
+      "name": "daily_card_purchases_stat",
+      "inputs": [
+        "card_purchases"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          card_id,\n          date_trunc('day', approved_at) AS time,\n          'day' AS time_unit,\n          SUM(amount) AS amount,\n          COUNT(1) AS count\nFROM      card_purchases\nGROUP BY  1, 2, 3"
+      }
+    },
+    {
+      "name": "monthly_card_purchases_stat",
+      "inputs": [
+        "card_purchases"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          card_id,\n          date_trunc('month', approved_at) AS time,\n          'month' AS time_unit,\n          SUM(amount) AS amount,\n          COUNT(1) AS count\nFROM      card_purchases\nGROUP BY  1, 2, 3"
+      }
+    },
+    {
+      "name": "card_purchases_stat",
+      "inputs": [
+        "cards",
+        "daily_card_purchases_stat",
+        "monthly_card_purchases_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  s.*,\n        c.issuer,\n        c.name,\n        c.card_type\nFROM    (\n  SELECT    *\n  FROM      daily_card_purchases_stat\n\n  UNION ALL\n\n  SELECT    *\n  FROM      monthly_card_purchases_stat\n) s, cards c\nWHERE   s.card_id = c.id\nAND     s.business_id = c.business_id"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "card_purchases_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/stat/snowdon/card/card_purchases_stat",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

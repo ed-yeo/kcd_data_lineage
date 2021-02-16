@@ -1,0 +1,80 @@
+{
+  "name": "update_extract_result",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "ad_group",
+      "options": {
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "ad_group",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "fetchsize": "5000",
+        "numRowsPerPartition": "50000"
+      },
+      "type": "jdbc"
+    },
+    {
+      "inputs": [],
+      "name": "target_group",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/target_group/date_id=2021-01-29/ts=08_15"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "target_messages",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/service/message/target_messages/date_id=2021-01-29/ts=08_15"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "target_group",
+        "ad_group"
+      ],
+      "name": "valid_ad_group",
+      "options": {
+        "sql": "SELECT  ad_group.*\nFROM (\n        SELECT DISTINCT meta.ad_group_id AS ad_group_id\n        FROM   target_group\n) AS t\nJOIN ad_group\nON t.ad_group_id = ad_group.id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "target_messages",
+        "valid_ad_group"
+      ],
+      "name": "update_ad_group",
+      "options": {
+        "sql": "SELECT\n        valid_ad_group.id,\n        valid_ad_group.campaign_id,\n        valid_ad_group.name,\n        valid_ad_group.description,\n        valid_ad_group.type,\n        valid_ad_group.target,\n        valid_ad_group.target_type,\n        'EXTRACT_COMPLETE' AS status,\n        valid_ad_group.path,\n        valid_ad_group.population,\n        valid_ad_group.frequency_cap,\n        valid_ad_group.enabled,\n        valid_ad_group.created_at,\n        current_timestamp() AS updated_at,\n        valid_ad_group.use_today_data,\n        valid_ad_group.report_name,\n        IF(valid_messages.cnt IS NULL, null,\n            CONCAT('s3://kcd-de-production/service/message/target_messages/date_id=2021-01-29/ts=08_15/ad_group_id=',  valid_ad_group.id)\n        ) AS extract_path,\n        IF(valid_messages.cnt IS NULL, 0, valid_messages.cnt) AS target_count\nFROM    valid_ad_group\nLEFT OUTER JOIN (\n    SELECT\n            meta.ad_group_id,\n            count(1) AS cnt\n    FROM  target_messages\n    WHERE status.valid = true\n    GROUP BY meta.ad_group_id\n) AS valid_messages\nON valid_ad_group.id = valid_messages.ad_group_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "update_ad_group"
+      ],
+      "name": "update_ad_group_db_sink",
+      "options": {
+        "driver": "org.postgresql.Driver",
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "ad_group",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "operation": "upsert",
+        "conflictColumns": "id",
+        "updateColumns": "status,extract_path,target_count,updated_at"
+      },
+      "type": "jdbc"
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  name: delivery
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: delivery_apps
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/delivery_apps
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: place_comments
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/incremental/place_comments
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        place_comments
+        delivery_apps
+      ]
+      name: comments
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                    c.timestamp,
+                    date_format(c.timestamp, 'yyyy-MM-dd') AS date_id,
+                    delivery_apps.business_id,
+                    c.count,
+                    c.avg_rating,
+                    lower(replace(delivery_apps.type, 'DeliveryApps::', '')) AS name
+          FROM (
+            SELECT
+                    timestamp,
+                    delivery_app_id,
+                    COUNT(1) AS count,
+                    AVG(rating) AS avg_rating
+            FROM (
+                    SELECT
+                            source_id AS delivery_app_id,
+                            date_trunc('${TIME_UNIT}', authored_at) AS timestamp,
+                            rating
+                    FROM    place_comments
+                    WHERE   created_at_date between '${from_date_id}' AND '${to_date_id}'
+                    AND     source_type = 'DeliveryApp'
+            )
+            GROUP BY timestamp, delivery_app_id
+          ) AS c
+          JOIN delivery_apps
+          ON c.delivery_app_id = delivery_apps.id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        comments
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${FACT_DIR}/time_unit=${TIME_UNIT}/id_type=${ID_TYPE}/subject=delivery_app_comments
+        evenPartitions: "true"
+        partitions: name,date_id
+      }
+      type: file
+    }
+  ]
+}

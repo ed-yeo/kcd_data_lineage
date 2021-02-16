@@ -1,0 +1,57 @@
+{
+  "name": "join_purchase_candidates",
+  "udfs": [
+    {
+      "name": "mask_card_number",
+      "class": "com.kcd.thrush.udfs.MarkCardNumberUDF",
+      "params": {}
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "purchases_raw",
+      "options": {
+        "paths": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/purchases",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "current_purchases",
+      "inputs": [
+        "purchases_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      purchases_raw\nWHERE     created_at_date >= '2011-01-28'\nAND       created_at_date < '2021-01-26'"
+      }
+    },
+    {
+      "name": "current_purchase_candidates",
+      "inputs": [
+        "current_purchases"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    struct(purchased.*) AS purchased,\n          struct(canceled.*) AS canceled,\n          COALESCE(purchased.created_at_date, canceled.created_at_date) AS created_at_date\nFROM      (\n  SELECT  *\n  FROM    current_purchases\n  WHERE   amount > 0\n) purchased FULL OUTER JOIN (\n  SELECT  *\n  FROM    current_purchases\n  WHERE   amount < 0\n) canceled\nON  (\n  purchased.business_id = canceled.business_id AND\n  purchased.credential_key = canceled.credential_key AND\n  purchased.amount = -canceled.amount AND\n  purchased.masked_card_number = canceled.masked_card_number AND\n  (\n      purchased.card_type = 4 AND\n      purchased.authorization_number = canceled.authorization_number OR\n      (\n          purchased.card_type != 4 AND\n          CAST(purchased.transacted_at AS DATE) = CAST(canceled.transacted_at AS DATE) AND\n          purchased.purchase_cancel_seq = canceled.purchase_cancel_seq\n      )\n  )\n)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "current_purchase_candidates"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/matches/candidates/purchases_current",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

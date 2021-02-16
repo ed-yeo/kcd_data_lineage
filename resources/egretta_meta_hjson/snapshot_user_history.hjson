@@ -1,0 +1,99 @@
+{
+  name: snapshot_user_history
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: visit_with_duration
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_PATH}/visit_with_duration
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        visit_with_duration
+      ]
+      name: snapshots
+      options:
+      {
+        sql:
+          '''
+          SELECT    encrypted_card_number,
+                    min(transacted_at_month) AS month,
+                    '3_month' AS type,
+                    collect_set(business_id) AS business_ids
+          FROM      visit_with_duration
+          WHERE     within_3_month = true
+          GROUP BY  1
+
+          UNION ALL
+
+          SELECT    encrypted_card_number,
+                    min(transacted_at_month) AS month,
+                    '6_month' AS type,
+                    collect_set(business_id) AS business_ids
+          FROM      visit_with_duration
+          WHERE     within_6_month = true
+          GROUP BY  1
+
+          UNION ALL
+
+          SELECT    encrypted_card_number,
+                    min(transacted_at_month) AS month,
+                    '9_month' AS type,
+                    collect_set(business_id) AS business_ids
+          FROM      visit_with_duration
+          WHERE     within_9_month = true
+          GROUP BY  1
+
+          UNION ALL
+
+          SELECT    encrypted_card_number,
+                    min(transacted_at_month) AS month,
+                    '12_month' AS type,
+                    collect_set(business_id) AS business_ids
+          FROM      visit_with_duration
+          WHERE     within_12_month = true
+          GROUP BY  1
+
+          UNION ALL
+
+          SELECT    encrypted_card_number,
+                    transacted_at_month AS month,
+                    'month' AS type,
+                    collect_set(business_id) AS business_ids
+          FROM      visit_with_duration
+          GROUP BY  1, 2
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        snapshots
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/snapshot_user_history
+        partitions: type
+      }
+      type: file
+    }
+  ]
+}

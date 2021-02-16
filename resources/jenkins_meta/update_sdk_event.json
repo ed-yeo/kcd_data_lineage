@@ -1,0 +1,135 @@
+{
+  "name": "update_sdk_event",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "kcd_cashnote_ruby",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_cashnote_ruby/created_at_date=2021-01-28"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_cashnote_web",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_cashnote_web/created_at_date=2021-01-28"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_redbird_ruby",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_redbird_ruby/created_at_date=2021-01-28"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_redbird_web",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_redbird_web/created_at_date=2021-01-28"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_goose_ruby",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_goose_ruby/created_at_date=2021-01-28"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_bluebird_ruby",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_bluebird_ruby/created_at_date=2021-01-28"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "kcd_bluebird_web",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=kcd_bluebird_web/created_at_date=2021-01-28"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "kcd_cashnote_ruby",
+        "kcd_cashnote_web"
+      ],
+      "name": "cashnote_sdk_event",
+      "options": {
+        "sql": "  SELECT\n          'kcd_cashnote_ruby' AS sdk_name,\n          event AS event_type,\n          'cashnote' AS user_type\n  FROM (\n          SELECT\n                  distinct event\n          FROM    kcd_cashnote_ruby\n  )\n\n  UNION ALL\n\n  SELECT\n          'kcd_cashnote_web' AS sdk_name,\n          event AS event_type,\n          'cashnote' AS user_type\n  FROM (\n          SELECT\n                  distinct event\n          FROM    kcd_cashnote_web\n  )"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "kcd_redbird_ruby",
+        "kcd_redbird_web",
+        "kcd_goose_ruby"
+      ],
+      "name": "paynote_sdk_event",
+      "options": {
+        "sql": "  SELECT\n          'kcd_redbird_ruby' AS sdk_name,\n          event AS event_type,\n          'paynote' AS user_type\n  FROM (\n          SELECT\n                  distinct event\n          FROM    kcd_redbird_ruby\n  )\n\n  UNION ALL\n\n  SELECT\n          'kcd_redbird_web' AS sdk_name,\n          event AS event_type,\n          'paynote' AS user_type\n  FROM (\n          SELECT\n                  distinct event\n          FROM    kcd_redbird_web\n  )\n\n  UNION ALL\n\n  SELECT\n          'kcd_goose_ruby' AS sdk_name,\n          event AS event_type,\n          'paynote' AS user_type\n  FROM (\n          SELECT\n                  distinct event\n          FROM    kcd_goose_ruby\n  )"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "kcd_bluebird_web"
+      ],
+      "name": "bluebird_sdk_event",
+      "options": {
+        "sql": "  SELECT\n          'kcd_bluebird_web' AS sdk_name,\n          event AS event_type,\n          'cashnote' AS user_type\n  FROM (\n          SELECT\n                  DISTINCT event\n          FROM    kcd_bluebird_web\n          WHERE   prop_cashnote_user_id IS NOT NULL\n  )\n\n  UNION ALL\n\n  SELECT\n          'kcd_bluebird_web' AS sdk_name,\n          event AS event_type,\n          'paynote' AS user_type\n  FROM (\n          SELECT\n                  DISTINCT event\n          FROM    kcd_bluebird_web\n          WHERE   prop_paynote_user_id IS NOT NULL\n  )"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "cashnote_sdk_event",
+        "paynote_sdk_event",
+        "bluebird_sdk_event"
+      ],
+      "name": "all_sdk_event",
+      "options": {
+        "sql": "SELECT    sdk_name, event_type, user_type     FROM cashnote_sdk_event\nUNION ALL\nSELECT    sdk_name, event_type, user_type     FROM paynote_sdk_event\nUNION ALL\nSELECT    sdk_name, event_type, user_type     FROM bluebird_sdk_event"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "all_sdk_event"
+      ],
+      "name": "jdbc_sink",
+      "options": {
+        "driver": "org.postgresql.Driver",
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "dbtable": "sdk_event",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "operation": "upsert",
+        "conflictColumns": "sdk_name,event_type, user_type",
+        "updateColumns": "sdk_name,event_type,user_type"
+      },
+      "type": "jdbc"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "name": "dedup_bills",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "pos_bills_raw_v2",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource",
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=posetl_bills_v2/created_at_date=2021-01-28,s3://kcd-de-production/raw/catalog_v2/raw/tb=posetl_bills_v2/created_at_date=2021-01-27,s3://kcd-de-production/raw/catalog_v2/raw/tb=posetl_bills_v2/created_at_date=2021-01-26",
+        "partition_keys": "created_at_date,created_at_hour",
+        "mergeSchema": "true"
+      },
+      "type": "custom"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "pos_bills_raw_v2"
+      ],
+      "name": "pos_bills_source_v2",
+      "options": {
+        "sql": "SELECT\n  _event_id,\n  bill_key,\n  bill_no,\n  uid,\n  uid_type,\n  business_public_id,\n  card_amount,\n  cash_amount,\n  client_id,\n  label_name,\n  mac_address,\n  order_no,\n  order_status,\n  paid_at,\n  paid_type,\n  pos_no,\n  pos_type,\n  public_ip,\n  service_name,\n  head_office_no,\n  shop_code,\n  timestamp,\n  total_amount,\n  CAST(created_at_date as string) AS created_at_date,\n  paid_at_timestamp AS transacted_at,\n  CAST(to_date(paid_at_timestamp, 'yyyy-MM-dd') AS string) AS transacted_at_date\nFROM (\n  SELECT\n    *,\n    COALESCE(\n      to_timestamp(paid_at, \"yyyy-MM-dd HH:mm:ss\"),\n      to_timestamp(paid_at, \"yyyy-MM-dd'T'HH:mm:ss\"),\n      to_timestamp(paid_at, \"yyyy-MM-dd HH:mm:ss.SSS\")\n    ) AS paid_at_timestamp,\n    row_number() OVER (PARTITION BY bill_key ORDER BY timestamp DESC) AS rank\n  FROM\n    pos_bills_raw_v2\n  WHERE\n    created_at_date >= '2020-07-30' AND created_at_date <= '2021-01-29'\n)\nWHERE rank = 1"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "pos_bills_source_v2"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/raw/etl/pos/pos_bills_v2",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

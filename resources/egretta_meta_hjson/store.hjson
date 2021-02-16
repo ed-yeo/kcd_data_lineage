@@ -1,0 +1,139 @@
+{
+  name: store
+  udfs: [
+    {
+      name: text_similarity
+      class: com.kcd.thrush.utils.spark.udfs.TextUtil
+      params: {}
+    }
+    {
+      name: geohash
+      class: com.kcd.thrush.utils.spark.udfs.GeoHash
+      params: {}
+    }
+    {
+      name: geo_distance
+      class: com.kcd.thrush.utils.spark.udfs.GeoDistance
+      params: {}
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: stores
+      options:
+      {
+        format: csv
+        paths: s3://kcd-data/raw/gov/201912
+        read: '''{"header": true}'''
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: s3://kcd-data-stage/raw/db/snowdon/snapshot/latest/businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: places
+      options:
+      {
+        format: parquet
+        paths: s3://thrush/test/shon/classification/places
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        businesses
+        places
+      ]
+      name: meta
+      options:
+      {
+        sql:
+          '''
+          SELECT  b.id AS business_id,
+                  b.registration_number,
+                  b.name,
+                  split(b.address, ' ') AS addresses,
+                  p.name AS place_name,
+                  p.kcd_classification AS classification,
+                  p.latitude AS latitude,
+                  p.longitude AS longitude,
+                  geohash(p.latitude, p.longitude) AS geohash
+          FROM    businesses b LEFT OUTER JOIN places p ON (b.id = p.business_id)
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        meta
+        stores
+      ]
+      name: joined_by_lat_lon
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    (
+            SELECT  *,
+                    row_number() OVER (PARTITION BY business_id ORDER BY similarity DESC) AS rank
+            FROM    (
+              SELECT  s.*, m.*,
+                      text_similarity(m.name, s.`상호명`) AS similarity,
+                      geo_distance(m.latitude, m.longitude, s.`위도`, s.`경도`) AS distance
+              FROM    (
+                SELECT  *
+                FROM    (
+                  SELECT  *, geohash(`위도`, `경도`) AS store_geohash
+                  FROM    stores
+                )
+                WHERE   store_geohash is not null
+              ) s LEFT OUTER JOIN (
+                SELECT  *
+                FROM    meta
+                WHERE   geohash is not null
+              ) m ON (substr(s.store_geohash, 1, 8) = substr(m.geohash, 1, 8))
+              WHERE   m.place_name is not null
+              AND     s.`상호명` is not null
+            )
+          )
+          WHERE   rank <= 1
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        joined_by_lat_lon
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://thrush/test/shon/stores/joined_by_lat_lon
+      }
+      type: file
+    }
+  ]
+}

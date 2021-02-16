@@ -1,0 +1,100 @@
+{
+  name: dedup_bills
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: pos_bills_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: json
+        paths: "${INPUT_PATH}"
+        partition_keys: 'created_at_date,created_at_hour'
+        mergeSchema: 'true'
+      }
+      type: custom
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        pos_bills_raw
+      ]
+      name: pos_bills_source
+      options:
+      {
+        sql:
+          '''
+          SELECT
+            _event_id,
+            bill_key,
+            bill_no,
+            business_id,
+            business_public_id,
+            card_amount,
+            cash_amount,
+            client_id,
+            label_name,
+            mac_address,
+            order_no,
+            order_status,
+            paid_at,
+            paid_type,
+            pos_no,
+            pos_type,
+            public_ip,
+            service_name,
+            shop_code,
+            timestamp,
+            total_amount,
+            CAST(created_at_date as string) AS created_at_date,
+            paid_at_timestamp AS transacted_at,
+            CAST(to_date(paid_at_timestamp, 'yyyy-MM-dd') AS string) AS transacted_at_date
+          FROM (
+            SELECT
+              *,
+              COALESCE(
+                to_timestamp(paid_at, "yyyy-MM-dd HH:mm:ss"),
+                to_timestamp(paid_at, "yyyy-MM-dd'T'HH:mm:ss"),
+                to_timestamp(paid_at, "yyyy-MM-dd HH:mm:ss.SSS")
+              ) AS paid_at_timestamp,
+              row_number() OVER (PARTITION BY bill_key ORDER BY timestamp DESC) AS rank
+            FROM
+              pos_bills_raw
+            WHERE
+              created_at_date >= '${MIN_DATE}' AND created_at_date < '${MAX_DATE}'
+            AND NOT((business_id = 633186 AND created_at_date < '2020-10-15')) -- POS_CS: DE-713
+          )
+          WHERE rank = 1
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        pos_bills_source
+      ]
+      name: file_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: created_at_date
+          evenPartitions: "true"
+          numOfRecordPerFile: "4000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

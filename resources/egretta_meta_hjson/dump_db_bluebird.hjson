@@ -1,0 +1,154 @@
+{
+  name: dump_db_bluebird
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: kakao_messages
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb"
+          dbtable: "kakao_messages"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: kakao_message_groups
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb"
+          dbtable: "kakao_message_groups"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: acceptanced_business_templates
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb"
+          dbtable: "acceptanced_business_templates"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: acceptanced_business_template_answers
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb"
+          dbtable: "acceptanced_business_template_answers"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: survey_monkey_responses
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb"
+          dbtable: "survey_monkey_responses"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+  ]
+  process:
+  [
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        kakao_messages
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${TARGET_PATH}/kakao_messages"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        kakao_message_groups
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${TARGET_PATH}/kakao_message_groups"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        acceptanced_business_templates
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${TARGET_PATH}/acceptanced_business_templates"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        acceptanced_business_template_answers
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${TARGET_PATH}/acceptanced_business_template_answers"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        survey_monkey_responses
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: "${TARGET_PATH}/survey_monkey_responses"
+      }
+      type: file
+    }
+  ]
+}

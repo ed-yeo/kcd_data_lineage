@@ -1,0 +1,1441 @@
+{
+  name: dump_incremental
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: report_logs
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: report_logs
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${report_logs_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: hometax_card_purchases
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: hometax_card_purchases
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${hometax_card_purchases_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: hometax_purchases_cash_receipts
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: hometax_purchases_cash_receipts
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${hometax_purchases_cash_receipts_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: hometax_purchases_invoices
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: hometax_purchases_invoices
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${hometax_purchases_invoices_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: hometax_card_sales
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: hometax_card_sales
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${hometax_card_sales_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: hometax_sales_cash_receipts
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: hometax_sales_cash_receipts
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${hometax_sales_cash_receipts_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: hometax_sales_invoices
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: hometax_sales_invoices
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${hometax_sales_invoices_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: bank_transactions
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: bank_transactions
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${bank_transactions_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: shinhancard_customer_statistics
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: shinhancard_customer_statistics
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${shinhancard_customer_statistics_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: daily_reports
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: daily_reports
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${daily_reports_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: weekly_reports
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: weekly_reports
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${weekly_reports_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: monthly_reports
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: monthly_reports
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${monthly_reports_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: place_comments
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: place_comments
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${place_comments_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: place_reviews
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: place_reviews
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${place_reviews_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: baemin_payments
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: baemin_payments
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${baemin_payments_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: baemin_orders
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: baemin_orders
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${baemin_orders_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: baemin_sales_vats
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: baemin_sales_vats
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${baemin_sales_vats_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: baedaltong_orders
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: baedaltong_orders
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${baedaltong_orders_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: baedaltong_payments
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: baedaltong_payments
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${baedaltong_payments_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: yogiyo_orders
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: yogiyo_orders
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${yogiyo_orders_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: yogiyo_payments
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: yogiyo_payments
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${yogiyo_payments_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: card_purchases_approvals
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: card_purchases_approvals
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${card_purchases_approvals_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: card_purchases_bills
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: card_purchases_bills
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${card_purchases_bills_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: card_purchases_payments
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: card_purchases_payments
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${card_purchases_payments_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: vendor_transactions
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: vendor_transactions
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${vendor_transactions_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: vendor_invoices
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: vendor_invoices
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${vendor_invoices_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: customer_transactions
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: customer_transactions
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${customer_transactions_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: customer_invoices
+      options:
+      {
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb
+        dbtable: customer_invoices
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        lowerBound: ${customer_invoices_lowerBound}
+        fetchsize: ${fetchSize}
+        numRowsPerPartition: ${numRowsPerPartition}
+      }
+      type: jdbc
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        report_logs
+      ]
+      name: report_logs_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    report_logs
+          WHERE   id > ${report_logs_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hometax_card_purchases
+      ]
+      name: hometax_card_purchases_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    hometax_card_purchases
+          WHERE   id > ${hometax_card_purchases_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hometax_purchases_cash_receipts
+      ]
+      name: hometax_purchases_cash_receipts_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    hometax_purchases_cash_receipts
+          WHERE   id > ${hometax_purchases_cash_receipts_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hometax_purchases_invoices
+      ]
+      name: hometax_purchases_invoices_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    hometax_purchases_invoices
+          WHERE   id > ${hometax_purchases_invoices_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hometax_card_sales
+      ]
+      name: hometax_card_sales_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    hometax_card_sales
+          WHERE   id > ${hometax_card_sales_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hometax_sales_cash_receipts
+      ]
+      name: hometax_sales_cash_receipts_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    hometax_sales_cash_receipts
+          WHERE   id > ${hometax_sales_cash_receipts_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hometax_sales_invoices
+      ]
+      name: hometax_sales_invoices_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    hometax_sales_invoices
+          WHERE   id > ${hometax_sales_invoices_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        bank_transactions
+      ]
+      name: bank_transactions_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    bank_transactions
+          WHERE   id > ${bank_transactions_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        shinhancard_customer_statistics
+      ]
+      name: shinhancard_customer_statistics_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    shinhancard_customer_statistics
+          WHERE   id > ${shinhancard_customer_statistics_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        daily_reports
+      ]
+      name: daily_reports_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    daily_reports
+          WHERE   id > ${daily_reports_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        weekly_reports
+      ]
+      name: weekly_reports_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    weekly_reports
+          WHERE   id > ${weekly_reports_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        monthly_reports
+      ]
+      name: monthly_reports_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    monthly_reports
+          WHERE   id > ${monthly_reports_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        place_comments
+      ]
+      name: place_comments_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    place_comments
+          WHERE   id > ${place_comments_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        place_reviews
+      ]
+      name: place_reviews_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    place_reviews
+          WHERE   id > ${place_reviews_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        baemin_payments
+      ]
+      name: baemin_payments_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    baemin_payments
+          WHERE   id > ${baemin_payments_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        baemin_orders
+      ]
+      name: baemin_orders_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    baemin_orders
+          WHERE   id > ${baemin_orders_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        baemin_sales_vats
+      ]
+      name: baemin_sales_vats_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    baemin_sales_vats
+          WHERE   id > ${baemin_sales_vats_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        baedaltong_orders
+      ]
+      name: baedaltong_orders_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    baedaltong_orders
+          WHERE   id > ${baedaltong_orders_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        baedaltong_payments
+      ]
+      name: baedaltong_payments_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    baedaltong_payments
+          WHERE   id > ${baedaltong_payments_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        yogiyo_orders
+      ]
+      name: yogiyo_orders_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    yogiyo_orders
+          WHERE   id > ${yogiyo_orders_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        yogiyo_payments
+      ]
+      name: yogiyo_payments_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    yogiyo_payments
+          WHERE   id > ${yogiyo_payments_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        card_purchases_approvals
+      ]
+      name: card_purchases_approvals_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    card_purchases_approvals
+          WHERE   id > ${card_purchases_approvals_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        card_purchases_bills
+      ]
+      name: card_purchases_bills_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    card_purchases_bills
+          WHERE   id > ${card_purchases_bills_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        card_purchases_payments
+      ]
+      name: card_purchases_payments_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    card_purchases_payments
+          WHERE   id > ${card_purchases_payments_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        vendor_transactions
+      ]
+      name: vendor_transactions_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    vendor_transactions
+          WHERE   id > ${vendor_transactions_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        vendor_invoices
+      ]
+      name: vendor_invoices_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    vendor_invoices
+          WHERE   id > ${vendor_invoices_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        customer_transactions
+      ]
+      name: customer_transactions_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    customer_transactions
+          WHERE   id > ${customer_transactions_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        customer_invoices
+      ]
+      name: customer_invoices_date
+      options:
+      {
+        sql:
+          '''
+
+          SELECT  date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                  *
+          FROM    customer_invoices
+          WHERE   id > ${customer_invoices_lowerBound}
+                    
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        report_logs_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/report_logs
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        hometax_card_purchases_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/hometax_card_purchases
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        hometax_purchases_cash_receipts_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/hometax_purchases_cash_receipts
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        hometax_purchases_invoices_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/hometax_purchases_invoices
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        hometax_card_sales_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/hometax_card_sales
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        hometax_sales_cash_receipts_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/hometax_sales_cash_receipts
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        hometax_sales_invoices_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/hometax_sales_invoices
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        bank_transactions_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/bank_transactions
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        shinhancard_customer_statistics_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/shinhancard_customer_statistics
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        daily_reports_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/daily_reports
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        weekly_reports_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/weekly_reports
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        monthly_reports_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/monthly_reports
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        place_comments_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/place_comments
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        place_reviews_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/place_reviews
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        baemin_payments_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/baemin_payments
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        baemin_orders_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/baemin_orders
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        baemin_sales_vats_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/baemin_sales_vats
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        baedaltong_orders_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/baedaltong_orders
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        baedaltong_payments_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/baedaltong_payments
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        yogiyo_orders_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/yogiyo_orders
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        yogiyo_payments_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/yogiyo_payments
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        card_purchases_approvals_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/card_purchases_approvals
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        card_purchases_bills_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/card_purchases_bills
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        card_purchases_payments_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/card_purchases_payments
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        vendor_transactions_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/vendor_transactions
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        vendor_invoices_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/vendor_invoices
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        customer_transactions_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/customer_transactions
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        customer_invoices_date
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${TARGET_PATH}/snowdon/incremental/customer_invoices
+        evenPartitions: "true"
+        partitions: created_at_date
+      }
+      type: file
+    }
+  ]
+}

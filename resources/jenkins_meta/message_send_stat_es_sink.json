@@ -1,0 +1,33 @@
+{
+  "name": "message_send_stat_es_sink",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "message_send_stat",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_cubes/fact/time_unit=DAY/name=message_send_stat/date_id=2020-09-25"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [],
+  "sink": [
+    {
+      "inputs": [
+        "message_send_stat"
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "message_cube-2020-09",
+        "es.nodes": "https://vpc-dmp-es-prod-tw5nccwbgynfhq5ivdolhmaxsq.ap-northeast-2.es.amazonaws.com",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true"
+      },
+      "type": "es"
+    }
+  ]
+}

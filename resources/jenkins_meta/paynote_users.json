@@ -1,0 +1,150 @@
+{
+  "name": "paynote_users",
+  "udfs": [
+    {
+      "name": "filterJsonTrue",
+      "class": "com.kcd.thrush.dmp.spark.udfs.JsonFilter",
+      "params": {}
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "users_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/snapshot/latest/users"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_agreements_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/snapshot/latest/card_agreements"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "devices_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/snapshot/latest/devices"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "answers",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/bluebird/snapshot/latest/acceptanced_business_template_answers"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "templates",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/bluebird/snapshot/latest/acceptanced_business_templates"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "users_src"
+      ],
+      "name": "users",
+      "options": {
+        "sql": "SELECT    *,\n          CASE\n              WHEN age < 20 THEN \"20_under\"\n              WHEN age >= 20 AND age < 30 THEN \"20s\"\n              WHEN age >= 30 AND age < 40 THEN \"30s\"\n              WHEN age >= 40 AND age < 50 THEN \"40s\"\n              WHEN age >= 50 AND age < 60 THEN \"50s\"\n              WHEN age >= 60 THEN \"60_over\"\n              ELSE \"none\"\n          END AS age_band\nFROM (\n    SELECT\n            *,\n            year(birth_date) AS birth_year,\n            month(birth_date) AS birth_month,\n            date_format(birth_date, 'MM-dd') AS birthday,\n            (year(current_date()) - year(birth_date) + 1) AS age\n    FROM (\n            SELECT\n                    id AS user_id,\n                    nickname,\n                    gender,\n                    provider,\n                    to_date(birthday, 'yyyyMMdd') AS birth_date,\n                    plus_friends,\n                    created_at AS user_created_at\n            FROM    users_src\n    )\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "card_agreements_src"
+      ],
+      "name": "card_agreements",
+      "options": {
+        "sql": "  SELECT  user_id,\n          collect_set(issuer) AS issuers,\n          collect_set(CONCAT(issuer, '_', option_type)) AS options\n  FROM (\n          SELECT  *, explode(option_arr) AS option_type\n          FROM (\n                  SELECT  *,\n                          IF(options = '\\\"{}\\\"', array('none'), filterJsonTrue(options)) AS option_arr\n                  FROM    card_agreements_src\n          )\n          WHERE  agreed = true\n  )\n  GROUP BY user_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "devices_src"
+      ],
+      "name": "devices",
+      "options": {
+        "sql": "SELECT    user_id, device_type\nFROM      devices_src\nWHERE     user_id is not null"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "answers",
+        "templates"
+      ],
+      "name": "acceptance_templates",
+      "options": {
+        "sql": "SELECT\n        user_id,\n        collect_set(complete_poll) AS complete_polls,\n        collect_set(enter_poll) AS enter_polls,\n        collect_set(complete_application) AS complete_applications\nFROM (\n    SELECT\n            paynote_user_id AS user_id,\n            IF (template_type = 'poll' AND answer IS NOT NULL AND answer != '[]', t.id, null) AS complete_poll,\n            IF (template_type = 'poll', t.id, null) AS enter_poll,\n            IF (template_type = 'application', t.id, null) AS complete_application\n    FROM (\n        SELECT IF(step_layout = true, 'poll', 'application') AS template_type,\n                user_type, id, title\n        FROM templates\n        WHERE user_type = 'paynote'\n    ) AS t\n    JOIN answers\n    ON t.id = answers.acceptanced_business_template_id\n)\nGROUP BY user_id"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "users"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=paynote_user_id/subject=users/name=users"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "card_agreements"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=paynote_user_id/subject=users/name=card_agreements"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "devices"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=paynote_user_id/subject=users/name=devices"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "acceptance_templates"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=paynote_user_id/subject=users/name=acceptance_templates"
+      },
+      "type": "file"
+    }
+  ]
+}

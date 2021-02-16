@@ -1,0 +1,93 @@
+{
+  "name": "build_user_categories",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "users",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/snapshot/latest/users"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "registration_number_meta",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_cubes/dimension/name=registration_number_meta"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_payments_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/incremental/card_payments"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "client_user_mapping",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/auth/snapshot/latest/client_user_mapping"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "card_payments_src"
+      ],
+      "name": "card_payments",
+      "options": {
+        "sql": "SELECT *\nFROM   card_payments_src\nWHERE  date_trunc('month', approved_at) >= add_months(date_trunc('month', current_date()), -2)\nAND    date_trunc('month', approved_at) < date_trunc('month', current_date())"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "users",
+        "client_user_mapping",
+        "registration_number_meta",
+        "card_payments"
+      ],
+      "name": "payments",
+      "options": {
+        "sql": "SELECT a.*,\n       u.client_user_id,\n       u.gender,\n       year(current_date()) - year(u.birthday) + 1 AS age,\n       u.birthday,\n       u.plus_friends\nFROM   (\n    SELECT p.*,\n           m.location.sido,\n           m.location.sigungu,\n           m.location.dong,\n           m.location.geo_point,\n           m.classification.depth_1_name,\n           m.classification.depth_2_name,\n           m.classification.depth_3_name\n    FROM   card_payments p LEFT OUTER JOIN registration_number_meta m\n    ON     (p.registration_number = m.registration_number)\n) a, (\n  SELECT  m.client_user_id,\n          m.created,\n          u.id,\n          u.gender,\n          u.birthday,\n          u.plus_friends\n  FROM    users u, client_user_mapping m\n  WHERE   u.ci = m.ci\n  AND     m.realm_id = 'paynote'\n  AND     m.client_id = 'gsshop'\n) u\nWHERE  a.user_id = u.id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "payments"
+      ],
+      "name": "user_categories_stat",
+      "options": {
+        "sql": "SELECT *,\n       row_number() OVER (PARTITION BY client_user_id, time_unit, time ORDER BY count DESC) AS rank,\n       approx_count_distinct(client_user_id) OVER (\n        PARTITION BY time_unit, time, age_bucket, gender, time_bucket, is_weekend, sido, sigungu, dong, depth_1_name, depth_2_name, depth_3_name\n       ) AS user_count,\n       count(client_user_id) OVER (\n        PARTITION BY time_unit, time, age_bucket, gender, time_bucket, is_weekend, sido, sigungu, dong, depth_1_name, depth_2_name, depth_3_name\n       ) AS total_count,\n       sum(amount) OVER (\n        PARTITION BY time_unit, time, age_bucket, gender, time_bucket, is_weekend, sido, sigungu, dong, depth_1_name, depth_2_name, depth_3_name\n       ) AS total_amount\nFROM   (\n    SELECT client_user_id,\n           time_unit, time, age_bucket, gender, time_bucket, is_weekend, sido, sigungu, dong, depth_1_name, depth_2_name, depth_3_name,\n           sum(amount) AS amount,\n           count(1) AS count,\n           AVG(CAST(approved_at AS long) - CAST(COALESCE(prev_approved_at, approved_at) AS long)) AS interval\n    FROM   (\n        SELECT  *,\n                lag(approved_at, 1) OVER (\n                  PARTITION BY client_user_id, age_bucket, gender, time_bucket, is_weekend, sido, sigungu, dong, depth_1_name, depth_2_name, depth_3_name ORDER BY approved_at\n                ) AS prev_approved_at\n        FROM    (\n            SELECT  *,\n                    'month' AS time_unit,\n                    date_format(date_trunc('month', approved_at), 'yyyy-MM-dd') AS time,\n                    CASE\n                        WHEN hour(approved_at) between 0 and 5 then '새벽'\n                        WHEN hour(approved_at) between 6 and 10 then '아침'\n                        WHEN hour(approved_at) between 11 and 13 then '점심'\n                        WHEN hour(approved_at) between 14 and 16 then '오후'\n                        ELSE '저녁'\n                    END AS time_bucket,\n                    dayofweek(approved_at) in (1, 7) AS is_weekend,\n                    CAST(age / 10 AS int) * 10 AS age_bucket\n            FROM    payments\n        )\n    )\n    GROUP BY client_user_id, time_unit, time, age_bucket, gender, time_bucket, is_weekend, sido, sigungu, dong, depth_1_name, depth_2_name, depth_3_name\n)\nORDER BY client_user_id, time_unit, time"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "user_categories_stat"
+      ],
+      "name": "user_categories_stat_sink",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.sinks.CSVSink",
+        "format": "csv",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/goose/user_features/created_at_date=2020-11-17/user_categories",
+        "header": "true"
+      },
+      "type": "custom"
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  // DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD, PURCHASES_PATH, PAYMENTS_PATH, OUTPUT_BASE_PATH
+  name: reserved_payments
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: issuer_histories
+      options:
+      {
+        url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb"
+        dbtable: "issuer_histories"
+        user: "${DB_USERNAME}"
+        password:  "${DB_PASSWORD}"
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: purchases_aggr_raw
+      options:
+      {
+        paths: ${PURCHASES_AGGR_PATH}
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: payments_aggr_raw
+      options:
+      {
+        paths: ${PAYMENTS_AGGR_PATH}
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: purchases_aggr
+      inputs:
+      [
+        purchases_aggr_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      purchases_aggr_raw
+          WHERE     paid_at_date >= '${MIN_PAID_AT_DATE}'
+          '''
+      }
+    }
+    {
+      name: payments_aggr
+      inputs:
+      [
+        payments_aggr_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      payments_aggr_raw
+          WHERE     received_at_date >= '${MIN_RECEIVED_AT_DATE}'
+          '''
+      }
+    }
+    {
+      name: issuer_payments_upto
+      inputs:
+      [
+        issuer_histories
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+            SELECT    explode(array(0, 2, 3, 4, 5, 6, 7, 8, 9)) as salt,
+                      issuer_name,
+                      payments_upto
+            FROM      (
+                SELECT    issuer AS issuer_name,
+                          max(date) AS payments_upto
+                FROM      issuer_histories
+                WHERE     payments = true AND payments_checked = true
+                GROUP BY  1
+            )
+          '''
+      }
+    }
+    {
+      name: reserved_payments
+      inputs:
+      [
+        issuer_payments_upto
+        purchases_aggr
+        payments_aggr
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(paid_at, 'yyyy-MM-dd') AS paid_at_date
+          FROM      (
+              SELECT    /*+ BROADCAST(issuer_payments_upto) */
+                        COALESCE(purchases.business_id, payments.business_id) AS business_id,
+                        COALESCE(purchases.paid_at, payments.received_at) AS paid_at,
+                        COALESCE(purchases.issuer_name, payments.issuer_name) AS issuer_name,
+                        COALESCE(purchases.expected, 0) AS expected,
+                        COALESCE(payments.reserved, 0) AS reserved,
+                        COALESCE(payments.received, 0) AS received,
+                        COALESCE(purchases.expected, 0) - COALESCE(payments.received, 0) AS remaining
+              FROM      purchases_aggr purchases FULL OUTER JOIN payments_aggr payments
+              ON    (
+                purchases.business_id = payments.business_id AND
+                purchases.paid_at = payments.received_at AND
+                purchases.issuer_name = payments.issuer_name
+              ) INNER JOIN issuer_payments_upto
+              ON    (
+                COALESCE(purchases.issuer_name, payments.issuer_name) = issuer_payments_upto.issuer_name AND
+                COALESCE(purchases.business_id, payments.business_id) % 10 = issuer_payments_upto.salt
+              )
+              WHERE     purchases.paid_at >= to_timestamp('2016-07-01 00:00:00.000')
+              AND       purchases.paid_at <= issuer_payments_upto.payments_upto
+              AND       payments.received_at >= to_timestamp('2016-07-01 00:00:00.000')
+              AND       payments.received_at <= issuer_payments_upto.payments_upto
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      name: file_sink
+      inputs:
+      [
+        reserved_payments
+      ]
+      type: file
+      options:
+      {
+        path: ${OUTPUT_PATH}
+        format: parquet
+        mode: overwrite
+      }
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "name": "daily_delivery_orders_stat",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "delivery_app_orders_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/delivery_app_v2/delivery_app_orders"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "delivery_app_orders_src"
+      ],
+      "name": "delivery_app_orders",
+      "options": {
+        "sql": "SELECT    *\nFROM      delivery_app_orders_src\nWHERE     created_at_date >= '2020-10-30'\nAND       created_at_date < '2021-01-29'\nAND       ordered_at >= '2020-10-30'"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "delivery_app_orders"
+      ],
+      "name": "daily_delivery_orders_stat",
+      "options": {
+        "sql": "SELECT    business_id,\n          app_name AS delivery_app,\n          shop_name,\n          shop_number,\n          date_trunc('day', ordered_at) AS date,\n          SUM(IF (closed, order_amount, 0)) AS closed_orders_amount,\n          SUM(IF (closed, 1, 0)) AS closed_orders_count,\n          SUM(IF (canceled, order_amount, 0)) AS cancelled_orders_amount,\n          SUM(IF (canceled, 1, 0)) AS cancelled_orders_count\nFROM      delivery_app_orders\nGROUP BY 1, 2, 3, 4, 5"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "daily_delivery_orders_stat"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/stat/snowdon/delivery_app_v2/daily_delivery_orders",
+        "format": "parquet"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "daily_delivery_orders_stat"
+      ],
+      "name": "jdbc_sink",
+      "options": {
+        "driver": "org.postgresql.Driver",
+        "url": "jdbc:postgresql://plover-data-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com:5432/plover_data_production",
+        "user": "plover",
+        "password": "3d1f620c-f097-43b3-9125-c4ec60a5d3da",
+        "operation": "upsert",
+        "dbtable": "daily_delivery_orders_stat",
+        "conflictColumns": "business_id,delivery_app,shop_number,date",
+        "updateColumns": "closed_orders_amount,closed_orders_count,cancelled_orders_amount,cancelled_orders_count"
+      },
+      "type": "jdbc"
+    }
+  ]
+}

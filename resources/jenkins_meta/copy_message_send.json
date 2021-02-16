@@ -1,0 +1,43 @@
+{
+  "name": "message_send",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "send_log",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-data/raw/catalog_v2/raw/tb=dmp_message_result_stat"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "send_log"
+      ],
+      "name": "select_columns",
+      "options": {
+        "sql": "SELECT\n        created_at_date,\n        timestamp,\n        meta_campaign_id,\n        meta_ad_group_id,\n        meta_creative_id,\n        meta_user_id,\n        meta_business_id,\n        meta_user_type,\n        meta_type,\n        message_message_type,\n        message_ad_flag,\n        message_template_code,\n        status,\n        error_code\nFROM (\n        SELECT  *,\n                row_number() OVER (PARTITION BY _event_id ORDER BY timestamp DESC) AS rank\n        FROM    send_log\n        WHERE   nvl(meta_test_mode, false) = false\n        AND     nvl(meta_test_mode_skip_user, false) = false\n        AND     nvl(meta_test_mode_skip_frequency_cap, false) = false\n        AND     nvl(meta_test_mode_skip_ad_group, false) = false\n        AND     nvl(meta_test_mode_skip_send, false) = false\n)\nWHERE rank = 1"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "select_columns"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/catalog_v2/raw/tb=dmp_message_result_stat",
+        "evenPartitions": "true",
+        "partitions": "created_at_date"
+      },
+      "type": "file"
+    }
+  ]
+}

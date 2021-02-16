@@ -1,0 +1,141 @@
+{
+  name: snapshot_business_stat
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: visit_with_duration
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_PATH}/visit_with_duration
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: visits
+      inputs:
+      [
+        visit_with_duration
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  CASE
+                    WHEN visit_order = 1 THEN '1회'
+                    WHEN visit_order = 2 THEN '2회'
+                    WHEN visit_order >= 3 AND visit_order < 10 THEN '3~9회'
+                    ELSE '10회이상'
+                  END AS visit_count
+          FROM    visit_with_duration
+          '''
+      }
+    }
+    {
+      name: snapshots
+      inputs:
+      [
+        visits
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id, visit_count, month,
+                  'month' AS type,
+                  SUM(amount) AS total_amount,
+                  COUNT(distinct encrypted_card_number) AS total_card_numbers,
+                  COUNT(1) AS total_transaction_count
+          FROM    (
+            SELECT  *, transacted_at_month AS month
+            FROM    visits
+          )
+          GROUP BY business_id, visit_count, month
+
+          UNION ALL
+
+          SELECT  business_id, visit_count, min(month) AS month,
+                  '3_month' AS type,
+                  SUM(amount) AS total_amount,
+                  COUNT(distinct encrypted_card_number) AS total_card_numbers,
+                  COUNT(1) AS total_transaction_count
+          FROM    (
+            SELECT  *, transacted_at_month AS month
+            FROM    visits
+          )
+          WHERE   within_3_month = true
+          GROUP BY business_id, visit_count
+
+          UNION ALL
+
+          SELECT  business_id, visit_count, min(month) AS month,
+                  '6_month' AS type,
+                  SUM(amount) AS total_amount,
+                  COUNT(distinct encrypted_card_number) AS total_card_numbers,
+                  COUNT(1) AS total_transaction_count
+          FROM    (
+            SELECT  *, transacted_at_month AS month
+            FROM    visits
+          )
+          WHERE   within_6_month = true
+          GROUP BY business_id, visit_count
+
+          UNION ALL
+
+          SELECT  business_id, visit_count, min(month) AS month,
+                  '9_month' AS type,
+                  SUM(amount) AS total_amount,
+                  COUNT(distinct encrypted_card_number) AS total_card_numbers,
+                  COUNT(1) AS total_transaction_count
+          FROM    (
+            SELECT  *, transacted_at_month AS month
+            FROM    visits
+          )
+          WHERE   within_9_month = true
+          GROUP BY business_id, visit_count
+
+          UNION ALL
+
+          SELECT  business_id, visit_count, min(month) AS month,
+                  '12_month' AS type,
+                  SUM(amount) AS total_amount,
+                  COUNT(distinct encrypted_card_number) AS total_card_numbers,
+                  COUNT(1) AS total_transaction_count
+          FROM    (
+            SELECT  *, transacted_at_month AS month
+            FROM    visits
+          )
+          WHERE   within_12_month = true
+          GROUP BY business_id, visit_count
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      name: file_sink
+      inputs:
+      [
+        snapshots
+      ]
+      type: file
+      options:
+      {
+        path: ${TARGET_PATH}/snapshot_business_stat
+        format: parquet
+        mode: overwrite
+        partitions: type
+      }
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "name": "daily_reports_wo_card",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "report_logs",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/report_logs/created_at_date=2020-08-22"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "report_logs"
+      ],
+      "name": "add_target_id",
+      "options": {
+        "sql": "SELECT\n        target_id,\n        business_id, user_id, text,\n        nvl(title, '') AS title,\n        attachment,\n        get_json_object(attachment, '$.button[0].url_mobile') AS url_mobile,\n        template_code\nFROM (\n    SELECT  CONCAT(user_id, '_', business_id) AS target_id,\n            business_id, user_id,\n            text,\n            get_json_object(bzm_payload, '$.title') AS title,\n            get_json_object(bzm_payload, '$.attachment') AS attachment,\n            get_json_object(bzm_payload, '$.template_code') AS template_code\n    FROM  report_logs\n    WHERE report_type = 'daily'\n    AND group_id = '00f17e38-9b89-4d30-becf-697a4b794f34'\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "add_target_id"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "json",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/message/reports/user_type=cashnote/date_id=2020-08-22/report_name=daily_reports_wo_card"
+      },
+      "type": "file"
+    }
+  ]
+}

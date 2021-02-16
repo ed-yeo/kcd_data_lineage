@@ -1,0 +1,261 @@
+{
+  //parameter: db_file_path, output_path
+  name: build_vendor_invoices_and_txs
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: traders
+      options:
+      {
+        format: parquet
+        paths: s3://${db_file_path}/traders
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: purchase_invoices_txs_matches
+      options:
+      {
+        format: parquet
+        paths: s3://${output_path}/etl/date_id=${date_id}/purchase_invoices_txs_matches
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: sale_invoices_txs_matches
+      options:
+      {
+        format: parquet
+        paths: s3://${output_path}/etl/date_id=${date_id}/sale_invoices_txs_matches
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        traders
+        purchase_invoices_txs_matches
+      ]
+      name: vendor_transactions
+      options:
+      {
+        sql:
+          '''
+          select  v.id AS vendor_id,
+                  tx.transaction.id AS bank_transaction_id,
+                  to_date(CONCAT_WS('-', year, month, '01')) AS month,
+                  l.matched,
+                  max(l.similarity) AS similarity_score,
+                  current_timestamp() AS created_at,
+                  current_timestamp() AS updated_at
+          from    (
+            select  business_id,
+                    vendor_year_month.vendor.registration_number,
+                    vendor_year_month.vendor.business_name,
+                    vendor_year_month.vendor.owner_name,
+                    vendor_year_month.year,
+                    vendor_year_month.month,
+                    similarity,
+                    matched,
+                    explode(txs) AS tx
+            from    (
+              select  business_id, matches.*
+              from    purchase_invoices_txs_matches
+            )
+          ) l, traders v
+          where   l.business_id = v.business_id
+          and     l.registration_number = v.registration_number
+          and     lower(v.type) = 'vendor'
+          group by 1, 2, 3, 4
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        traders
+        sale_invoices_txs_matches
+      ]
+      name: customer_transactions
+      options:
+      {
+        sql:
+          '''
+          select  v.id AS customer_id,
+                  tx.transaction.id AS bank_transaction_id,
+                  to_date(CONCAT_WS('-', year, month, '01')) AS month,
+                  l.matched,
+                  max(l.similarity) AS similarity_score,
+                  current_timestamp() AS created_at,
+                  current_timestamp() AS updated_at
+          from    (
+            select  business_id,
+                    vendor_year_month.vendor.registration_number,
+                    vendor_year_month.vendor.business_name,
+                    vendor_year_month.vendor.owner_name,
+                    vendor_year_month.year,
+                    vendor_year_month.month,
+                    similarity,
+                    matched,
+                    explode(txs) AS tx
+            from    (
+              select  business_id, matches.*
+              from    sale_invoices_txs_matches
+            )
+          ) l, traders v
+          where   l.business_id = v.business_id
+          and     l.registration_number = v.registration_number
+          and     lower(v.type) = 'customer'
+          group by 1, 2, 3, 4
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        traders
+        purchase_invoices_txs_matches
+      ]
+      name: vendor_invoices
+      options:
+      {
+        sql:
+          '''
+          select  v.id AS vendor_id,
+                  invoice.id AS hometax_purchases_invoice_id,
+                  to_date(CONCAT_WS('-', year, month, '01')) AS month,
+                  l.matched,
+                  current_timestamp() AS created_at,
+                  current_timestamp() AS updated_at
+          from    (
+            select  business_id,
+                    vendor_year_month.vendor.registration_number,
+                    vendor_year_month.vendor.business_name,
+                    vendor_year_month.vendor.owner_name,
+                    vendor_year_month.year,
+                    vendor_year_month.month,
+                    matched,
+                    explode(invoices) AS invoice
+            from    (
+              select  business_id, matches.*
+              from    purchase_invoices_txs_matches
+            )
+          ) l, traders v
+          where   l.business_id = v.business_id
+          and     l.registration_number = v.registration_number
+          and     lower(v.type) = 'vendor'
+          group by 1, 2, 3, 4
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        traders
+        sale_invoices_txs_matches
+      ]
+      name: customer_invoices
+      options:
+      {
+        sql:
+          '''
+          select  v.id AS customer_id,
+                  invoice.id AS hometax_sales_invoice_id,
+                  to_date(CONCAT_WS('-', year, month, '01')) AS month,
+                  l.matched,
+                  current_timestamp() AS created_at,
+                  current_timestamp() AS updated_at
+          from    (
+            select  business_id,
+                    vendor_year_month.vendor.registration_number,
+                    vendor_year_month.vendor.business_name,
+                    vendor_year_month.vendor.owner_name,
+                    vendor_year_month.year,
+                    vendor_year_month.month,
+                    matched,
+                    explode(invoices) AS invoice
+            from    (
+              select  business_id, matches.*
+              from    sale_invoices_txs_matches
+            )
+          ) l, traders v
+          where   l.business_id = v.business_id
+          and     l.registration_number = v.registration_number
+          and     lower(v.type) = 'customer'
+          group by 1, 2, 3, 4
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        vendor_invoices
+      ]
+      name: vendor_invoices_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://${output_path}/etl/date_id=${date_id}/vendor_invoices
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        vendor_transactions
+      ]
+      name: vendor_transactions_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://${output_path}/etl/date_id=${date_id}/vendor_transactions
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        customer_invoices
+      ]
+      name: customer_invoices_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://${output_path}/etl/date_id=${date_id}/customer_invoices
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        customer_transactions
+      ]
+      name: customer_transactions_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: s3://${output_path}/etl/date_id=${date_id}/customer_transactions
+      }
+      type: file
+    }
+  ]
+}

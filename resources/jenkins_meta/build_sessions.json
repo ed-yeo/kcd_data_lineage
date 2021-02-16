@@ -1,0 +1,50 @@
+{
+  "name": "build_session",
+  "udfs": [
+    {
+      "name": "to_sessions",
+      "class": "com.kcd.thrush.analysis.spark.udfs.Session",
+      "params": {
+        "window": "1296000000",
+        "minVisitCount": "1"
+      }
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "txs",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/places/similarity/grouped"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "txs"
+      ],
+      "name": "sessions",
+      "options": {
+        "sql": "SELECT  tx_stat.*\nFROM    (\n  SELECT  explode(to_sessions(encrypted_card_number, histories)) AS tx_stat\n  FROM    txs\n  WHERE   size(histories) < 10000\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "sessions"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/raw/etl/snowdon/places/similarity/sessions"
+      },
+      "type": "file"
+    }
+  ]
+}

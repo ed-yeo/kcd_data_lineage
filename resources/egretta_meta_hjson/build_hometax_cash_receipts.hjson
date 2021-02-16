@@ -1,0 +1,173 @@
+{
+  name: build_hometax_cash_receipts
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_SNAPSHOT_DB_PATH}/businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_sales_cash_receipts_src
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/hometax_sales_cash_receipts
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_purchases_cash_receipts_src
+      options:
+      {
+        format: parquet
+        paths: ${SNOWDON_INCREMENTAL_DB_PATH}/hometax_purchases_cash_receipts
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: hometax_sales_cash_receipts
+      inputs:
+      [
+        hometax_sales_cash_receipts_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    hometax_sales_cash_receipts_src
+          WHERE   created_at_date >= '${MIN_DATE}'
+          AND     created_at_date < '${MAX_DATE}'
+          '''
+      }
+    }
+    {
+      name: hometax_purchases_cash_receipts
+      inputs:
+      [
+        hometax_purchases_cash_receipts_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *
+          FROM    hometax_purchases_cash_receipts_src
+          WHERE   created_at_date >= '${MIN_DATE}'
+          AND     created_at_date < '${MAX_DATE}'
+          '''
+      }
+    }
+    //
+    {
+      name: hometax_cash_receipts
+      inputs:
+      [
+        businesses
+        hometax_sales_cash_receipts
+        hometax_purchases_cash_receipts
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  /*+BROADCAST(b) */
+                  r.*,
+                  b.id AS trader_business_id
+          FROM    (
+            SELECT  business_id,
+                    price,
+                    IF (receipt_type  = 1, -vat, vat) AS vat,
+                    service,
+                    IF (receipt_type = 1, -amount, amount) AS amount,
+                    authorization_number,
+                    identification_method,
+                    receipt_type,
+                    created_at,
+                    date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                    updated_at,
+                    receipt_type = 0 AS approved,
+                    receipt_type = 1 AS canceled,
+                    authorization_number like 'I7%' AS online,
+                    true AS is_sales,
+                    false AS is_purchases,
+                    CAST(null AS timestamp) AS purchased_at,
+                    sold_at,
+                    CAST(null AS boolean) AS tax_deductible,
+                    CAST(null AS string) AS vendor_registration_number,
+                    CAST(null AS string) AS vendor_business_name,
+                    CAST(null AS string) AS vendor_business_code,
+                    CAST(null AS string) AS vendor_address
+            FROM    hometax_sales_cash_receipts
+
+            UNION ALL
+
+            SELECT  business_id,
+                    price,
+                    IF (receipt_type  = 1, -vat, vat) AS vat,
+                    service,
+                    IF (receipt_type = 1, -amount, amount) AS amount,
+                    authorization_number,
+                    identification_method,
+                    receipt_type,
+                    created_at,
+                    date_format(created_at, 'yyyy-MM-dd') AS created_at_date,
+                    updated_at,
+                    receipt_type = 0 AS approved,
+                    receipt_type = 1 AS canceled,
+                    CAST(null AS boolean) AS online,
+                    true AS is_sales,
+                    false AS is_purchases,
+                    purchased_at,
+                    CAST(null AS timestamp) AS sold_at,
+                    tax_deductible,
+                    vendor_registration_number,
+                    vendor_business_name,
+                    vendor_business_code,
+                    vendor_address
+            FROM    hometax_purchases_cash_receipts
+          ) r LEFT OUTER JOIN businesses b
+          ON (COALESCE(r.vendor_registration_number, 'none') = b.registration_number)
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        hometax_cash_receipts
+      ]
+      name: file_sink
+      options:
+      {
+        mode: overwritePartitions
+        path: "${OUTPUT_PATH}"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: created_at_date
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

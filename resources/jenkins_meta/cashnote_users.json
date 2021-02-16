@@ -1,0 +1,140 @@
+{
+  "name": "cashnote_users",
+  "udfs": [
+    {
+      "name": "filterJsonTrue",
+      "class": "com.kcd.thrush.dmp.spark.udfs.JsonFilter",
+      "params": {}
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "devices_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/devices"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "memberships_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/memberships"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "phones_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/phones"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=businesses/name=businesses"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "devices_src"
+      ],
+      "name": "devices",
+      "options": {
+        "sql": "  SELECT\n          user_id,\n          collect_set(device_type) device_type\n  FROM    devices_src\n  WHERE   user_id IS NOT NULL\n  GROUP BY user_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "memberships_src"
+      ],
+      "name": "memberships",
+      "options": {
+        "sql": "  SELECT\n          user_id,\n          collect_list(struct(business_id, role, notifications)) AS memberships\n  FROM (\n          SELECT\n                  user_id,\n                  business_id,\n                  role,\n                  filterJsonTrue(notification_preferences) AS notifications\n          FROM    memberships_src\n          WHERE   user_id IS NOT NULL\n  )\n  GROUP BY user_id"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "phones_src"
+      ],
+      "name": "phones",
+      "options": {
+        "sql": "  SELECT\n          user_id,\n          number,\n          blocked\n  FROM    phones_src\n  WHERE   user_id IS NOT NULL"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "businesses"
+      ],
+      "name": "demography",
+      "options": {
+        "sql": "  SELECT  *,\n          CASE\n              WHEN age < 20 THEN \"20_under\"\n              WHEN age >= 20 AND age < 30 THEN \"20s\"\n              WHEN age >= 30 AND age < 40 THEN \"30s\"\n              WHEN age >= 40 AND age < 50 THEN \"40s\"\n              WHEN age >= 50 AND age < 60 THEN \"50s\"\n              WHEN age >= 60 THEN \"60_over\"\n              ELSE \"none\"\n          END AS age_band\n  FROM (\n          SELECT  owner_id AS user_id,\n                  year(crefia_owner_birthday) AS birth_year,\n                  month(crefia_owner_birthday) AS birth_month,\n                  date_format(crefia_owner_birthday, 'MM-dd') AS birthday,\n                  crefia_owner_birthday,\n                  (year(current_date()) - year(crefia_owner_birthday) + 1) AS age,\n                  row_number() OVER (PARTITION BY owner_id ORDER BY created_at DESC) AS row_num\n          FROM  businesses\n          WHERE crefia_owner_birthday is not null\n  )\n  WHERE   row_num = 1"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "devices"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=cashnote_user_id/subject=users/name=devices"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "memberships"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=cashnote_user_id/subject=users/name=memberships"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "phones"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=cashnote_user_id/subject=users/name=phones"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [
+        "demography"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/data_sources/dimension/id_type=cashnote_user_id/subject=users/name=demography"
+      },
+      "type": "file"
+    }
+  ]
+}

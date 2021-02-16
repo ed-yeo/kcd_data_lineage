@@ -1,0 +1,78 @@
+{
+  name: firehose_compaction
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: src
+      options:
+      {
+        paths: '${INPUT_PATH}'
+        format: json
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: raw
+      inputs:
+      [
+        src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  year(from_unixtime(timestamp / 1000)) as year,
+                  month(from_unixtime(timestamp / 1000)) as month,
+                  day(from_unixtime(timestamp / 1000)) as day
+          FROM    src
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+     {
+      inputs:
+      [
+        card_purchases_unique
+      ]
+      name: file_sink
+      options: {
+        mode: overwritePartitions
+        path: "${OUTPUT_PATH}"
+        format: parquet
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        partitions: created_at_date
+        evenPartitions: "true"
+        numOfRecordPerFile: "4000000"
+        sampleRatio: "0.1"
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        raw
+      ]
+      name: file_sink
+      options:
+      {
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        format: parquet
+        mode: append
+        path: '${OUTPUT_PATH}'
+        evenPartitions: 'true'
+        partitions: 'year,month,day'
+      }
+      type: custom
+    }
+  ]
+}

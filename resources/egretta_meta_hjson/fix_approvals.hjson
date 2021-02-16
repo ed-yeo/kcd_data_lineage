@@ -1,0 +1,149 @@
+{
+  name: fix_approvals
+  udfs: [
+    {
+      name: estimate_paid_at
+      class: com.kcd.thrush.cardsales.spark.udfs.EstimatePaidAt
+      params: {
+        business_days_path: 's3://kcd-data/raw/db/snowdon/snapshot/latest/business_days'
+      }
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: current_approvals_raw
+      options:
+      {
+        paths: "${APPROVALS_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: current_purchases
+      options:
+      {
+        paths: "${PURCHASES_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: approvals
+      inputs:
+      [
+        current_approvals_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT  *,
+                   card_number = '-*-*-' AS is_invalid
+           FROM    current_approvals_raw
+          '''
+      }
+    }
+    {
+      name: valid_approvals
+      inputs:
+      [
+        approvals
+        current_purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT business_id,
+                 transacted_at,
+                 authorization_number,
+                 amount,
+                 acquirer_name,
+                 card_number,
+                 card_type,
+                 encrypted_card_number,
+                 fee,
+                 estimated_paid_at,
+                 installment,
+                 issuer_name,
+                 masked_card_number,
+                 merchant_number,
+                 payment,
+                 status,
+                 vat_fee,
+                 created_at,
+                 updated_at,
+                 created_at_date,
+                 approval_seq
+          FROM   approvals
+          WHERE  is_invalid = false
+
+          UNION ALL
+
+          SELECT  i.business_id,
+                  i.transacted_at,
+                  i.authorization_number,
+                  i.amount,
+                  i.acquirer_name,
+                  p.card_number,
+                  i.card_type,
+                  CAST(null AS string) AS encrypted_card_number,
+                  i.fee,
+                  i.estimated_paid_at,
+                  i.installment,
+                  i.issuer_name,
+                  i.masked_card_number,
+                  i.merchant_number,
+                  i.payment,
+                  i.status,
+                  i.vat_fee,
+                  i.created_at,
+                  i.updated_at,
+                  i.created_at_date,
+                  i.approval_seq
+          FROM   (
+            SELECT *
+            FROM   approvals
+            WHERE  is_invalid = true
+          ) i, current_purchases p
+          WHERE  i.business_id = p.business_id
+          AND    CAST(i.transacted_at AS DATE) = CAST(p.transacted_at AS DATE)
+          AND    i.issuer_name = p.issuer_name
+          AND    i.merchant_number = p.merchant_number
+          AND    i.authorization_number = p.authorization_number
+          AND    i.amount = p.amount
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        valid_approvals
+      ]
+      name: approvals_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: "created_at_date"
+          evenPartitions: "true"
+          numOfRecordPerFile: "4000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

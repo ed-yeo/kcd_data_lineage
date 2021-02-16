@@ -1,0 +1,386 @@
+{
+  name: conv_log
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: ad_group
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "ad_group"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+          skip_tx: "true"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: ad_group_event_map
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "ad_group_event_map"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+          skip_tx: "true"
+        }
+        type: jdbc
+    }
+    {
+        inputs: []
+        name: sdk_event
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "sdk_event"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+          skip_tx: "true"
+        }
+        type: jdbc
+    }
+    {
+      inputs:
+      []
+      name: conv_log
+      options:
+      {
+        format: parquet
+        paths: ${BASE_LOG_DIR}/conv_log
+        skip_tx: "true"
+      }
+      type: file
+    }
+    {
+      inputs:
+      []
+      name: click_log
+      options:
+      {
+        format: parquet
+        paths: ${BASE_LOG_DIR}/click_log
+        skip_tx: "true"
+      }
+      type: file
+    }
+    {
+      inputs:
+      []
+      name: kcd_cashnote_web
+      options:
+      {
+        format: json
+        paths: ${CATALOG_DIR}/raw/tb=kcd_cashnote_web
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+    {
+      inputs:
+      []
+      name: kcd_cashnote_ruby
+      options:
+      {
+        format: json
+        paths: ${CATALOG_DIR}/raw/tb=kcd_cashnote_ruby
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+    {
+      inputs:
+      []
+      name: kcd_redbird_web
+      options:
+      {
+        format: json
+        paths: ${CATALOG_DIR}/raw/tb=kcd_redbird_web
+        schema: "_event_id STRING, timestamp LONG, event STRING, `prop_$event_type` STRING, prop_user_id LONG, `prop_$current_url`STRING"
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+    {
+      inputs:
+      []
+      name: kcd_redbird_ruby
+      options:
+      {
+        format: json
+        paths: ${CATALOG_DIR}/raw/tb=kcd_redbird_ruby
+        schema: "_event_id STRING, timestamp LONG, event STRING, `prop_$event_type` STRING, prop_user_id LONG, `prop_$current_url`STRING"
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+    {
+      inputs:
+      []
+      name: kcd_bluebird_web
+      options:
+      {
+        format: json
+        paths: ${CATALOG_DIR}/raw/tb=kcd_bluebird_web
+        schema: "_event_id STRING, timestamp LONG, event STRING, `prop_$event_type` STRING, prop_cashnote_user_id LONG, prop_paynote_user_id LONG, `prop_$current_url`STRING"
+        partition_keys: 'created_at_date,created_at_hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+        inputs:
+        [
+            ad_group
+            ad_group_event_map
+            sdk_event
+        ]
+        name: event_mapping
+        options:
+        {
+          sql:
+            '''
+                SELECT 	campaign_id, ad_group_id, ad_group.user_type,
+                        ad_group_event_map.event_type,
+                        sdk_event.event_type AS sdk_event_type,
+                        sdk_event.sdk_name
+                FROM  	ad_group, ad_group_event_map, sdk_event
+                WHERE 	ad_group.id = ad_group_event_map.ad_group_id
+                AND	 	ad_group_event_map.sdk_event_id = sdk_event.id
+            '''
+            //  TODO: check valid ad_group (enabled & created_at_date)
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+            click_log
+        ]
+        name: valid_click_log
+        options:
+        {
+          sql:
+            '''
+                SELECT
+                        timestamp,
+                        user_id,
+                        campaign_id,
+                        ad_group_id,
+                        creative_id,
+                        created_at_date
+                FROM    click_log
+                WHERE   created_at_date between '${FROM_DATE}' AND '${TO_DATE}'
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+            kcd_cashnote_web
+            kcd_cashnote_ruby
+            kcd_redbird_web
+            kcd_redbird_ruby
+            kcd_bluebird_web
+        ]
+        name: valid_event
+        options:
+        {
+          sql:
+            '''
+            SELECT  _event_id, 'kcd_cashnote_web' AS sdk_name, timestamp,  prop_user_id AS cashnote_user_id,  null AS paynote_user_id,  event
+            FROM    kcd_cashnote_web
+            WHERE   event != '$web_event'
+            AND     prop_user_id IS NOT NULL
+
+            UNION ALL
+
+            SELECT  _event_id, 'kcd_cashnote_ruby' AS sdk_name, timestamp,  prop_user_id AS cashnote_user_id,  null AS paynote_user_id,  event
+            FROM    kcd_cashnote_ruby
+            WHERE   event != '$web_event'
+            AND     prop_user_id IS NOT NULL
+
+            UNION ALL
+
+            SELECT  _event_id, 'kcd_redbird_web' AS sdk_name, timestamp,  null AS cashnote_user_id,    prop_user_id AS paynote_user_id,    event
+            FROM    kcd_redbird_web
+            WHERE   event != '$web_event'
+            AND     prop_user_id IS NOT NULL
+
+            UNION ALL
+
+            SELECT  _event_id, 'kcd_redbird_ruby' AS sdk_name, timestamp,  null AS cashnote_user_id,    prop_user_id AS paynote_user_id,    event
+            FROM    kcd_redbird_ruby
+            WHERE   event != '$web_event'
+            AND     prop_user_id IS NOT NULL
+
+            UNION ALL
+
+            SELECT  _event_id, 'kcd_bluebird_web' AS sdk_name, timestamp,  prop_cashnote_user_id AS cashnote_user_id, prop_paynote_user_id AS paynote_user_id, event
+            FROM    kcd_bluebird_web
+            WHERE   event != '$web_event'
+            AND     (prop_cashnote_user_id IS NOT NULL OR prop_paynote_user_id IS NOT NULL)
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+            valid_event
+            event_mapping
+        ]
+        name: cur_conv_log
+        options:
+        {
+          sql:
+            '''
+            SELECT  *
+            FROM (
+                    SELECT  *,
+                            row_number() OVER (PARTITION BY user_id, ad_group_id ORDER BY timestamp) AS rank
+                    FROM (
+                            SELECT
+                                    valid_event._event_id,
+                                    valid_event.timestamp,
+                                    IF(event_mapping.user_type = 'cashnote', valid_event.cashnote_user_id, valid_event.paynote_user_id) AS user_id,
+                                    valid_event.event,
+                                    event_mapping.campaign_id,
+                                    event_mapping.ad_group_id,
+                                    event_mapping.event_type,
+                                    event_mapping.sdk_name
+                            FROM    valid_event
+                            JOIN    event_mapping
+                            ON      valid_event.event = event_mapping.sdk_event_type
+                            AND     valid_event.sdk_name = event_mapping.sdk_name
+                    )
+            )
+            WHERE rank = 1
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+            cur_conv_log
+            conv_log
+        ]
+        name: valid_conv_log
+        options:
+        {
+          sql:
+            '''
+            SELECT
+                    cur_conv_log.*
+            FROM    cur_conv_log
+            LEFT OUTER JOIN (
+                SELECT  *
+                FROM  conv_log
+                WHERE   created_at_date between '${FROM_DATE}' AND '${TO_DATE}'
+            ) AS prev_conv_log
+            ON  cur_conv_log.campaign_id = prev_conv_log.campaign_id
+            AND cur_conv_log.ad_group_id = prev_conv_log.ad_group_id
+            AND cur_conv_log.user_id = prev_conv_log.user_id
+            WHERE  prev_conv_log.user_id IS NULL
+
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+            valid_click_log
+            valid_conv_log
+        ]
+        name: conv_with_click_log
+        options:
+        {
+          sql:
+            '''
+            SELECT
+                     from_unixtime(conv.timestamp/1000, 'yyyy-MM-dd') AS created_at_date,
+                     conv.timestamp,
+                     conv._event_id,
+                     conv.event_type,
+                     conv.user_id,
+                     conv.sdk_name,
+                     click.timestamp AS click_timestamp,
+                     click.campaign_id,
+                     click.ad_group_id,
+                     click.creative_id,
+                     (conv.timestamp - click.timestamp) AS conv_duration_millis,
+                     datediff(
+                         from_unixtime(conv.timestamp/1000, 'yyyy-MM-dd'),
+                         from_unixtime(click.timestamp/1000, 'yyyy-MM-dd')
+                     ) AS diff_days
+            FROM    valid_click_log AS click
+            JOIN    valid_conv_log AS conv
+            ON click.campaign_id = conv.campaign_id
+            AND click.ad_group_id = conv.ad_group_id
+            AND click.user_id = conv.user_id
+            '''
+        }
+        type: sql
+    }
+    {
+        inputs:
+        [
+            conv_with_click_log
+        ]
+        name: attribution_window
+        options:
+        {
+          sql:
+            '''
+            SELECT  *
+            FROM (
+                SELECT  *,
+                        row_number() OVER (PARTITION BY user_id, ad_group_id ORDER BY conv_duration_millis) AS rank
+                FROM    conv_with_click_log
+                WHERE   diff_days between 0 AND ${LOOKBACK_WINDOW}
+                AND     conv_duration_millis > 0
+            )
+            WHERE   rank = 1
+            '''
+        }
+        type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        attribution_window
+      ]
+      name: conv_log_sink
+      options:
+      {
+        format: parquet
+        mode: append
+        path: ${BASE_LOG_DIR}/conv_log
+        partitions: created_at_date
+      }
+      type: file
+    }
+  ]
+}

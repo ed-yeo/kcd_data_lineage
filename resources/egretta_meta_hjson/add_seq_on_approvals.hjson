@@ -1,0 +1,74 @@
+{
+  name: approvals
+  udfs: [
+    {
+      name: estimate_paid_at
+      class: com.kcd.thrush.cardsales.spark.udfs.EstimatePaidAt
+      params: {
+        business_days_path: 's3://kcd-data/raw/db/snowdon/snapshot/latest/business_days'
+      }
+    }
+    {
+      name: mask_card_number
+      class: com.kcd.thrush.udfs.MarkCardNumberUDF
+      params: {}
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: approvals
+      options:
+      {
+        paths: "${APPROVALS_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: approvals_with_sequence
+      inputs:
+      [
+        approvals
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+              SELECT    *,
+                        row_number() OVER (
+                            PARTITION BY business_id, credential_key, CAST(transacted_at AS DATE), mask_card_number(card_number), authorization_number, amount, status
+                            ORDER BY created_at DESC
+                        ) AS approval_seq
+              FROM      approvals
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        approvals_with_sequence
+      ]
+      name: approvals_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: "created_at_date"
+          evenPartitions: "true"
+          numOfRecordPerFile: "2000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

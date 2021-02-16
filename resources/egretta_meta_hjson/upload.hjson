@@ -1,0 +1,79 @@
+{
+  name: upload
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: stats
+      options:
+      {
+        format: parquet
+        paths: "${output_path}/stats"
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        stats
+      ]
+      name: rows
+      options:
+      {
+        sql:
+          '''
+          SELECT  src_registration_number AS registration_number,
+                  to_json(
+                    collect_list(
+                      named_struct(
+                        'registration_number', tgt_registration_number,
+                        'name', tgt_name,
+                        'co_count', tgt_co_count,
+                        'score', lift,
+                        'classification', tgt_place_classification,
+                        'type', tgt_place_type,
+                        'uid', tgt_place_uid,
+                        'place_name', tgt_place_name,
+                        'latitude', tgt_place_latitude,
+                        'longitude', tgt_place_longitude
+                      )
+                    )
+                  ) AS targets,
+                  current_timestamp() AS created_at,
+                  current_timestamp() AS updated_at
+          FROM    stats
+          GROUP BY src_registration_number
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        rows
+      ]
+      name: jdbc_sink
+      options:
+      {
+        operation: "upsert"
+        driver: "${driver}"
+        url: "${url}"
+        user: "${user}"
+        password: "${password}"
+        dbtable: "similar_places"
+        conflictColumns: "registration_number"
+        updateColumns: "targets"
+        typeCastColumns: ""
+      }
+      type: jdbc
+    }
+  ]
+}

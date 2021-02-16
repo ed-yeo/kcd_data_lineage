@@ -1,0 +1,62 @@
+{
+  "name": "get_latest_ids_goose",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "card_payments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/incremental/card_payments"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "access_logs",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/incremental/access_logs"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "user_events",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/goose/incremental/user_events"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "card_payments",
+        "access_logs",
+        "user_events"
+      ],
+      "name": "latest_ids",
+      "options": {
+        "sql": "  SELECT  'card_payments' AS table, max(id) AS latest_id\n  FROM    card_payments\n  WHERE   created_at > (SELECT max(created_at_date) FROM card_payments)\n\n  UNION ALL\n\n  SELECT  'access_logs' AS table, max(id) AS latest_id\n  FROM    access_logs\n  WHERE   created_at > (SELECT max(created_at_date) FROM access_logs)\n\n  UNION ALL\n\n  SELECT  'user_events' AS table, max(id) AS latest_id\n  FROM    user_events\n  WHERE   created_at > (SELECT max(created_at_date) FROM user_events)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "latest_ids"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "json",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/misc/db_dump/dump_latest_ids_goose",
+        "numPartitions": "1"
+      },
+      "type": "file"
+    }
+  ]
+}

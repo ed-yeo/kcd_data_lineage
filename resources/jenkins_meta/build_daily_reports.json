@@ -1,0 +1,306 @@
+{
+  "name": "build_daily_reports",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "card_purchases_stat_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/card/card_purchases_stat"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_stat_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/hometax/hometax_stat"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "payments_stat_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/card_sales/payments_stat"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "transactions_stat_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/card_sales/transactions_stat"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "delivery_app_orders_stat_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/test/raw/stat/snowdon/delivery_app/delivery_app_orders_stat"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "delivery_app_payments_stat_raw",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/stat/snowdon/delivery_app/delivery_app_payments_stat"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "card_purchases_stat",
+      "inputs": [
+        "card_purchases_stat_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      card_purchases_stat_raw\nWHERE     (\n  (\n    time_unit = 'month' AND\n    time >= date_trunc('month', to_date('2020-11-19')) AND\n    time < '2020-11-20'\n  ) OR\n  (\n    time_unit = 'day' AND\n    time >= '2020-11-19' AND\n    time < '2020-11-20'\n  ) OR\n  (\n    time_unit = 'day_hour' AND\n    time >= '2020-11-19' AND\n    time < '2020-11-20'\n  )\n)"
+      }
+    },
+    {
+      "name": "hometax_stat",
+      "inputs": [
+        "hometax_stat_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      hometax_stat_raw\nWHERE     (\n  (\n    time_unit = 'month' AND\n    time >= date_trunc('month', to_date('2020-11-19')) AND\n    time < '2020-11-20'\n  ) OR\n  (\n    time_unit = 'day' AND\n    time >= '2020-11-19' AND\n    time < '2020-11-20'\n  ) OR\n  (\n    time_unit = 'day_hour' AND\n    time >= '2020-11-19' AND\n    time < '2020-11-20'\n  )\n)"
+      }
+    },
+    {
+      "name": "payments_stat",
+      "inputs": [
+        "payments_stat_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      payments_stat_raw\nWHERE     (\n  (\n    time_unit = 'month' AND\n    time >= date_trunc('month', to_date('2020-11-19')) AND\n    time < '2020-11-20'\n  ) OR\n  (\n    time_unit = 'day' AND\n    time >= '2020-11-19' AND\n    time < '2020-11-20'\n  ) OR\n  (\n    time_unit = 'day_hour' AND\n    time >= '2020-11-19' AND\n    time < '2020-11-20'\n  )\n)"
+      }
+    },
+    {
+      "name": "transactions_stat",
+      "inputs": [
+        "transactions_stat_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      transactions_stat_raw\nWHERE     (\n  (\n    time_unit = 'month' AND\n    time >= date_trunc('month', to_date('2020-11-19')) AND\n    time < '2020-11-20'\n  ) OR\n  (\n    time_unit = 'day' AND\n    time >= '2020-11-19' AND\n    time < '2020-11-20'\n  ) OR\n  (\n    time_unit = 'day_hour' AND\n    time >= '2020-11-19' AND\n    time < '2020-11-20'\n  )\n)"
+      }
+    },
+    {
+      "name": "delivery_app_orders_stat",
+      "inputs": [
+        "delivery_app_orders_stat_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      delivery_app_orders_stat_raw\nWHERE     (\n  (\n    time_unit = 'month' AND\n    time >= date_trunc('month', to_date('2020-11-19')) AND\n    time < '2020-11-20'\n  ) OR\n  (\n    time_unit = 'day' AND\n    time >= '2020-11-19' AND\n    time < '2020-11-20'\n  ) OR\n  (\n    time_unit = 'day_hour' AND\n    time >= '2020-11-19' AND\n    time < '2020-11-20'\n  )\n)"
+      }
+    },
+    {
+      "name": "delivery_app_payments_stat",
+      "inputs": [
+        "delivery_app_payments_stat_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      delivery_app_payments_stat_raw\nWHERE     (\n  (\n    time_unit = 'month' AND\n    time >= date_trunc('month', to_date('2020-11-19')) AND\n    time < '2020-11-20'\n  ) OR\n  (\n    time_unit = 'day' AND\n    time >= '2020-11-19' AND\n    time < '2020-11-20'\n  ) OR\n  (\n    time_unit = 'day_hour' AND\n    time >= '2020-11-19' AND\n    time < '2020-11-20'\n  )\n)"
+      }
+    },
+    {
+      "name": "daily_card_sales",
+      "inputs": [
+        "transactions_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          time,\n          card_sales_amount,\n          card_sales_count,\n          card_sales_fee,\n          card_sales_vat_fee,\n          card_sales_payment,\n          returning_amount,\n          card_sales_amount - returning_amount AS new_amount\nFROM      transactions_stat\nWHERE     time_unit = 'day'"
+      }
+    },
+    {
+      "name": "monthly_card_sales",
+      "inputs": [
+        "transactions_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          time,\n          card_sales_amount,\n          card_sales_count,\n          card_sales_fee,\n          card_sales_vat_fee,\n          card_sales_payment,\n          returning_amount,\n          card_sales_amount - returning_amount AS new_amount\nFROM      transactions_stat\nWHERE     time_unit = 'month'"
+      }
+    },
+    {
+      "name": "card_sales",
+      "inputs": [
+        "daily_card_sales",
+        "monthly_card_sales"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    nvl(d.business_id, m.business_id) AS business_id,\n          nvl(d.time, to_timestamp('2020-11-19', 'yyyy-MM-dd')) AS date,\n          m.time AS month,\n          d.card_sales_amount,\n          d.card_sales_count,\n          d.card_sales_fee,\n          d.card_sales_vat_fee,\n          d.card_sales_payment,\n          d.returning_amount,\n          d.new_amount,\n          m.card_sales_amount AS monthly_card_sales_amount\nFROM      daily_card_sales d\nFULL OUTER JOIN monthly_card_sales m\nON        d.business_id = m.business_id\nAND       date_trunc('month', d.time) = date_trunc('month', m.time)"
+      }
+    },
+    {
+      "name": "daily_delivery_app_sales",
+      "inputs": [
+        "delivery_app_orders_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          time,\n          amount_sum,\n          baemin_online_amount_sum,\n          yogiyo_online_amount_sum,\n          baedaltong_online_amount_sum\nFROM      delivery_app_orders_stat\nWHERE     time_unit = 'day'"
+      }
+    },
+    {
+      "name": "monthly_delivery_app_sales",
+      "inputs": [
+        "delivery_app_orders_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          time,\n          amount_sum,\n          baemin_online_amount_sum,\n          yogiyo_online_amount_sum,\n          baedaltong_online_amount_sum\nFROM      delivery_app_orders_stat\nWHERE     time_unit = 'month'"
+      }
+    },
+    {
+      "name": "delivery_app_sales",
+      "inputs": [
+        "daily_delivery_app_sales",
+        "monthly_delivery_app_sales"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    nvl(d.business_id, m.business_id) AS business_id,\n          nvl(d.time, to_timestamp('2020-11-19', 'yyyy-MM-dd')) AS date,\n          m.time AS month,\n          d.amount_sum,\n          d.baemin_online_amount_sum,\n          d.yogiyo_online_amount_sum,\n          d.baedaltong_online_amount_sum,\n          m.baemin_online_amount_sum + m.baedaltong_online_amount_sum + m.yogiyo_online_amount_sum AS monthly_delivery_app_sales_amount\nFROM      daily_delivery_app_sales d\nFULL OUTER JOIN   monthly_delivery_app_sales m\nON        d.business_id = m.business_id\nAND       date_trunc('month', d.time) = date_trunc('month', m.time)"
+      }
+    },
+    {
+      "name": "delivery_app_payments",
+      "inputs": [
+        "delivery_app_payments_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          time AS date,\n          date_trunc('month', time) AS month,\n          received_amount,\n          baemin_received_amount,\n          baedaltong_received_amount,\n          yogiyo_received_amount,\n          order_amount,\n          baemin_order_amount,\n          baedaltong_order_amount,\n          yogiyo_order_amount,\n          period_started_at,\n          period_ended_at\nFROM      delivery_app_payments_stat\nWHERE     time_unit = 'day'"
+      }
+    },
+    {
+      "name": "card_payments",
+      "inputs": [
+        "payments_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          time AS date,\n          date_trunc('month', time) AS month,\n          collect_set(\n            struct(\n              issuer_name,\n              reserved,\n              received\n            )\n          ) as payments\nFROM      payments_stat\nWHERE     time_unit = 'day'\nGROUP BY  1, 2"
+      }
+    },
+    {
+      "name": "hourly_sales",
+      "inputs": [
+        "delivery_app_orders_stat",
+        "transactions_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *,\n          date_trunc('month', date) AS month\nFROM      (\n  SELECT    business_id,\n            time AS date,\n            SUM(IF (hour >= 0 AND hour < 6, amount, 0)) AS 0_6_sales_amount,\n            SUM(IF (hour >= 6 AND hour < 11, amount, 0)) AS 6_11_sales_amount,\n            SUM(IF (hour >= 11 AND hour < 14, amount, 0)) AS 11_14_sales_amount,\n            SUM(IF (hour >= 14 AND hour < 17, amount, 0)) AS 14_17_sales_amount,\n            SUM(IF (hour >= 17 AND hour < 24, amount, 0)) AS 17_24_sales_amount\n  FROM      (\n    SELECT    business_id,\n              date_trunc('day', time) AS time,\n              hour(time) AS hour,\n              card_sales_amount AS amount\n    FROM      transactions_stat\n    WHERE     time_unit = 'day_hour'\n\n    UNION ALL\n\n    SELECT    business_id,\n              date_trunc('day', time) AS time,\n              hour(time) AS hour,\n              (baemin_online_amount_sum + yogiyo_online_amount_sum + baedaltong_online_amount_sum) AS amount\n    FROM      delivery_app_orders_stat\n    WHERE     time_unit = 'day_hour'\n  )\n  GROUP BY  1, 2\n)"
+      }
+    },
+    {
+      "name": "daily_stat_joined",
+      "inputs": [
+        "card_sales",
+        "delivery_app_sales",
+        "hourly_sales",
+        "delivery_app_payments",
+        "card_payments"
+      ],
+      "type": "custom",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinColumns": "business_id,date,month",
+        "joinType": "full_outer"
+      }
+    },
+    {
+      "name": "daily_stat",
+      "inputs": [
+        "daily_stat_joined"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *, date_format(date, 'yyyy-MM-dd') AS date_str\nFROM      daily_stat_joined"
+      },
+      "cache": true
+    },
+    {
+      "name": "card_purchases",
+      "inputs": [
+        "card_purchases_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          time AS month,\n          SUM(amount) AS amount\nFROM      card_purchases_stat\nWHERE     time_unit = 'month'\nGROUP BY  business_id, time"
+      }
+    },
+    {
+      "name": "hometax",
+      "inputs": [
+        "hometax_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    business_id,\n          time AS month,\n          hometax_sales_invoices_amount,\n          hometax_sales_cash_receipts_amount,\n          hometax_purchases_invoices_amount,\n          hometax_purchases_cash_receipts_amount\nFROM      hometax_stat\nWHERE     time_unit = 'month'"
+      }
+    },
+    {
+      "name": "merged_stat",
+      "inputs": [
+        "daily_stat",
+        "card_purchases",
+        "hometax"
+      ],
+      "type": "custom",
+      "options": {
+        "class": "com.kcd.thrush.dmp.spark.MergeSchemaProcess",
+        "joinColumns": "business_id,month",
+        "joinType": "full_outer"
+      }
+    },
+    {
+      "name": "merged_stat_with_date",
+      "inputs": [
+        "merged_stat"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id,\n   daily_stat.date,\n   date_id,\n   daily_stat.card_sales.card_sales_amount AS card_sales_amount,\n   daily_stat.card_sales.card_sales_count AS card_sales_count,\n   daily_stat.card_sales.card_sales_fee AS card_sales_fee,\n   daily_stat.card_sales.card_sales_vat_fee AS card_sales_vat_fee,\n   daily_stat.card_sales.card_sales_payment AS card_sales_payment,\n   daily_stat.card_sales.returning_amount AS returning_amount,\n   daily_stat.card_sales.new_amount AS new_amount,\n   daily_stat.card_sales.monthly_card_sales_amount AS monthly_card_sales_amount,\n   daily_stat.hourly_sales.0_6_sales_amount AS 0_6_sales_amount,\n   daily_stat.hourly_sales.6_11_sales_amount AS 6_11_sales_amount,\n   daily_stat.hourly_sales.11_14_sales_amount AS 11_14_sales_amount,\n   daily_stat.hourly_sales.14_17_sales_amount AS 14_17_sales_amount,\n   daily_stat.hourly_sales.17_24_sales_amount AS 17_24_sales_amount,\n   daily_stat.delivery_app_sales.baemin_online_amount_sum AS baemin_online_amount_sum,\n   daily_stat.delivery_app_sales.yogiyo_online_amount_sum AS yogiyo_online_amount_sum,\n   daily_stat.delivery_app_sales.baedaltong_online_amount_sum AS baedaltong_online_amount_sum,\n   daily_stat.delivery_app_sales.monthly_delivery_app_sales_amount AS monthly_delivery_app_sales_amount,\n   daily_stat.delivery_app_payments.baemin_received_amount AS baemin_received_amount,\n   daily_stat.delivery_app_payments.yogiyo_received_amount AS yogiyo_received_amount,\n   daily_stat.delivery_app_payments.baedaltong_received_amount AS baedaltong_received_amount,\n   daily_stat.card_payments.payments AS card_payments,\n   card_purchases.amount AS card_purchases_amount,\n   hometax.hometax_sales_invoices_amount AS hometax_sales_invoices_amount,\n   hometax.hometax_sales_cash_receipts_amount AS hometax_sales_cash_receipts_amount,\n   hometax.hometax_purchases_invoices_amount AS hometax_purchases_invoices_amount,\n   hometax.hometax_purchases_cash_receipts_amount AS hometax_purchases_cash_receipts_amount\nFROM    (\nSELECT  *,\n     daily_stat.date_str AS date_id\nFROM    merged_stat\n)\nWHERE   date_id is not null"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "merged_stat_with_date"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-staging/raw/stat/snowdon/report/daily_report/report",
+        "format": "parquet",
+        "partitions": "date_id",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "checkpoint": "false"
+      },
+      "type": "custom"
+    }
+  ]
+}

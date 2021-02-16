@@ -1,0 +1,56 @@
+{
+  "name": "bulkload_with_formatting_cashnote_user_meta_common",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "bulkload_file",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-de-production/service/message/reports/user_type=cashnote/latest/report_name=common"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "bulkload_file"
+      ],
+      "name": "formatted",
+      "options": {
+        "sql": "  SELECT\n          unix_timestamp()* 1000 AS timestamp,\n          target_id AS `from`,\n          target_id AS to,\n          'cashnote_user_meta_common' AS label,\n          to_json(struct(*)) AS props\n  FROM    bulkload_file"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "formatted"
+      ],
+      "name": "s2graph_sink",
+      "options": {
+        "s2.spark.sql.streaming.sink.writeMethod": "bulk",
+        "s2.spark.sql.bulkload.sink.label.mapping": "cashnote_user_meta_common:cashnote_user_meta_common-2020-08-27_10-03-58",
+        "s2.spark.sql.bulkload.sink.build.degree": "false",
+        "s2.spark.sql.bulkload.sink.auto.edge.create": "false",
+        "s2.spark.sql.streaming.sink.skip.error": "true",
+        "s2.spark.sql.bulkload.sink.hbase.table.name": "cashnote_user_meta_common-2020-08-27_10-03-58",
+        "s2.spark.sql.bulkload.sink.hbase.table.num.regions": "5",
+        "s2.spark.sql.bulkload.sink.hbase.temp.dir": "/tmp/bulkload/cashnote_user_meta_common-2020-08-27_10-03-58",
+        "s2.spark.sql.bulkload.sink.hbase.incrementalLoad": "false",
+        "s2.spark.sql.bulkload.sink.hbase.compression": "LZ4",
+        "runLoadIncrementalHFiles": "false",
+        "hbase.zookeeper.quorum": "ec2-13-125-222-89.ap-northeast-2.compute.amazonaws.com:2181",
+        "cache.max.size": "10000",
+        "cache.ttl.seconds": "6000",
+        "db.default.driver": "com.mysql.jdbc.Driver",
+        "db.default.url": "jdbc:mysql://s2graph-meta-production.cmf8pqcqka6h.ap-northeast-2.rds.amazonaws.com/graph_production",
+        "db.default.user": "graph",
+        "db.default.password": "90f5b058-0151-4dcc-b0cb-c8346ebba924"
+      },
+      "type": "s2graph"
+    }
+  ]
+}

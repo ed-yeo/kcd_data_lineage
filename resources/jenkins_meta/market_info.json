@@ -1,0 +1,141 @@
+{
+  "name": "market_info",
+  "udfs": [
+    {
+      "name": "dateRangeCode",
+      "class": "com.kcd.thrush.market.spark.udfs.DateRangeTransform",
+      "params": {}
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "business_meta",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_cubes/dimension/name=business_meta"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_sales_transactions",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/fact/time_unit=MONTH/id_type=business_id/subject=cardsales/name=sales_transactions"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "business_location",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/data_sources/dimension/id_type=business_id/subject=location/name=common"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "card_sales_transactions"
+      ],
+      "name": "sales_amount",
+      "options": {
+        "sql": "SELECT\n        business_id, duration, prev_duration,\n        struct(\n            amount_sum,\n            amount_avg,\n            tx_count_sum,\n            tx_count_avg,\n            unit_price\n        ) AS metrics\nFROM (\n        SELECT\n                business_id,\n                dateRange.code AS duration,\n                dateRange.prevCode AS prev_duration,\n                amount_sum,\n                ROUND(amount_sum / cnt) AS amount_avg,\n                tx_count_sum,\n                ROUND(tx_count_sum / cnt) AS tx_count_avg,\n                ROUND(amount_sum / tx_count_sum) AS unit_price\n        FROM (\n            SELECT\n                    business_id, dateRange,\n                    SUM(amount) AS amount_sum,\n                    SUM(tx_count) AS tx_count_sum,\n                    count(1) AS cnt\n            FROM (\n                SELECT\n                    business_id,\n                    explode(dateRangeCodes) AS dateRange,\n                    amount_sum AS amount,\n                    tx_count\n                FROM (\n                    SELECT\n                        business_id,\n                        dateRangeCode(timestamp) AS dateRangeCodes,\n                        amount_sum,\n                        tx_count\n                    FROM card_sales_transactions\n                )\n                WHERE size(dateRangeCodes) > 0\n            )\n            GROUP BY business_id, dateRange\n        )\n)"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "sales_amount"
+      ],
+      "name": "sales_amount_with_rate",
+      "options": {
+        "sql": "SELECT\n        cur.*,\n        prev.metrics AS prev_metrics\nFROM  sales_amount cur\nLEFT OUTER JOIN sales_amount prev\nON cur.business_id = prev.business_id\nAND cur.prev_duration = prev.duration\nORDER BY business_id, duration"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "business_meta",
+        "sales_amount_with_rate",
+        "business_location"
+      ],
+      "name": "business_meta_with_amount",
+      "options": {
+        "sql": "    SELECT\n            business_meta.business_id,\n            business_meta.businesses.businesses.business_name AS name,\n            business_meta.classification.market_area AS kcd_classification,\n            sales_amount_with_rate.duration,\n            sales_amount_with_rate.metrics,\n            sales_amount_with_rate.prev_metrics,\n            business_location.geo_point AS location,\n            struct(\n                business_location.b_code,\n                business_location.sido,\n                business_location.sido_code,\n                business_location.sigungu,\n                business_location.sigungu_code,\n                business_location.dong,\n                business_location.h_codes,\n                business_location.full_address\n            ) AS address\n    FROM business_meta\n    LEFT OUTER JOIN sales_amount_with_rate\n    ON business_meta.business_id = sales_amount_with_rate.business_id\n    LEFT OUTER JOIN  business_location\n    ON business_meta.business_id = business_location.business_id"
+      },
+      "type": "sql",
+      "cache": true
+    },
+    {
+      "inputs": [
+        "business_meta_with_amount"
+      ],
+      "name": "sido_range",
+      "options": {
+        "sql": "    SELECT  duration,\n            address.sido_code,\n            percentile(metrics.amount_avg, array(0.25, 0.5, 0.75)) AS amount_range\n    FROM business_meta_with_amount\n    WHERE duration IS NOT NULL\n    AND metrics.amount_avg IS NOT NULL\n    AND address.sido_code IS NOT NULL\n    GROUP BY duration, address.sido_code"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "business_meta_with_amount"
+      ],
+      "name": "sigungu_range",
+      "options": {
+        "sql": "    SELECT  duration,\n            address.sido_code,\n            address.sigungu_code,\n            percentile(metrics.amount_avg, array(0.25, 0.5, 0.75)) AS amount_range\n    FROM business_meta_with_amount\n    WHERE duration IS NOT NULL\n    AND metrics.amount_avg IS NOT NULL\n    AND address.sido_code IS NOT NULL\n    AND address.sigungu_code IS NOT NULL\n    GROUP BY duration, address.sido_code, address.sigungu_code"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "business_meta_with_amount"
+      ],
+      "name": "bdong_range",
+      "options": {
+        "sql": "    SELECT  duration,\n            address.sido_code,\n            address.sigungu_code,\n            address.b_code,\n            percentile(metrics.amount_avg, array(0.25, 0.5, 0.75)) AS amount_range\n    FROM business_meta_with_amount\n    WHERE duration IS NOT NULL\n    AND metrics.amount_avg IS NOT NULL\n    AND address.sido_code IS NOT NULL\n    AND address.sigungu_code IS NOT NULL\n    AND address.b_code IS NOT NULL\n    GROUP BY duration, address.sido_code, address.sigungu_code, address.b_code"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "sido_range",
+        "sigungu_range",
+        "bdong_range"
+      ],
+      "name": "address_amount_range",
+      "options": {
+        "sql": "    SELECT\n            struct(bdong_range.*) AS depth3_range,\n            struct(sigungu_range.*) AS depth2_range,\n            struct(sido_range.*) AS depth1_range\n    FROM  sido_range\n    JOIN sigungu_range\n    ON sido_range.sido_code = sigungu_range.sido_code\n    AND sido_range.duration = sigungu_range.duration\n    JOIN bdong_range\n    ON sigungu_range.sido_code = bdong_range.sido_code\n    AND  sigungu_range.sigungu_code = bdong_range.sigungu_code\n    AND sigungu_range.duration = bdong_range.duration"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "address_amount_range",
+        "business_meta_with_amount"
+      ],
+      "name": "market_info",
+      "options": {
+        "sql": "SELECT\n        business_id,\n        name,\n        location,\n        kcd_classification,\n        address,\n        duration,\n        metrics,\n        prev_metrics,\n        named_struct(\n            'depth1', amount_range_depth1,\n            'depth2', amount_range_depth2,\n            'depth3', amount_range_depth3\n        ) AS amount_range\nFROM (\n        SELECT\n                business_meta_with_amount.*,\n                CASE\n                    WHEN metrics.amount_avg < depth1_range.amount_range[0] THEN \"lower\"\n                    WHEN metrics.amount_avg < depth1_range.amount_range[1] THEN \"lower_middle\"\n                    WHEN metrics.amount_avg < depth1_range.amount_range[2] THEN \"upper_middle\"\n                    WHEN metrics.amount_avg >= depth1_range.amount_range[2] THEN \"upper\"\n                    ELSE null\n                END AS amount_range_depth1,\n                CASE\n                    WHEN metrics.amount_avg < depth2_range.amount_range[0] THEN \"lower\"\n                    WHEN metrics.amount_avg < depth2_range.amount_range[1] THEN \"lower_middle\"\n                    WHEN metrics.amount_avg < depth2_range.amount_range[2] THEN \"upper_middle\"\n                    WHEN metrics.amount_avg >= depth2_range.amount_range[2] THEN \"upper\"\n                    ELSE null\n                END AS amount_range_depth2,\n                CASE\n                    WHEN metrics.amount_avg < depth3_range.amount_range[0] THEN \"lower\"\n                    WHEN metrics.amount_avg < depth3_range.amount_range[1] THEN \"lower_middle\"\n                    WHEN metrics.amount_avg < depth3_range.amount_range[2] THEN \"upper_middle\"\n                    WHEN metrics.amount_avg >= depth3_range.amount_range[2] THEN \"upper\"\n                    ELSE null\n                END AS amount_range_depth3\n        FROM business_meta_with_amount\n        LEFT OUTER JOIN address_amount_range\n        ON  business_meta_with_amount.duration = address_amount_range.depth3_range.duration\n        AND business_meta_with_amount.address.sido_code = address_amount_range.depth3_range.sido_code\n        AND business_meta_with_amount.address.sigungu_code = address_amount_range.depth3_range.sigungu_code\n        AND business_meta_with_amount.address.b_code = address_amount_range.depth3_range.b_code\n)"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "market_info"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "parquet",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/service/market_area/market_info"
+      },
+      "type": "file"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  name: test_message_sink
+  udfs: [
+  ]
+  source:
+  [
+    {
+        inputs: []
+        name: ad_group
+        options:
+        {
+          url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}"
+          dbtable: "ad_group"
+          user: "${DB_USERNAME}"
+          password:  "${DB_PASSWORD}"
+          fetchsize: "${fetchSize}"
+          numRowsPerPartition: "${numRowsPerPartition}"
+        }
+        type: jdbc
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        ad_group
+      ]
+      name: filtered_target_users
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      ad_group
+          WHERE     id = ${AD_GROUP_ID}
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        filtered_target_users
+      ]
+      name: rest_sink
+      options:
+      {
+        class: com.kcd.thrush.dmp.spark.TargetMessageRestSink
+        url: ${PLOVER_API_URL}
+        token: ${PLOVER_API_TOKEN}
+        batchSize: "${BATCH_SIZE}"
+        delayTimeMillis: "${DELAY_TIME_MILLIS}"
+        outputPath: ${TARGET_DIR}
+        connectTimeout: "1000"
+        readTimeout: "${READ_TIMEOUT_MILLIS}"
+        partitionKey: "meta.user_id"
+      }
+      type: custom
+    }
+  ]
+}

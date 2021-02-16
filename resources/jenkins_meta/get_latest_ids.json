@@ -1,0 +1,312 @@
+{
+  "name": "get_latest_ids",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "report_logs",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/report_logs"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_card_purchases",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_card_purchases"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_purchases_cash_receipts",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_purchases_cash_receipts"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_purchases_invoices",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_purchases_invoices"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_card_sales",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_card_sales"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_sales_cash_receipts",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_sales_cash_receipts"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_sales_invoices",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/hometax_sales_invoices"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "bank_transactions",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/bank_transactions"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "shinhancard_customer_statistics",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/shinhancard_customer_statistics"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "daily_reports",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/daily_reports"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "weekly_reports",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/weekly_reports"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "monthly_reports",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/monthly_reports"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "place_comments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/place_comments"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "place_reviews",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/place_reviews"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "baemin_payments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/baemin_payments"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "baemin_orders",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/baemin_orders"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "baemin_sales_vats",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/baemin_sales_vats"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "baedaltong_orders",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/baedaltong_orders"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "baedaltong_payments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/baedaltong_payments"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "yogiyo_orders",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/yogiyo_orders"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "yogiyo_payments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/yogiyo_payments"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_purchases_approvals",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/card_purchases_approvals"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_purchases_bills",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/card_purchases_bills"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "card_purchases_payments",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/card_purchases_payments"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "vendor_transactions",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/vendor_transactions"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "vendor_invoices",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/vendor_invoices"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "customer_transactions",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/customer_transactions"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "customer_invoices",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/incremental/customer_invoices"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "report_logs",
+        "hometax_card_purchases",
+        "hometax_purchases_cash_receipts",
+        "hometax_purchases_invoices",
+        "hometax_card_sales",
+        "hometax_sales_cash_receipts",
+        "hometax_sales_invoices",
+        "bank_transactions",
+        "shinhancard_customer_statistics",
+        "daily_reports",
+        "weekly_reports",
+        "monthly_reports",
+        "place_comments",
+        "place_reviews",
+        "baemin_payments",
+        "baemin_orders",
+        "baemin_sales_vats",
+        "baedaltong_orders",
+        "baedaltong_payments",
+        "yogiyo_orders",
+        "yogiyo_payments",
+        "card_purchases_approvals",
+        "card_purchases_bills",
+        "card_purchases_payments",
+        "vendor_transactions",
+        "vendor_invoices",
+        "customer_transactions",
+        "customer_invoices"
+      ],
+      "name": "latest_ids",
+      "options": {
+        "sql": "\nSELECT  'report_logs' AS table, max(id) AS latest_id\nFROM    report_logs\nWHERE   created_at > (SELECT max(created_at_date) FROM report_logs)\n    \nUNION ALL\n\nSELECT  'hometax_card_purchases' AS table, max(id) AS latest_id\nFROM    hometax_card_purchases\nWHERE   created_at > (SELECT max(created_at_date) FROM hometax_card_purchases)\n    \nUNION ALL\n\nSELECT  'hometax_purchases_cash_receipts' AS table, max(id) AS latest_id\nFROM    hometax_purchases_cash_receipts\nWHERE   created_at > (SELECT max(created_at_date) FROM hometax_purchases_cash_receipts)\n    \nUNION ALL\n\nSELECT  'hometax_purchases_invoices' AS table, max(id) AS latest_id\nFROM    hometax_purchases_invoices\nWHERE   created_at > (SELECT max(created_at_date) FROM hometax_purchases_invoices)\n    \nUNION ALL\n\nSELECT  'hometax_card_sales' AS table, max(id) AS latest_id\nFROM    hometax_card_sales\nWHERE   created_at > (SELECT max(created_at_date) FROM hometax_card_sales)\n    \nUNION ALL\n\nSELECT  'hometax_sales_cash_receipts' AS table, max(id) AS latest_id\nFROM    hometax_sales_cash_receipts\nWHERE   created_at > (SELECT max(created_at_date) FROM hometax_sales_cash_receipts)\n    \nUNION ALL\n\nSELECT  'hometax_sales_invoices' AS table, max(id) AS latest_id\nFROM    hometax_sales_invoices\nWHERE   created_at > (SELECT max(created_at_date) FROM hometax_sales_invoices)\n    \nUNION ALL\n\nSELECT  'bank_transactions' AS table, max(id) AS latest_id\nFROM    bank_transactions\nWHERE   created_at > (SELECT max(created_at_date) FROM bank_transactions)\n    \nUNION ALL\n\nSELECT  'shinhancard_customer_statistics' AS table, max(id) AS latest_id\nFROM    shinhancard_customer_statistics\nWHERE   created_at > (SELECT max(created_at_date) FROM shinhancard_customer_statistics)\n    \nUNION ALL\n\nSELECT  'daily_reports' AS table, max(id) AS latest_id\nFROM    daily_reports\nWHERE   created_at > (SELECT max(created_at_date) FROM daily_reports)\n    \nUNION ALL\n\nSELECT  'weekly_reports' AS table, max(id) AS latest_id\nFROM    weekly_reports\nWHERE   created_at > (SELECT max(created_at_date) FROM weekly_reports)\n    \nUNION ALL\n\nSELECT  'monthly_reports' AS table, max(id) AS latest_id\nFROM    monthly_reports\nWHERE   created_at > (SELECT max(created_at_date) FROM monthly_reports)\n    \nUNION ALL\n\nSELECT  'place_comments' AS table, max(id) AS latest_id\nFROM    place_comments\nWHERE   created_at > (SELECT max(created_at_date) FROM place_comments)\n    \nUNION ALL\n\nSELECT  'place_reviews' AS table, max(id) AS latest_id\nFROM    place_reviews\nWHERE   created_at > (SELECT max(created_at_date) FROM place_reviews)\n    \nUNION ALL\n\nSELECT  'baemin_payments' AS table, max(id) AS latest_id\nFROM    baemin_payments\nWHERE   created_at > (SELECT max(created_at_date) FROM baemin_payments)\n    \nUNION ALL\n\nSELECT  'baemin_orders' AS table, max(id) AS latest_id\nFROM    baemin_orders\nWHERE   created_at > (SELECT max(created_at_date) FROM baemin_orders)\n    \nUNION ALL\n\nSELECT  'baemin_sales_vats' AS table, max(id) AS latest_id\nFROM    baemin_sales_vats\nWHERE   created_at > (SELECT max(created_at_date) FROM baemin_sales_vats)\n    \nUNION ALL\n\nSELECT  'baedaltong_orders' AS table, max(id) AS latest_id\nFROM    baedaltong_orders\nWHERE   created_at > (SELECT max(created_at_date) FROM baedaltong_orders)\n    \nUNION ALL\n\nSELECT  'baedaltong_payments' AS table, max(id) AS latest_id\nFROM    baedaltong_payments\nWHERE   created_at > (SELECT max(created_at_date) FROM baedaltong_payments)\n    \nUNION ALL\n\nSELECT  'yogiyo_orders' AS table, max(id) AS latest_id\nFROM    yogiyo_orders\nWHERE   created_at > (SELECT max(created_at_date) FROM yogiyo_orders)\n    \nUNION ALL\n\nSELECT  'yogiyo_payments' AS table, max(id) AS latest_id\nFROM    yogiyo_payments\nWHERE   created_at > (SELECT max(created_at_date) FROM yogiyo_payments)\n    \nUNION ALL\n\nSELECT  'card_purchases_approvals' AS table, max(id) AS latest_id\nFROM    card_purchases_approvals\nWHERE   created_at > (SELECT max(created_at_date) FROM card_purchases_approvals)\n    \nUNION ALL\n\nSELECT  'card_purchases_bills' AS table, max(id) AS latest_id\nFROM    card_purchases_bills\nWHERE   created_at > (SELECT max(created_at_date) FROM card_purchases_bills)\n    \nUNION ALL\n\nSELECT  'card_purchases_payments' AS table, max(id) AS latest_id\nFROM    card_purchases_payments\nWHERE   created_at > (SELECT max(created_at_date) FROM card_purchases_payments)\n    \nUNION ALL\n\nSELECT  'vendor_transactions' AS table, max(id) AS latest_id\nFROM    vendor_transactions\nWHERE   created_at > (SELECT max(created_at_date) FROM vendor_transactions)\n    \nUNION ALL\n\nSELECT  'vendor_invoices' AS table, max(id) AS latest_id\nFROM    vendor_invoices\nWHERE   created_at > (SELECT max(created_at_date) FROM vendor_invoices)\n    \nUNION ALL\n\nSELECT  'customer_transactions' AS table, max(id) AS latest_id\nFROM    customer_transactions\nWHERE   created_at > (SELECT max(created_at_date) FROM customer_transactions)\n    \nUNION ALL\n\nSELECT  'customer_invoices' AS table, max(id) AS latest_id\nFROM    customer_invoices\nWHERE   created_at > (SELECT max(created_at_date) FROM customer_invoices)\n    "
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "latest_ids"
+      ],
+      "name": "file_sink",
+      "options": {
+        "format": "json",
+        "mode": "overwrite",
+        "path": "s3://kcd-de-production/misc/db_dump/dump_latest_ids_snowdon",
+        "numPartitions": "1"
+      },
+      "type": "file"
+    }
+  ]
+}

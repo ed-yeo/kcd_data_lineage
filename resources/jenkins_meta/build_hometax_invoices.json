@@ -1,0 +1,127 @@
+{
+  "name": "build_hometax_invoices",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "businesses",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/db/snowdon/snapshot/latest/businesses"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_sales_invoices_src",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-data/raw/catalog_v2/raw/tb=owl_db_hometax_sales_invoices"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "hometax_purchases_invoices_src",
+      "options": {
+        "format": "json",
+        "paths": "s3://kcd-data/raw/catalog_v2/raw/tb=owl_db_hometax_purchases_invoices"
+      },
+      "type": "file"
+    },
+    {
+      "inputs": [],
+      "name": "prev_hometax_invoices_src",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/hometax/hometax_invoices"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "hometax_sales_invoices",
+      "inputs": [
+        "hometax_sales_invoices_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    (\n  SELECT  CAST(business_id AS int) AS business_id,\n          tax_invoice,\n          invoice_type,\n          issue_type,\n          received,\n          price,\n          tax,\n          amount,\n          note,\n          customer_address,\n          customer_business_name,\n          customer_email,\n          customer_owner_name,\n          customer_registration_number,\n          customer_workplace_number,\n          CAST(null AS string) AS customer_business_classification,\n          CAST(null AS string) AS customer_business_category,\n          CAST(items_count AS int) AS items_count,\n          item_unit,\n          item_price,\n          item_name,\n          item_note,\n          authorization_number,\n          to_date(written_at) AS written_at,\n          to_date(issued_at) AS issued_at,\n          to_date(sent_at) AS sent_at,\n          to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS created_at,\n          to_timestamp(updated_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS updated_at,\n          customer_address,\n          original_authorization_number,\n          date_format(to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS'), 'yyyy-MM-dd') AS created_at_date\n  FROM    hometax_sales_invoices_src\n)\nWHERE   created_at_date >= '2020-10-06'\nAND     created_at_date < '2020-10-13'"
+      }
+    },
+    {
+      "name": "prev_hometax_invoices",
+      "inputs": [
+        "prev_hometax_invoices_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  *\nFROM    prev_hometax_invoices_src\nWHERE   created_at_date >= '${PREV_MIN_DATE}'\nAND     created_at_date < '2020-10-06'"
+      }
+    },
+    {
+      "name": "hometax_sales_invoices_unique",
+      "inputs": [
+        "hometax_sales_invoices",
+        "prev_hometax_invoices"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  current.*\nFROM    (\n  SELECT  *\n  FROM    prev_hometax_invoices\n  WHERE   is_sales\n) prev RIGHT OUTER JOIN hometax_sales_invoices current\nON      (\n  prev.business_id = current.business_id AND\n  prev.authorization_number = current.authorization_number\n)\nWHERE   prev.business_id is null"
+      }
+    },
+    {
+      "name": "hometax_purchases_invoices",
+      "inputs": [
+        "hometax_purchases_invoices_src"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  business_id,\n        authorization_number,\n        MAX(tax_invoice) AS tax_invoice,\n        MAX(invoice_type) AS invoice_type,\n        MAX(issue_type) AS issue_type,\n        MAX(paid) AS paid,\n        MAX(tax) AS tax,\n        MAX(amount) AS amount,\n        MAX(note) AS note,\n        MAX(vendor_registration_number) AS vendor_registration_number,\n        MAX(vendor_workplace_number) AS vendor_workplace_number,\n        MAX(vendor_business_name) AS vendor_business_name,\n        MAX(vendor_business_classification) AS vendor_business_classification,\n        MAX(vendor_business_category) AS vendor_business_category,\n        MAX(vendor_owner_name) AS vendor_owner_name,\n        MAX(vendor_email) AS vendor_email,\n        MAX(items_count) AS items_count,\n        MAX(item_unit) AS item_unit,\n        MAX(item_price) AS item_price,\n        MAX(item_name) AS item_name,\n        MAX(item_note) AS item_note,\n        MAX(authorization_number) AS authorization_number,\n        MAX(written_at) AS written_at,\n        MAX(issued_at) AS issued_at,\n        MAX(sent_at) AS sent_at,\n        MAX(created_at) AS created_at,\n        MAX(updated_at) AS updated_at,\n        MAX(vendor_address) AS vendor_address,\n        MAX(original_authorization_number) AS original_authorization_number,\n        MAX(created_at_date) AS created_at_date\nFROM    (\n  SELECT  CAST(business_id AS int) AS business_id,\n          tax_invoice,\n          invoice_type,\n          issue_type,\n          paid,\n          price,\n          tax,\n          amount,\n          note,\n          vendor_registration_number,\n          vendor_workplace_number,\n          vendor_business_name,\n          CAST(null AS string) AS vendor_business_classification,\n          CAST(null AS string) AS vendor_business_category,\n          vendor_owner_name,\n          vendor_email,\n          CAST(items_count AS int) AS items_count,\n          item_unit,\n          item_price,\n          item_name,\n          item_note,\n          authorization_number,\n          to_date(written_at) AS written_at,\n          to_date(issued_at) AS issued_at,\n          to_date(sent_at) AS sent_ad,\n          to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS created_at,\n          to_timestamp(updated_at, 'yyyy-MM-dd HH:mm:ss.SSS') AS updated_at,\n          vendor_address,\n          original_authorization_number,\n          date_format(to_timestamp(created_at, 'yyyy-MM-dd HH:mm:ss.SSS'), 'yyyy-MM-dd') AS created_at_date\n  FROM    hometax_purchases_invoices_src\n)\nWHERE     created_at_date >= '2020-10-06'\nAND       created_at_date < '2020-10-13'\nGROUP BY  business_id, authorization_number"
+      }
+    },
+    {
+      "name": "hometax_purchases_invoices_unique",
+      "inputs": [
+        "hometax_purchases_invoices",
+        "prev_hometax_invoices"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  current.*\nFROM    (\n  SELECT  *\n  FROM    prev_hometax_invoices\n  WHERE   is_purchases\n) prev RIGHT OUTER JOIN hometax_purchases_invoices current\nON      (\n  prev.business_id = current.business_id AND\n  prev.authorization_number = current.authorization_number\n)\nWHERE   prev.business_id is null"
+      }
+    },
+    {
+      "name": "hometax_invoices",
+      "inputs": [
+        "businesses",
+        "hometax_sales_invoices_unique",
+        "hometax_purchases_invoices_unique"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT  /*+ BROADCAST(b) */\n        i.*,\n        b.id AS trader_business_id\nFROM    (\n  SELECT  business_id,\n          tax_invoice,\n          invoice_type,\n          issue_type,\n          received,\n          CAST(null AS boolean) AS paid,\n          price,\n          tax,\n          amount,\n          note,\n          customer_registration_number AS registration_number,\n          customer_workplace_number AS workplace_number,\n          customer_business_name AS business_name,\n          customer_business_classification AS business_classification,\n          customer_business_category AS business_category,\n          customer_owner_name AS owner_name,\n          customer_email AS email,\n          items_count,\n          item_unit,\n          item_price,\n          item_name,\n          item_note,\n          authorization_number,\n          written_at,\n          issued_at,\n          sent_at,\n          created_at,\n          created_at_date,\n          updated_at,\n          customer_address AS address,\n          original_authorization_number,\n          true AS is_sales,\n          false AS is_purchases,\n          amount < 0 AS canceled,\n          invoice_type in ('일반(수정)', '수입(수정)', '위수탁(수정)', '영세율(수정)', '영세율위수탁(수정)') AS revised,\n          tax_invoice AND invoice_type in ('일반', '위수탁') AND tax = 0 AND ABS(price) >= 10 AS invalid_tax,\n          invoice_type like '%영세율%' AS zero_rate\n  FROM    hometax_sales_invoices_unique\n\n  UNION ALL\n\n  SELECT  business_id,\n          tax_invoice,\n          invoice_type,\n          issue_type,\n          CAST(null AS boolean) AS received,\n          paid,\n          price,\n          tax,\n          amount,\n          note,\n          vendor_registration_number AS registration_number,\n          vendor_workplace_number AS workplace_number,\n          vendor_business_name AS business_name,\n          vendor_business_classification AS business_classification,\n          vendor_business_category AS business_category,\n          vendor_owner_name AS owner_name,\n          vendor_email AS email,\n          items_count,\n          item_unit,\n          item_price,\n          item_name,\n          item_note,\n          authorization_number,\n          written_at,\n          issued_at,\n          sent_at,\n          created_at,\n          created_at_date,\n          updated_at,\n          vendor_address AS address,\n          original_authorization_number,\n          false AS is_sales,\n          true AS is_purchases,\n          amount < 0 AS canceled,\n          invoice_type in ('일반(수정)', '수입(수정)', '위수탁(수정)', '영세율(수정)', '영세율위수탁(수정)') AS revised,\n          tax_invoice AND invoice_type in ('일반', '위수탁') AND tax = 0 AND ABS(price) >= 10 AS invalid_tax,\n          invoice_type like '%영세율%' AS zero_rate\n  FROM    hometax_purchases_invoices_unique\n) i LEFT OUTER JOIN businesses b\nON (i.registration_number = b.registration_number)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "hometax_invoices"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/raw/etl/snowdon/hometax/hometax_invoices",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

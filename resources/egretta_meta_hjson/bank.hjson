@@ -1,0 +1,137 @@
+{
+  name: business_bank
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: bank_accounts_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/bank_accounts
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: credentials_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/credentials
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: bank_withdraw
+      options:
+      {
+        format: parquet
+        paths: ${FACT_DIR}/time_unit=${TIME_UNIT}/id_type=${ID_TYPE}/subject=bank/name=withdraw
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: bank_deposit
+      options:
+      {
+        format: parquet
+        paths: ${FACT_DIR}/time_unit=${TIME_UNIT}/id_type=${ID_TYPE}/subject=bank/name=deposit
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        bank_accounts_src
+        credentials_src
+      ]
+      name: bank_accounts
+      options:
+      {
+        sql:
+          '''
+            SELECT  bank_accounts_src.business_id,
+                    collect_set(concat(bank_name, '_', account_type)) AS bank_names
+            FROM    bank_accounts_src
+            JOIN    credentials_src
+            ON      bank_accounts_src.credential_id = credentials_src.id
+            WHERE   credentials_src.status != 2
+            GROUP BY bank_accounts_src.business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        bank_withdraw
+        bank_deposit
+      ]
+      name: bank_transactions
+      options:
+      {
+        sql:
+          '''
+          SELECT    business_id,
+                    array_distinct(
+                        flatten(
+                            collect_list(contents)
+                        )
+                    ) AS contents
+          FROM (
+                  SELECT    business_id, contents
+                  FROM      bank_withdraw
+                  WHERE     date_id     between '${from_date_id}' AND '${to_date_id}'
+
+                  UNION     ALL
+
+                  SELECT    business_id, contents
+                  FROM      bank_deposit
+                  WHERE     date_id     between '${from_date_id}' AND '${to_date_id}'
+          )
+          GROUP BY business_id
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        bank_accounts
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=bank_accounts
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        bank_transactions
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=bank_transactions
+      }
+      type: file
+    }
+  ]
+}

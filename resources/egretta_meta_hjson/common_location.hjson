@@ -1,0 +1,197 @@
+{
+  // PARAMS: TEMP_PATH, TARGET_PATH
+  name: registration_number_common_location
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: businesses
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/snapshot/latest/businesses
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: business_common_location
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=business_id/subject=location/name=common
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: merchant_common_location
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/id_type=merchant_number/subject=location/name=common
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        businesses
+      ]
+      name: mappings
+      options:
+      {
+        sql:
+          '''
+          SELECT    registration_number, id AS business_id
+          FROM      businesses
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        business_common_location
+        mappings
+      ]
+      name: business_location
+      options:
+      {
+        sql:
+          '''
+          SELECT    mappings.registration_number,
+                    business_common_location.*
+          FROM  business_common_location
+          JOIN  mappings
+          ON    business_common_location.business_id = mappings.business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        merchant_common_location
+      ]
+      name: merchant_location
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                registration_number,
+                candidates
+          FROM (
+                SELECT
+                        registration_number,
+                        collect_set(struct(
+                          geo_point,
+                          full_address,
+                          b_code,
+                          sido,
+                          sido_code,
+                          sigungu,
+                          sigungu_code,
+                          dong,
+                          h_codes
+                        )) AS candidates
+                FROM  merchant_common_location
+                GROUP BY registration_number
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        business_location
+        merchant_location
+      ]
+      name: merged_location
+      options:
+      {
+        sql:
+          '''
+          SELECT
+                   registration_number,
+                   location.*,
+                   array_except(candidates, array(location)) AS candidates
+          FROM (
+                  SELECT
+                            nvl(business_location.registration_number, merchant_location.registration_number) AS registration_number,
+                            CASE
+                                WHEN   business_location.registration_number IS NOT NULL THEN struct(
+                                                                                                  business_location.geo_point,
+                                                                                                  business_location.full_address,
+                                                                                                  business_location.b_code,
+                                                                                                  business_location.sido,
+                                                                                                  business_location.sido_code,
+                                                                                                  business_location.sigungu,
+                                                                                                  business_location.sigungu_code,
+                                                                                                  business_location.dong,
+                                                                                                  business_location.h_codes
+                                                                                              )
+                                ELSE   named_struct(
+                                          'geo_point',    merchant_location.candidates[0].geo_point,
+                                          'full_address', merchant_location.candidates[0].full_address,
+                                          'b_code',       merchant_location.candidates[0].b_code,
+                                          'sido',         merchant_location.candidates[0].sido,
+                                          'sido_code',    merchant_location.candidates[0].sido_code,
+                                          'sigungu',      merchant_location.candidates[0].sigungu,
+                                          'sigungu_code', merchant_location.candidates[0].sigungu_code,
+                                          'dong',         merchant_location.candidates[0].dong,
+                                          'h_codes',      merchant_location.candidates[0].h_codes
+                                      )
+                            END  AS location,
+                            candidates
+                  FROM      business_location
+                  FULL OUTER JOIN   merchant_location
+                  ON        business_location.registration_number = merchant_location.registration_number
+          )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        merged_location
+      ]
+      name: with_candidates
+      options:
+      {
+        sql:
+          '''
+            SELECT  *,
+                    size(candidates) AS candidate_size
+            FROM    merged_location
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        with_candidates
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${DIMENSION_DIR}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=common
+      }
+      type: file
+    }
+  ]
+}

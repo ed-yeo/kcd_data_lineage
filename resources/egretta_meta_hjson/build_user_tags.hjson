@@ -1,0 +1,104 @@
+{
+  name: build_user_tags
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: snapshots
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_PATH}/snapshot_user_history
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: location
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/subject=location/name=common
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: classification
+      options:
+      {
+        format: parquet
+        paths: ${DIMENSION_DIR}/subject=classification/name=kcd
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        location
+        classification
+      ]
+      name: kcd_places
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    CAST(address.business_id AS INT) AS business_id,
+                    address.value AS address,
+                    cate.value AS classification
+            FROM (
+                SELECT business_id, b_code AS value
+                FROM location
+                WHERE b_code is not null
+            ) AS address
+            JOIN (
+                SELECT business_id, concat(depth_1_name, '>', depth_2_name) AS value
+                FROM classification
+                WHERE depth_2_name is not null
+            ) AS cate
+            ON address.business_id = cate.business_id
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        kcd_places
+        snapshots
+      ]
+      name: user_tags
+      options:
+      {
+        class: com.kcd.thrush.analysis.spark.tasks.BuildUserTagsProcess
+        places: kcd_places
+        transactions: snapshots
+      }
+      type: custom
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        user_tags
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/user_tags
+        partitions: type
+      }
+      type: file
+    }
+  ]
+}

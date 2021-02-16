@@ -1,0 +1,57 @@
+{
+  "name": "join_approval_candidates",
+  "udfs": [
+    {
+      "name": "mask_card_number",
+      "class": "com.kcd.thrush.udfs.MarkCardNumberUDF",
+      "params": {}
+    }
+  ],
+  "source": [
+    {
+      "inputs": [],
+      "name": "approvals_raw",
+      "options": {
+        "paths": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/approvals",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "name": "current_approvals",
+      "inputs": [
+        "approvals_raw"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    *\nFROM      approvals_raw\nWHERE     created_at_date >= '2011-01-28'\nAND       created_at_date < '2021-01-26'"
+      }
+    },
+    {
+      "name": "current_approval_candidates",
+      "inputs": [
+        "current_approvals"
+      ],
+      "type": "sql",
+      "options": {
+        "sql": "SELECT    struct(approved.*) AS approved,\n          struct(canceled.*) AS canceled,\n          COALESCE(\n            date_format(approved.created_at, 'yyyy-MM-dd'),\n            date_format(canceled.created_at, 'yyyy-MM-dd')\n          ) AS created_at_date\nFROM      (\n  SELECT  *\n  FROM    current_approvals\n  WHERE   status = 0\n) approved FULL OUTER JOIN (\n  SELECT  *\n  FROM    current_approvals\n  WHERE   status = 1\n) canceled\nON (\n  approved.business_id = canceled.business_id AND\n  approved.credential_key = canceled.credential_key AND\n  approved.amount = -canceled.amount AND\n  mask_card_number(approved.card_number) = mask_card_number(canceled.card_number) AND\n  approved.authorization_number = canceled.authorization_number AND\n  CAST(approved.transacted_at AS DATE) = CAST(canceled.transacted_at AS DATE) AND\n  approved.approval_seq = canceled.approval_seq\n)"
+      }
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "current_approval_candidates"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwrite",
+        "path": "s3://kcd-de-staging/raw/etl/snowdon/card_sales/matches/candidates/approvals_current",
+        "format": "parquet"
+      },
+      "type": "file"
+    }
+  ]
+}

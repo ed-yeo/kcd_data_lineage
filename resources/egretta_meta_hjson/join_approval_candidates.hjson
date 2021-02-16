@@ -1,0 +1,99 @@
+{
+  name: join_approval_candidates
+  udfs: [
+    {
+      name: mask_card_number
+      class: com.kcd.thrush.udfs.MarkCardNumberUDF
+      params: {}
+    }
+  ]
+  source:
+  [
+    // read approvals only for current_date - N days, where N is max interval between approval/approval_cancel
+    {
+      inputs: []
+      name: approvals_raw
+      options:
+      {
+        paths: "${APPROVALS_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: current_approvals
+      inputs:
+      [
+        approvals_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      approvals_raw
+          WHERE     created_at_date >= '${MIN_CREATED_AT_DATE}'
+          AND       created_at_date < '${MAX_CREATED_AT_DATE}'
+          '''
+      }
+    }
+    {
+      name: current_approval_candidates
+      inputs:
+      [
+        current_approvals
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    struct(approved.*) AS approved,
+                    struct(canceled.*) AS canceled,
+                    COALESCE(
+                      date_format(approved.created_at, 'yyyy-MM-dd'),
+                      date_format(canceled.created_at, 'yyyy-MM-dd')
+                    ) AS created_at_date
+          FROM      (
+            SELECT  *
+            FROM    current_approvals
+            WHERE   status = 0
+          ) approved FULL OUTER JOIN (
+            SELECT  *
+            FROM    current_approvals
+            WHERE   status = 1
+          ) canceled
+          ON (
+            approved.business_id = canceled.business_id AND
+            approved.credential_key = canceled.credential_key AND
+            approved.amount = -canceled.amount AND
+            mask_card_number(approved.card_number) = mask_card_number(canceled.card_number) AND
+            approved.authorization_number = canceled.authorization_number AND
+            CAST(approved.transacted_at AS DATE) = CAST(canceled.transacted_at AS DATE) AND
+            approved.approval_seq = canceled.approval_seq
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        current_approval_candidates
+      ]
+      name: file_sink
+      options: {
+          mode: overwrite
+          path: "${OUTPUT_BASE_PATH}/candidates/approvals_current"
+          format: parquet
+      }
+      type: file
+    }
+  ]
+}

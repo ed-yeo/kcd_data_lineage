@@ -1,0 +1,102 @@
+{
+  name: dedup_purchases
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: current_purchases_raw
+      options:
+      {
+        paths: "${PURCHASES_PATH}"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: purchases
+      inputs:
+      [
+        current_purchases_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+           SELECT  *
+           FROM    current_purchases_raw
+           WHERE   created_at_date >= '${MIN_DATE}'
+           AND     created_at_date < '${MAX_DATE}'
+          '''
+      }
+    }
+    {
+      name: purchases_unique
+      inputs:
+      [
+        purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    MIN(acquirer_name) AS acquirer_name,
+                    amount,
+                    authorization_number,
+                    MIN(base_fee) AS base_fee,
+                    business_id,
+                    MIN(card_number) AS card_number,
+                    MIN(card_type) AS card_type,
+                    credential_key,
+                    MIN(etc_fee) AS etc_fee,
+                    MIN(fee) AS fee,
+                    MIN(issuer_name) AS issuer_name,
+                    masked_card_number,
+                    MIN(merchant_number) AS merchant_number,
+                    paid_at,
+                    MIN(payment) AS payment,
+                    MIN(point_fee) AS point_fee,
+                    MIN(purchase_delayed) AS purchase_delayed,
+                    MIN(purchase_cancel_seq) AS purchase_cancel_seq,
+                    MIN(purchase_seq) AS purchase_seq,
+                    MIN(purchased_at) AS purchased_at,
+                    MIN(scraping_type) AS scraping_type,
+                    MIN(transacted_at) AS transacted_at,
+                    MIN(vat_fee) AS vat_fee,
+                    MIN(created_at) AS created_at,
+                    MIN(updated_at) AS updated_at,
+                    MIN(created_at_date) AS created_at_date
+          FROM      purchases
+          GROUP BY  business_id, credential_key, authorization_number, masked_card_number, amount, purchased_at, paid_at
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        purchases_unique
+      ]
+      name: purchases_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_PATH}"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: "created_at_date"
+          evenPartitions: "true"
+          numOfRecordPerFile: "2000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

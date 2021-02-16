@@ -1,0 +1,237 @@
+{
+  name: purchases_resolved_remaining
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: issuer_histories
+      options:
+      {
+        url: "jdbc:postgresql://${DB_HOST}:${DB_PORT}/ebdb"
+        dbtable: "issuer_histories"
+        user: "${DB_USERNAME}"
+        password:  "${DB_PASSWORD}"
+      }
+      type: jdbc
+    }
+    {
+      inputs: []
+      name: credentials
+      options:
+      {
+        paths: s3://kcd-data/raw/db/snowdon/snapshot/latest/credentials
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: card_merchants
+      options:
+      {
+        paths: s3://kcd-data/raw/db/snowdon/snapshot/latest/card_merchants
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: transactions_raw
+      options:
+      {
+        paths: ${TRANSACTIONS_PATH}
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: payments
+      options:
+      {
+        paths: ${PAYMENTS_PATH}
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: reserved_payments
+      options:
+      {
+        paths: ${RESERVED_PAYMENTS_PATH}
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: issuer_purchases_upto
+      inputs:
+      [
+        issuer_histories
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    explode(array(0, 2, 3, 4, 5, 6, 7, 8, 9)) as salt,
+                    issuer_name,
+                    purchased_upto
+          FROM      (
+              SELECT    issuer AS issuer_name,
+                        max(date) AS purchased_upto
+              FROM      issuer_histories
+              WHERE     purchases = true AND purchases_checked = true
+              GROUP BY  1
+          )
+          '''
+      }
+    }
+    {
+      name: credentials_since
+      inputs:
+      [
+        credentials
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  business_id,
+                  MAX(since) AS since
+          FROM   (
+             SELECT  business_id,
+                      CAST(
+                       greatest(
+                         unix_timestamp(date_trunc('month', add_months(created_at, -23)), 'yyyy-MM-dd'),
+                         unix_timestamp('2016-07-01', 'yyyy-MM-dd')
+                       ) AS timestamp
+                      ) as since
+             FROM    credentials
+             WHERE   `type` in ('Credentials::Crefia', 'Credentials::CrefiaBusiness')
+          )
+          GROUP BY business_id
+          '''
+      }
+    }
+    {
+      name: transactions
+      inputs:
+      [
+        transactions_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      transactions_raw
+          WHERE     created_at_date >= date('${MIN_CREATED_AT_DATE}')
+          AND       created_at_date < date('${MAX_CREATED_AT_DATE}')
+          '''
+      }
+    }
+    {
+      name: purchases_resolved
+      inputs:
+      [
+        transactions
+        credentials_since
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT /*+ BROADCAST(s) */
+                 t.*
+          FROM   transactions t, credentials_since s
+          WHERE  t.business_id = s.business_id
+          AND    t.status is not null
+          AND    t.purchase_delayed = true
+          AND    t.purchase_canceled_at is null
+          AND    t.purchased_at is not null
+          AND    t.purchased_at >= s.since
+          '''
+      }
+    }
+    {
+      name: purchases_remaining
+      inputs:
+      [
+        transactions
+        issuer_purchases_upto
+        card_merchants
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+
+          SELECT   /*+ BROADCAST(s) */
+                   t.*
+          FROM   (
+              SELECT  /*+ BROADCAST(i, m) */
+                      t.*,
+                      i.purchased_upto,
+                      COALESCE(m.calculated_purchase_period, 1) AS coalesced_purchase_period
+              FROM    transactions t, issuer_purchases_upto i, card_merchants m
+              WHERE   t.issuer_name = i.issuer_name
+              AND     t.business_id = m.business_id
+              AND     t.issuer_name = m.issuer_name
+              AND     t.merchant_number = m.merchant_number
+              AND     t.business_id % 10 = i.salt
+          ) t, credentials_since s
+          WHERE  transacted_at <= date_add(purchased_upto, -coalesced_purchase_period)
+          AND    approval_canceled_at is null
+          AND    purchased_at is null
+          AND    amount > 0
+          AND    NOT (issuer_name = '현대' AND CAST(transacted_at AS DATE) = date('2017-05-10'))
+          AND    NOT (issuer_name in ('농협NH', 'KB') AND transacted_at BETWEEN date('2017-01-27') AND date('2017-02-02'))
+          AND    NOT (issuer_name = '농협NH' AND transacted_at BETWEEN date('2019-09-11') AND date('2019-09-14'))
+          AND    t.business_id = s.business_id
+          AND    transacted_at > s.since
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      name: file_sink
+      inputs:
+      [
+        purchases_resolved
+      ]
+      type: file
+      options:
+      {
+        path: '${OUTPUT_BASE_PATH}/purchases_resolved'
+        format: parquet
+        mode: overwrite
+      }
+    }
+    {
+      name: file_sink
+      inputs:
+      [
+        purchases_remaining
+      ]
+      type: file
+      options:
+      {
+        path: '${OUTPUT_BASE_PATH}/purchases_remaining'
+        format: parquet
+        mode: overwrite
+      }
+    }
+  ]
+}

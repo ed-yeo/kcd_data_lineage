@@ -1,0 +1,69 @@
+{
+  "name": "dedup_payments",
+  "udfs": [],
+  "source": [
+    {
+      "inputs": [],
+      "name": "pos_payments_raw_v2",
+      "options": {
+        "class": "com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource",
+        "format": "json",
+        "paths": "s3://kcd-de-production/raw/catalog_v2/raw/tb=posetl_payments_v2/created_at_date=2021-01-28,s3://kcd-de-production/raw/catalog_v2/raw/tb=posetl_payments_v2/created_at_date=2021-01-27,s3://kcd-de-production/raw/catalog_v2/raw/tb=posetl_payments_v2/created_at_date=2021-01-26",
+        "partition_keys": "created_at_date,created_at_hour",
+        "mergeSchema": "true"
+      },
+      "type": "custom"
+    },
+    {
+      "inputs": [],
+      "name": "card_sales_transactions",
+      "options": {
+        "format": "parquet",
+        "paths": "s3://kcd-de-production/raw/etl/snowdon/card_sales/transactions"
+      },
+      "type": "file"
+    }
+  ],
+  "process": [
+    {
+      "inputs": [
+        "card_sales_transactions",
+        "pos_payments_raw_v2"
+      ],
+      "name": "pos_payments_distinct_v2",
+      "options": {
+        "sql": "SELECT\n  _event_id,\n  `type`,\n  amount,\n  authorization_number,\n  bill_key,\n  bill_no,\n  uid,\n  uid_type,\n  card_number,\n  client_id,\n  idx,\n  issuer_name,\n  label_name,\n  merchant_number,\n  order_status,\n  paid_at,\n  payment_key,\n  pos_no,\n  pos_type,\n  service_name,\n  shop_code,\n  timestamp,\n  CAST(null AS int) AS visit_order,\n  CAST(created_at_date as string) AS created_at_date,\n  paid_at_timestamp AS transacted_at,\n  CAST(to_date(paid_at_timestamp, 'yyyy-MM-dd') AS string) AS transacted_at_date\nFROM    (\n  SELECT\n    *,\n    COALESCE(\n      to_timestamp(paid_at, \"yyyy-MM-dd HH:mm:ss\"),\n      to_timestamp(paid_at, \"yyyy-MM-dd'T'HH:mm:ss\"),\n      to_timestamp(paid_at, \"yyyy-MM-dd HH:mm:ss.SSS\")\n    ) AS paid_at_timestamp,\n    row_number() OVER (PARTITION BY payment_key ORDER BY timestamp DESC) AS rank\n  FROM\n    pos_payments_raw_v2\n  WHERE\n    created_at_date >= '2020-07-30' AND created_at_date < '2021-01-29'\n)\nWHERE rank = 1"
+      },
+      "type": "sql"
+    },
+    {
+      "inputs": [
+        "pos_payments_distinct_v2"
+      ],
+      "name": "pos_payments_with_sales_card_number",
+      "options": {
+        "sql": "SELECT\n   p._event_id,\n   p.`type`,\n   p.amount,\n   p.authorization_number,\n   p.bill_key,\n   p.bill_no,\n   p.uid,\n   p.uid_type,\n   COALESCE(c.masked_card_number, p.card_number) as card_number,\n   p.client_id,\n   p.idx,\n   p.issuer_name,\n   p.label_name,\n   p.merchant_number,\n   p.order_status,\n   p.paid_at,\n   p.payment_key,\n   p.pos_no,\n   p.pos_type,\n   p.service_name,\n   p.shop_code,\n   p.timestamp,\n   p.visit_order,\n   p.created_at_date,\n   p.transacted_at,\n   p.transacted_at_date\n FROM\n   pos_payments_distinct_v2 p\n LEFT OUTER JOIN card_sales_transactions c\n   ON c.authorization_number = p.authorization_number\n   AND date_trunc('hour', c.transacted_at) = date_trunc('hour', p.transacted_at)\n   AND c.business_id = p.uid\n   AND p.uid_type = 'business_id'\n   AND c.amount = p.amount\n   AND c.created_at_date >= '2020-07-30' AND c.created_at_date < '2021-01-29'"
+      },
+      "type": "sql"
+    }
+  ],
+  "sink": [
+    {
+      "inputs": [
+        "pos_payments_with_sales_card_number"
+      ],
+      "name": "file_sink",
+      "options": {
+        "mode": "overwritePartitions",
+        "path": "s3://kcd-de-production/raw/etl/pos/pos_payments_v2",
+        "format": "parquet",
+        "class": "com.kcd.thrush.jobs.tasks.EvenPartitionFileSink",
+        "partitions": "created_at_date",
+        "evenPartitions": "true",
+        "numOfRecordPerFile": "4000000",
+        "sampleRatio": "0.1"
+      },
+      "type": "custom"
+    }
+  ]
+}

@@ -1,0 +1,301 @@
+{
+  name: pos_preferred_menus_by_visit_type
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: pos_menus_raw
+      options:
+      {
+        format: parquet
+        paths: "${INPUT_PATH}"
+        partition_keys: 'created_at_date'
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: pos_payments_visited_raw
+      options:
+      {
+        format: parquet
+        paths: "${PAYMENT_INPUT_PATH}"
+        partition_keys: 'created_at_date'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        pos_menus_raw
+      ]
+      name: pos_menus
+      options:
+      {
+        sql:
+          '''
+              SELECT
+                  *
+              FROM
+                  pos_menus_raw
+              WHERE
+                  created_at_date >= '${DATE_AFTER}'
+              AND business_id IS NOT NULL
+              AND name IS NOT NULL
+              AND name != ''
+              AND name != 'null'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_payments_visited_raw
+      ]
+      name: pos_payments_visited
+      options:
+      {
+        sql:
+          '''
+              SELECT
+                  *
+              FROM
+                  pos_payments_visited_raw
+              WHERE
+                  created_at_date >= '${DATE_AFTER}'
+              AND business_id IS NOT NULL
+              AND card_number IS NOT NULL
+              AND card_number != '******'
+              AND card_number != ''
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_menus
+        pos_payments_visited
+      ]
+      name: pos_menus_with_payment
+      options:
+      {
+        sql:
+          '''
+          SELECT
+              *,
+              CASE
+                  WHEN order_hour between 0 and 5 then '새벽'
+                  WHEN order_hour between 6 and 10 then '아침'
+                  WHEN order_hour between 11 and 13 then '점심'
+                  WHEN order_hour between 14 and 16 then '오후'
+                  ELSE '저녁'
+              END AS time_bucket,
+              CASE
+                  WHEN visit_order is NOT NULL and visit_order > 1 then '재방문'
+                  ELSE '신규'
+              END as visit_type
+          FROM
+              (
+               SELECT
+                   pos_menus.*,
+                   pos_payments_visited.visit_order,
+                   pos_payments_visited.card_number,
+                   pos_payments_visited.issuer_name
+               FROM
+                   pos_menus
+               LEFT OUTER JOIN
+                   pos_payments_visited
+               ON
+                   pos_payments_visited.bill_key = pos_menus.bill_key
+              )
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_menus_with_payment
+      ]
+      name: pos_menu_with_payment_with_group_with_rank_times
+      options:
+      {
+        sql:
+          '''
+             SELECT
+                 business_id,
+                 order_month,
+                 visit_type,
+                 collect_list(struct(rank, time_bucket, total_count)) AS times
+             FROM
+                 (
+                 SELECT
+                     *,
+                     row_number() OVER (PARTITION BY business_id, order_month, visit_type ORDER BY total_count DESC) AS rank
+                 FROM
+                   (
+                    SELECT
+                        business_id,
+                        order_month,
+                        visit_type,
+                        time_bucket,
+                        count(*) as total_count
+                    FROM
+                        pos_menus_with_payment
+                    GROUP BY
+                        business_id,
+                        order_month,
+                        visit_type,
+                        time_bucket
+                    )
+                 )
+             GROUP BY
+                 business_id,
+                 order_month,
+                 visit_type
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_menus_with_payment
+      ]
+      name: pos_menu_with_payment_with_group_with_rank
+      options:
+      {
+        sql:
+          '''
+          SELECT
+              business_id,
+              order_month,
+              visit_type,
+              collect_list(struct(rank, name, total_amount, total_count)) AS menus
+          FROM
+             (
+             SELECT
+                 *,
+                 row_number() OVER (PARTITION BY business_id, order_month, visit_type ORDER BY total_amount DESC) AS rank
+             FROM
+                (
+                 SELECT
+                     business_id,
+                     order_month,
+                     name,
+                     collect_list(order_time) as order_times,
+                     visit_type,
+                     sum(price * `count`) as total_amount,
+                     sum(`count`) as total_count
+                 FROM
+                     pos_menus_with_payment
+                 GROUP BY
+                     business_id,
+                     order_month,
+                     visit_type,
+                     name
+                 )
+             )
+          GROUP BY
+              business_id,
+              order_month,
+              visit_type
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_menu_with_payment_with_group_with_rank_times
+        pos_menu_with_payment_with_group_with_rank
+      ]
+      name: pos_menu_with_payment_with_group_with_rank_joined
+      options:
+      {
+        sql:
+          '''
+             SELECT
+                 menus.*,
+                 times.times
+             FROM
+                 pos_menu_with_payment_with_group_with_rank_times times
+             INNER JOIN
+                 pos_menu_with_payment_with_group_with_rank menus
+             ON  menus.business_id = times.business_id
+             AND menus.order_month = times.order_month
+             AND menus.visit_type = times.visit_type
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        pos_menu_with_payment_with_group_with_rank_joined
+      ]
+      name: pos_menu_with_payment_jdbc
+      options:
+      {
+        sql:
+          '''
+             SELECT
+                 business_id,
+                 order_month,
+                 visit_type,
+                 to_json(times) AS times,
+                 to_json(menus) AS menus
+             FROM
+                 pos_menu_with_payment_with_group_with_rank_joined
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+          pos_menu_with_payment_jdbc
+      ]
+      name: file_sink
+      options:
+      {
+        mode: overwrite
+        path: ${OUTPUT_PATH}
+        format: parquet
+        partitions: order_month
+        numPartitions: "10"
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+          pos_menu_with_payment_jdbc
+      ]
+      name: jdbc_sink
+      options:
+      {
+        driver: org.postgresql.Driver
+        url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+        user: ${DB_USERNAME}
+        password: ${DB_PASSWORD}
+        operation: upsert
+        dbtable: ${DB_TABLE_NAME}
+        conflictColumns: business_id,order_month,visit_type
+        updateColumns: menus,times
+        typeCastColumns: "menus:jsonb,times:jsonb"
+      }
+      type: jdbc
+    }
+  ]
+}

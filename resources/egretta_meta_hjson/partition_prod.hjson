@@ -1,0 +1,258 @@
+{
+  name: partition_prod
+  udfs:
+  [
+    {
+      name: row_to_json
+      class: com.kcd.thrush.catalog.spark.udfs.RowToJsonUDF
+      params: {
+        flattenNestedJson: 'true'
+        keysDelimiter: '_'
+        explodeArray: 'false'
+        replaceDotInKey: 'true'
+        parseFields: 'content'
+        explodeArrayLimit: '10'
+        withSchema: 'true'
+        removeParseFieldPrefix: 'true'
+      }
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: plover_src
+      options:
+      {
+        paths: '${INPUT_PATH}'
+        format: json
+        partition_keys: 'year,month,day,hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: pos_src
+      options:
+      {
+        paths: '${POS_PATH}'
+        format: json
+        partition_keys: 'year,month,day,hour'
+        log_leaf_file: 'true'
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: plover
+      inputs:
+      [
+        plover_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  table_name, text_dvs, from_unixtime((timestamp + (60 * 60 * 9 * 1000)) / 1000) AS ts
+          FROM    (
+            SELECT  timestamp,
+                    CONCAT(service_name, '_', label_name) AS table_name,
+                    row_to_json(struct(*)) AS text_dvs
+            FROM
+                    plover_src
+          )
+          '''
+      }
+    }
+    {
+      name: pos
+      inputs:
+      [
+        pos_src
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  table_name, text_dvs, from_unixtime(((unix_timestamp() * 1000) + (60 * 60 * 9 * 1000)) / 1000) AS ts
+          FROM    (
+            SELECT  CONCAT(service_name, '_', label_name) AS table_name,
+                    row_to_json(struct(*)) AS text_dvs
+            FROM    (
+              SELECT  source AS label_name,
+                      'pos' AS service_name,
+                      to_json(struct(*)) AS content
+              FROM
+                      pos_src
+            )
+          )
+          '''
+      }
+    }
+    {
+      name: union
+      inputs:
+      [
+        plover
+        pos
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  *,
+                  date_format(ts, 'yyyy-MM-dd') AS created_at_date,
+                  hour(ts) AS created_at_hour
+          FROM    (
+            SELECT * FROM plover
+            UNION ALL
+            SELECT * FROM pos
+          )
+          '''
+      }
+    }
+    {
+      name: text
+      inputs:
+      [
+        union
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  table_name AS tb,
+                  text_dvs.text,
+                  created_at_date,
+                  created_at_hour
+          FROM    union
+          '''
+      }
+      cache: true
+    }
+    {
+      name: text_v3
+      inputs:
+      [
+        union
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  table_name AS tb,
+                  text_dvs.text,
+                  created_at_date
+          FROM    union
+          '''
+      }
+      cache: true
+    }
+    {
+      name: dvs
+      inputs:
+      [
+        union
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT  table_name AS tb,
+                  dv.dim,
+                  dv.value,
+                  dv.type,
+                  created_at_date,
+                  created_at_hour
+          FROM    (
+            SELECT  table_name, created_at_date, created_at_hour, explode(text_dvs.dvs) AS dv
+            FROM    union
+          )
+          '''
+      }
+    }
+    {
+     name: stats
+     inputs:
+     [
+       dvs
+     ]
+     type: sql
+     options:
+     {
+       sql:
+         '''
+         SELECT  *
+         FROM    (
+             SELECT /*+ BROADCAST(b) */
+                    a.tb, a.dim, a.value,
+                    a.created_at_date,
+                    a.created_at_hour,
+                    CAST(a.count AS DOUBLE) / b.total_count AS ratio
+             FROM   (
+              SELECT   tb, dim, value,
+                       FIRST(created_at_date) AS created_at_date,
+                       FIRST(created_at_hour) AS created_at_hour,
+                       count(1) AS count
+              FROM     dvs
+              GROUP BY tb, dim, value
+             ) a, (
+              SELECT   tb, dim, count(1) AS total_count
+              FROM     dvs
+              GROUP BY tb, dim
+             ) b
+             WHERE  a.tb = b.tb
+             AND    a.dim = b.dim
+         )
+         WHERE  ratio >= 0.1
+         '''
+     }
+   }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        text
+      ]
+      name: mydata_text_file_sink
+      options:
+      {
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        format: text
+        mode: append
+        path: ${MYDATA_TARGET_PATH}/raw
+        evenPartitions: 'true'
+        partitions: 'tb,created_at_date,created_at_hour'
+      }
+      type: custom
+    }
+    {
+      inputs:
+      [
+        stats
+      ]
+      name: mydata_stat_file_sink
+      options:
+      {
+        class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+        format: parquet
+        mode: append
+        path: ${MYDATA_TARGET_PATH}/stats
+        evenPartitions: 'true'
+        partitions: 'tb,created_at_date,created_at_hour'
+      }
+      type: custom
+    }
+  ]
+}

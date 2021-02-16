@@ -1,0 +1,131 @@
+{
+  name: build_payments_stat
+  udfs: []
+  source:
+  [
+    {
+      inputs: []
+      name: payments_raw
+      options:
+      {
+        class: com.kcd.thrush.jobs.tasks.RecoverPartitionFileSource
+        format: parquet
+        paths: ${PAYMENTS_PATH}
+      }
+      type: custom
+    }
+  ]
+  process:
+  [
+    {
+      name: payments
+      inputs:
+      [
+        payments_raw
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *
+          FROM      payments_raw
+          WHERE     received_at >= '${MIN_DATE}'
+          AND       received_at < '${MAX_DATE}'
+          AND       received_amount > 0
+          '''
+      }
+    }
+    {
+      name: daily_payments
+      inputs:
+      [
+        payments
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd') AS time_key
+          FROM      (
+              SELECT    business_id,
+                        date_trunc('day', received_at) AS time,
+                        issuer_name,
+                        'day' AS time_unit,
+                        SUM(received_amount) AS received_amount,
+                        SUM(sales_count) AS sales_count
+              FROM      payments
+              GROUP BY  1,2,3
+          )
+          '''
+      }
+    }
+    {
+      name: monthly_payments
+      inputs:
+      [
+        payments
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    *,
+                    date_format(time, 'yyyy-MM-dd') AS time_key
+          FROM      (
+              SELECT    business_id,
+                        date_trunc('month', received_at) AS time,
+                        issuer_name,
+                        'month' AS time_unit,
+                        SUM(received_amount) AS received_amount,
+                        SUM(sales_count) AS sales_count
+              FROM      payments
+              GROUP BY  1,2,3
+          )
+          '''
+      }
+    }
+    {
+      name: payments_stat
+      inputs:
+      [
+        daily_payments
+        monthly_payments
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT * FROM daily_payments
+          UNION ALL
+          SELECT * FROM monthly_payments
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        payments_stat
+      ]
+      name: file_sink
+      options: {
+          mode: overwritePartitions
+          path: "${OUTPUT_BASE_PATH}/payments_stat"
+          format: parquet
+          class: 'com.kcd.thrush.jobs.tasks.EvenPartitionFileSink'
+          partitions: time_unit,time_key
+          evenPartitions: "true"
+          numOfRecordPerFile: "4000000"
+          sampleRatio: "0.1"
+      }
+      type: custom
+    }
+  ]
+}

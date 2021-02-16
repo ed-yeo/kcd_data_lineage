@@ -1,0 +1,87 @@
+{
+  // OUTPUT_BASE_PATH
+  name: build_transaction_candidates
+  udfs: [
+    {
+      name: mask_card_number
+      class: com.kcd.thrush.udfs.MarkCardNumberUDF
+      params: {}
+    }
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: merged_approvals
+      options:
+      {
+        paths: "${OUTPUT_BASE_PATH}/merged/approvals_current"
+        format: parquet
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: merged_purchases
+      options:
+      {
+        paths: "${OUTPUT_BASE_PATH}/merged/purchases_current"
+        format: parquet
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      name: transaction_candidates
+      inputs:
+      [
+        merged_approvals
+        merged_purchases
+      ]
+      type: sql
+      options:
+      {
+        sql:
+          '''
+          SELECT    struct(a.*) as approval,
+                    struct(p.*) as purchase,
+                    COALESCE(a.created_at_date, p.created_at_date) AS created_at_date
+          FROM      merged_approvals a FULL OUTER JOIN merged_purchases p
+          ON    (
+            a.business_id = p.business_id AND
+            a.credential_key = p.credential_key AND
+            a.authorization_number = p.authorization_number AND
+            CAST(a.transacted_at AS DATE) = CAST(p.transacted_at AS DATE) AND
+            a.issuer_name = p.issuer_name AND
+            a.amount = p.amount AND
+            (
+                p.issuer_name = '비씨'
+                OR (
+                  mask_card_number(a.card_number) = mask_card_number(p.card_number) AND
+                  a.approval_seq = p.purchase_seq
+                )
+            )
+          )
+          '''
+      }
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        transaction_candidates
+      ]
+      name: file_sink
+      options: {
+          mode: overwrite
+          path: "${OUTPUT_BASE_PATH}/candidates/transactions_current"
+          format: parquet
+      }
+      type: file
+    }
+  ]
+}

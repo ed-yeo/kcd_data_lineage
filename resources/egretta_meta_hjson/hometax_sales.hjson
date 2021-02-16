@@ -1,0 +1,181 @@
+{
+  name: hometax_sales
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: hometax_card_sales_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/incremental/hometax_card_sales
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_sales_cash_receipts_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/incremental/hometax_sales_cash_receipts
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: hometax_sales_invoices_src
+      options:
+      {
+        format: parquet
+        paths: ${DB_DUMP_DIR}/snowdon/incremental/hometax_sales_invoices
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        hometax_card_sales_src
+      ]
+      name: hometax_card_sales
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    month AS timestamp,
+                    business_id,
+                    date_format(date_trunc('${TIME_UNIT}', month), 'yyyy-MM-dd') AS date_id,
+                    amount AS amount_sum,
+                    count AS tx_count
+            FROM    hometax_card_sales_src
+            WHERE   business_id IS NOT NULL
+            AND     month between '${from_date_id}' AND '${to_date_id}'
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hometax_sales_cash_receipts_src
+      ]
+      name: hometax_sales_cash_receipts
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    timestamp,
+                    business_id,
+                    date_format(timestamp, 'yyyy-MM-dd') AS date_id,
+                    SUM(amount) AS amount_sum,
+                    COUNT(1) AS tx_count
+            FROM (
+                    SELECT
+                            business_id,
+                            date_trunc('${TIME_UNIT}', sold_at) AS timestamp,
+                            amount
+                    FROM    hometax_sales_cash_receipts_src
+                    WHERE   business_id IS NOT NULL
+                    AND     sold_at between '${from_date_id}' AND '${to_date_id}'
+            )
+            GROUP BY business_id, timestamp
+          '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        hometax_sales_invoices_src
+      ]
+      name: hometax_sales_invoices
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    timestamp,
+                    business_id,
+                    date_format(timestamp, 'yyyy-MM-dd') AS date_id,
+                    SUM(amount) AS amount_sum,
+                    COUNT(1) AS tx_count,
+                    collect_set(customer_business_classification) AS customer_business_classifications,
+                    collect_set(customer_business_category) AS customer_business_categories,
+                    collect_set(item_note) AS item_notes
+            FROM (
+                    SELECT
+                            business_id,
+                            date_trunc('${TIME_UNIT}', issued_at) AS timestamp,
+                            amount,
+                            customer_business_classification,
+                            customer_business_category,
+                            item_note
+                    FROM    hometax_sales_invoices_src
+                    WHERE   business_id IS NOT NULL
+                    AND     issued_at between '${from_date_id}' AND '${to_date_id}'
+            )
+            GROUP BY business_id, timestamp
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        hometax_card_sales
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${FACT_DIR}/time_unit=${TIME_UNIT}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=sales_card
+        evenPartitions: "true"
+        partitions: date_id
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        hometax_sales_cash_receipts
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${FACT_DIR}/time_unit=${TIME_UNIT}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=sales_cash_receipts
+        evenPartitions: "true"
+        partitions: date_id
+      }
+      type: file
+    }
+    {
+      inputs:
+      [
+        hometax_sales_invoices
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${FACT_DIR}/time_unit=${TIME_UNIT}/id_type=${ID_TYPE}/subject=${SUBJECT}/name=sales_invoices
+        evenPartitions: "true"
+        partitions: date_id
+      }
+      type: file
+    }
+  ]
+}

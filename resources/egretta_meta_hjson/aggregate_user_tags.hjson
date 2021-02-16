@@ -1,0 +1,124 @@
+{
+  name: aggregate_user_tags
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: user_tags
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_PATH}/user_tags
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: stat
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_PATH}/address_classification_stat
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        user_tags
+      ]
+      name: aggr_user_tags
+      options:
+      {
+        sql: '''
+        SELECT
+                business_id, month, type, address, classification,
+                SUM(a_visitors_count) AS a_visitors_count,
+                SUM(b_visitors_count) AS b_visitors_count
+        FROM (
+                SELECT
+                        business_id, month, type, address, classification,
+                        IF (tag = 'A', visitors_count, 0) AS a_visitors_count,
+                        IF (tag = 'B', visitors_count, 0) AS b_visitors_count
+                FROM (
+                        SELECT  business_id, min(month) AS month, type, tag, address, classification,
+                                approx_count_distinct(encrypted_card_number) AS visitors_count
+                        FROM    user_tags
+                        WHERE   type != 'month'
+                        GROUP BY business_id, type, tag, address, classification
+
+                        UNION ALL
+
+                        SELECT  business_id, month, type, tag, address, classification,
+                                approx_count_distinct(encrypted_card_number) AS visitors_count
+                        FROM    user_tags
+                        WHERE   type = 'month'
+                        GROUP BY business_id, month, type, tag, address, classification
+                )
+        )
+        GROUP BY business_id, month, type, address, classification
+        '''
+      }
+      type: sql
+    }
+    {
+      inputs:
+      [
+        aggr_user_tags
+        stat
+      ]
+      name: pivot
+      options:
+      {
+        sql: '''
+        SELECT
+                business_id, month, type, address, classification,
+                stack(4,
+                    'A', a_visitors_count,
+                    'B', b_visitors_count,
+                    'C', c_visitors_count,
+                    'C_AVG', CAST(c_visitors_avg AS LONG)
+                ) AS (tag, visitors_count)
+        FROM (
+                SELECT
+                        aggr_user_tags.*,
+                        (stat.user_cnt - (a_visitors_count + b_visitors_count)) AS c_visitors_count,
+                        (
+                            (stat.user_cnt - (a_visitors_count + b_visitors_count)) / (stat.business_cnt - 1)
+                        ) AS c_visitors_avg
+                FROM    aggr_user_tags
+                JOIN    stat
+                ON      aggr_user_tags.type = stat.type
+                AND     aggr_user_tags.month = stat.month
+                AND     aggr_user_tags.address = stat.address
+                AND     aggr_user_tags.classification = stat.classification
+        )
+        '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        pivot
+      ]
+      name: file_sink
+      options:
+      {
+        format: parquet
+        mode: overwrite
+        path: ${TARGET_PATH}/user_tags_aggr
+        partitions: type
+      }
+      type: file
+    }
+  ]
+}

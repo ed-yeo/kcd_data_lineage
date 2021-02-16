@@ -1,0 +1,112 @@
+{
+  name: sales_amount_by_region
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: business_meta
+      options:
+      {
+        format: parquet
+        paths: ${DATA_CUBE_DIR}/dimension/name=business_meta
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: card_sales_transactions
+      options:
+      {
+        format: parquet
+        paths: ${FACT_DIR}/time_unit=MONTH/id_type=business_id/subject=cardsales/name=sales_transactions/date_id=${TARGET_DATE}
+      }
+      type: file
+    }
+    {
+      inputs: []
+      name: total_region
+      options:
+      {
+        format: parquet
+        paths: ${LOOKUP_DIR}/subject=location/name=total_region
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+    {
+      inputs:
+      [
+        business_meta
+        card_sales_transactions
+        total_region
+      ]
+      name: result
+      options:
+      {
+        sql:
+          '''
+            SELECT
+                    place_metric.*,
+                    to_json(region.geometry) AS geometry
+            FROM (
+            SELECT
+                    address.sido, address.sigungu, address.sigungu_code,
+                    place_classification.depth_1_name AS kcd_classification_1_depth,
+                    COUNT(distinct(business_id)) AS business_cnt,
+                    SUM(amount_sum) AS amount_sum,
+                    cast(AVG(amount_sum) as bigint) AS amount_avg,
+                    SUM(tx_count) AS payment_cnt_sum,
+                    cast(AVG(tx_count) as bigint) AS payment_cnt_avg,
+                    cast(AVG(unit_price) as bigint) AS unit_price
+            FROM (
+                SELECT  meta.business_id,
+                        address,
+                        place_classification,
+                        amount_sum,
+                        tx_count,
+                        (amount_sum / tx_count) AS unit_price
+                FROM (
+                        SELECT  business_id,
+                                location.common AS address,
+                                classification.place AS place_classification
+                        FROM business_meta
+                        WHERE classification.place is not null
+                        AND  location.common is not null
+                ) AS meta
+                JOIN card_sales_transactions
+                ON meta.business_id = card_sales_transactions.business_id
+            )
+            GROUP BY address.sido, address.sigungu, address.sigungu_code, place_classification.depth_1_name
+            HAVING business_cnt > 10
+            ) AS place_metric
+            LEFT OUTER JOIN (SELECT * FROM total_region WHERE region_type = 'sigungu') AS region
+            ON place_metric.sigungu_code = region.code
+            ORDER BY sigungu, business_cnt DESC
+          '''
+      }
+      type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      inputs:
+      [
+        result
+      ]
+      name: file_sink
+      options:
+      {
+        format: json
+        mode: overwrite
+        path: ${OUTPUT_DIR}/date_id=${TARGET_DATE}
+        numPartitions: '1'
+      }
+      type: file
+    }
+  ]
+}

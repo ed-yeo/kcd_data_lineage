@@ -1,0 +1,58 @@
+{
+  name: store_info_sink
+  udfs: [
+  ]
+  source:
+  [
+    {
+      inputs: []
+      name: store_info
+      options:
+      {
+        format: parquet
+        paths: ${TARGET_DIR}/store_info
+      }
+      type: file
+    }
+  ]
+  process:
+  [
+      {
+          inputs:
+          [
+            store_info
+          ]
+          name: store_info_with_ts
+          options:
+          {
+            sql:
+              '''
+                SELECT
+                          to_timestamp('${targetDate}', 'yyyy-MM-dd') AS timestamp,
+                          *
+                FROM      store_info
+              '''
+          }
+          type: sql
+    }
+  ]
+  sink:
+  [
+    {
+      "inputs": [
+        store_info_with_ts
+      ],
+      "name": "es_sink",
+      "options": {
+        "path": "${TARGET_INDEX_NAME}",
+        "es.nodes": "${ES_HOST}",
+        "es.index.auto.create": "true",
+        "es.port": "443",
+        "es.batch.size.entries": "1000",
+        "es.nodes.wan.only": "true",
+        "es.mapping.id": "public_id"
+      },
+      "type": "es"
+    }
+  ]
+}
